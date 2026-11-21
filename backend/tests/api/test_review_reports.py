@@ -202,6 +202,7 @@ def test_only_timing_changes_supersede_both_kinds_and_invalid_exposure_cannot_re
         "code": "invalid_exposure",
         "message": "Cite each exposure source only once.",
         "recoverable": True,
+        "row_ids": [],
     }
     for kind, previous in prior_reports.items():
         assert encounter.report(kind).json() == previous
