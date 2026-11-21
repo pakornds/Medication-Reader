@@ -59,18 +59,20 @@ DOCUMENTED_FIELDS = ("strength", "form", "dose", "directions", "indication")
 
 
 def entry_observations(entry):
-    scan = entry.get("scan_fields", {})
-    # The editable fields on the saved entry supersede the scan's suggestions.
     observations = {
         key: (field["status"], field["value"])
-        for key, field in scan.items()
-        if key not in DOCUMENTED_FIELDS or field["status"] != "readable"
+        for key, field in entry.get("scan_fields", {}).items()
     }
+    overrides = entry.get("label_overrides", (*DOCUMENTED_FIELDS, "directions_status"))
     for key in DOCUMENTED_FIELDS:
         if entry[key]:
             observations[key] = ("readable", entry[key])
-    if "directions" in scan and not entry["directions"]:
-        observations["directions"] = (entry["directions_status"], None)
+        elif key in observations:
+            cleared = key in overrides and observations[key][0] == "readable"
+            if key == "directions" and (cleared or "directions_status" in overrides):
+                observations[key] = (entry["directions_status"], None)
+            elif cleared:
+                del observations[key]
     return observations
 
 
@@ -161,6 +163,10 @@ class AdmissionStore:
         rows = case["rows"]
         if isinstance(cmd, (AddRow, AddEvidence)):
             entry = cmd.entry.model_dump(mode="json")
+            if cmd.entry.scan_fields:
+                # Keep explicit reviewer overrides separate from omitted defaults and the raw scan.
+                editable = set(DOCUMENTED_FIELDS) | {"directions_status"}
+                entry["label_overrides"] = sorted(cmd.entry.model_fields_set & editable)
             if entry["name"]:
                 parts = [entry["name"]]
                 for field in ("strength", "form"):
@@ -333,6 +339,7 @@ class AdmissionStore:
                 dose=sourced("dose"), route=sourced("route"), frequency=sourced("schedule"))
             label_fields = {}
             identity_entry = entry_for(row, identity["source_id"])
+            identity_observations = entry_observations(identity_entry)
             reports = []
             conflicts = conflicting_fields(row)
             regimens = []
@@ -349,7 +356,8 @@ class AdmissionStore:
                 for key, (status, value) in observations.items():
                     if key in {"strength", "form"} and source_id != identity["source_id"]:
                         same_product = not entry["name"] or entry["name"].casefold() == identity_entry["name"].casefold()
-                        if identity_entry[key] or key in conflicts or not same_product:
+                        identity_status, _ = identity_observations.get(key, (None, None))
+                        if identity_status == "readable" or key in conflicts or not same_product:
                             continue
                     if key in conflicts and key not in {"strength", "form"}:
                         continue
@@ -357,7 +365,8 @@ class AdmissionStore:
                     if previous and (status == "missing" or (status == "unreadable" and previous.status == "readable")):
                         continue
                     label_fields[key] = Observation(status=status, value=value, evidence=citation)
-                wording = entry["wording"] if reported else entry["directions"]
+                _, directions = observations.get("directions", (None, None))
+                wording = entry["wording"] if reported else directions
                 if wording:
                     regimens.extend(parse_directions(RegimenParseRequest(
                         evidence=manifest, row_id=row["id"], component_id=source_id,

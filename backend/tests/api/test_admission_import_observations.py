@@ -1,5 +1,7 @@
 """Scanned observations round-trip through the registered encounter and receipt APIs."""
 
+import pytest
+
 from test_admissions import Case, client, headers, photo, record
 
 
@@ -36,9 +38,17 @@ def import_snapshot(case, row):
     return stored["snapshot"]
 
 
-def test_scan_statuses_and_quantities_keep_original_item_link(client):
+@pytest.mark.parametrize("directions_status, directions", [("unreadable", None), ("readable", "1 tablet each morning")])
+def test_scan_statuses_and_quantities_keep_original_item_link(client, directions_status, directions):
     case = Case(client, "nurse")
-    row = case.add(scanned_label("front", "21 tablets"))
+    scan = scanned_label("front", "21 tablets", directions={
+        "status": directions_status,
+        "value": directions,
+        "evidence": {"source_id": "front", "item_id": "selected"},
+    })
+    scan.pop("dose")
+    scan.pop("directions")
+    row = case.add(scan)
     prepare_review(case, row)
     case.send("verify", row_id=row, source_id="interview")
     snapshot = import_snapshot(case, row)
@@ -49,6 +59,12 @@ def test_scan_statuses_and_quantities_keep_original_item_link(client):
     }
     assert saved["label_fields"]["dose"] == {"status": "readable", "value": "1 tablet", "evidence": citation}
     assert saved["label_fields"]["expiry"] == {"status": "unreadable", "value": None, "evidence": citation}
+    assert saved["label_fields"]["directions"] == {
+        "status": directions_status, "value": directions, "evidence": citation,
+    }
+    documented = [regimen for regimen in saved["regimens"] if regimen["basis"] == "documented"]
+    assert [regimen["directions_text"] for regimen in documented] == ([directions] if directions else [])
+    assert all(regimen["evidence"]["dose_amount"] == citation for regimen in documented)
     assert saved["label_fields"]["prescriber_contact"] == {"status": "missing", "value": None, "evidence": citation}
     assert saved["verification"]["dose"]["value"] == "1 tablet"
     assert saved["verification"]["dose"]["evidence"]["source_id"] == "interview"
@@ -64,6 +80,7 @@ def test_retake_and_review_correction_replace_stale_scan_values(client):
         "value": "twice daily",
         "evidence": {"source_id": "retake", "item_id": "selected"},
     })
+    retake.update(directions=None, directions_status="missing")
     case.link(row, retake, replaces="original")
     prepare_review(case, row)
     case.send("verify", row_id=row, source_id="interview", identity_source_id="retake",
