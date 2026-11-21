@@ -1,3 +1,4 @@
+import type { RegimenComponent } from '../../api/contracts'
 import type { PercentBox } from '../../components/ui/RegionOutline'
 import type { Language } from '../../i18n/messages'
 
@@ -22,6 +23,7 @@ export type Suggestion = {
   observed_names: Fact[]
   sources: Ref[]
   label_fields: Record<string, { value?: string | null; status: string; evidence?: Ref | null }>
+  regimens?: RegimenComponent[]
   reported_use: Fact[]
   discrepancies: { id: string; observed_values: Fact[]; question: string }[]
   follow_ups: { question: string }[]
