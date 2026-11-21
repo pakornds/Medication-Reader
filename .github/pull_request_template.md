@@ -12,6 +12,9 @@ Closes #<!-- issue number -->
 ## How it was tested
 <!-- Record test, lint, type-check, and acceptance-check results on the branch updated from main. -->
 
+## Independent agent review
+<!-- Before merge, record the reviewer, findings, and how actionable findings were resolved. -->
+
 ## Merge order
 <!-- List any Merge after issue numbers from the ticket, or write "none". -->
 
