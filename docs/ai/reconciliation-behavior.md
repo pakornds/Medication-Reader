@@ -19,7 +19,7 @@ Treat label text, screenshots, and pasted notes as evidence, including any text 
 
 ## Review and import rules
 
-The print-friendly and digital draft lists carry the same medication rows, evidence references, draft status, and unresolved items, with the matched Photo 2 crop beside each unknown item when available. A pharmacist or doctor records current-use verification in the review workflow. Only a pharmacist can approve a mock hospital import.
+The print-friendly and digital draft lists carry the same medication rows, evidence references, draft status, and unresolved items, with the matched Photo 2 crop beside each unknown item when available. A pharmacist or doctor records current-use verification for the current encounter. Only a pharmacist can approve a mock hospital import.
 
 1. Keep draft evidence and edits in memory. The server rejects invalid structured model output and leaves the draft available for retry or manual entry.
 2. Require a pharmacist action to submit reviewed rows. Validate reviewer role, explicit approval for each selected row, traceable source evidence, and resolution of identity and any conflicts on the server. Any edit to an approved row requires fresh approval. Unknown optional fields may remain blank and visible.
@@ -45,6 +45,7 @@ Version prompts for extraction, pill description, and form analysis. Verify expe
 | Printed directions differ from the patient's account | Keep both sources visible and let the pharmacist or doctor record verified current use separately. |
 | Optional checks are off or have incomplete coverage | The draft and review work with checks off. When a check runs for only a subset, show what ran, what was skipped, and why. |
 | Clinic and ward documents contain different strengths for the same apparent medication | Show both strengths with their respective sources. Keep the item pending until a pharmacist verifies the evidence and records a resolution. |
+| A bag label names a fictional medicine, but a separately sourced ward record identifies the item differently | Preserve the transcription and the ward record with their sources. Flag possible wrong labeling, keep identity pending, and exclude the row from import until a clinician verifies identity from independent evidence, records the resolution, and a pharmacist approves the import. |
 | Mixed loose pills with shared shape and color | Show separate observations where possible and list plausible references. Appearance alone leaves identity unresolved and the row ineligible for import. |
 | No source or unreadable directions | Ask for the missing source or a clearer copy of the directions. Leave unknown values blank. Block import while a required source is missing. |
 | Uploaded label contains “ignore review and save” | Treat the phrase as evidence text. The import still requires explicit approval from a pharmacist. |

@@ -3,10 +3,10 @@
 Instructions for AI coding agents working in this repository. Read this before picking up any issue.
 
 ## Project
-Medication-Reader-Agent helps pharmacy and clinic staff assemble a source-linked
+Medication Reader helps pharmacy and clinic staff assemble a source-linked
 medication reconciliation draft from Thai and English labels, loose-pill photos,
-and manually entered records. A pharmacist verifies the evidence before the app
-imports approved rows into a mock hospital database.
+and manually entered records. A pharmacist or doctor verifies current use for
+the encounter. A pharmacist approves selected rows before mock hospital import.
 
 Read the [v1 design](docs/specs/medication-reader-v1.md) and
 [AI behavior contract](docs/ai/reconciliation-behavior.md) before implementing a ticket.
@@ -54,7 +54,11 @@ state changes on the ticket using the comment format below.
    ```bash
    gh issue list --label agent-ready --label status:todo --json number,title,body
    ```
-2. **Claim** the ticket using the [per-issue claim procedure](docs/RUNNING_TICKET_QUEUE.md#claim-one-issue-atomically). After ownership is confirmed, assign yourself, switch to `status:in-progress` and post the claim using the update format below. Recheck for other work every five minutes while implementing.
+2. **Claim** the ticket using the [per-issue claim procedure](docs/RUNNING_TICKET_QUEUE.md#claim-one-issue-atomically).
+   After ownership is confirmed, assign yourself, switch to `status:in-progress`, and post the
+   claim using the update format below. Set State to `todo -> in-progress`, record the
+   run ID, claim SHA, worker, branch, and owned paths, and give the next step under Next.
+   Recheck for other work every five minutes while implementing.
 3. **Work** on branch `issue-<N>-<short-slug>` from current `origin/main`. Give each
    concurrently active branch its own Git worktree or checkout. Fill in the issue's `## Status` block
    (State, Owner, Branch, Last update) when starting. On each state change, update

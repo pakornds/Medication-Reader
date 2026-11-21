@@ -1,8 +1,8 @@
-# Medication-Reader-Agent
+# Medication Reader
 
-A prototype for pharmacy and clinic staff to collect medication evidence and
-review a reconciliation draft before importing approved rows into a mock hospital
-system.
+A fixture-only prototype for pharmacy and clinic staff to collect medication
+evidence at transfer or urgent intake. Clinicians verify current use for the
+encounter, then a pharmacist can approve selected rows for mock hospital import.
 
 - [V1 design and workflow diagram](docs/specs/medication-reader-v1.md)
 - [AI behavior contract and acceptance cases](docs/ai/reconciliation-behavior.md)
