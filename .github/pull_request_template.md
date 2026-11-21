@@ -35,7 +35,7 @@ Closes #<!-- issue number -->
 | Home | Can a first-time user start a case and can returning staff identify the case they will resume? | |
 | Input | Can staff scan or select a medicine, understand one row per package, recover from a failed scan and return to an unfinished entry? | |
 | Review | Can staff understand the medicine, directions, source and outstanding decision, including a genuinely unknown item? | |
-| Output | Before and after approval, can staff distinguish selected, imported and pending medicines and reconcile the counts with the receipt? | |
+| Output | After approval and after reopening the case, do imported and pending rows agree with the receipt for the selected medicines? | |
 | History | Can staff find a receipt, understand its date and contents and recover when access or the record is unavailable? | |
 
 <!-- Exercise the affected journey from its normal entry point. Record a concrete example with the visible text or an anonymized screenshot. Check that the demo can be completed without typing credentials when local demo access is enabled. -->
