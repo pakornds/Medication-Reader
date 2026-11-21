@@ -12,9 +12,12 @@ from app.ai.prompts import FORM_ANALYSIS
 from app.schemas.analysis import (
     AnalysisRequest,
     AnalysisResult,
+    DispensingFacility,
     FollowUp,
     LabelField,
+    LabelMedicationSuggestion,
     MedicationSuggestion,
+    documented_dispensing_refs,
     validate_analysis_result,
 )
 from app.schemas.evidence import (
@@ -40,6 +43,7 @@ class FormAnalysisInput(AnalysisRequest):
 
 
 class AnalysisPreview(AnalysisResult):
+    dispensing_facilities: dict[Text, DispensingFacility] = Field(default_factory=dict)
     unavailable_sources: list[EvidenceSource] = Field(default_factory=list)
     unassigned_reports: list[SourcedValue] = Field(default_factory=list)
 
@@ -103,7 +107,7 @@ def validate_form_input(
 
 
 class FormGrounding:
-    def __init__(self, form: FormAnalysisInput, transcripts: dict) -> None:
+    def __init__(self, form: FormAnalysisInput, transcripts: dict[tuple[str, str], MedicationSuggestion]) -> None:
         self.transcripts = transcripts
         self.form = form
         self.sources = {source.id: source for source in form.evidence.sources}
@@ -199,7 +203,42 @@ class FormGrounding:
             )
         ]
 
-    def ground_row(self, row: MedicationSuggestion, rows: Sequence[MedicationSuggestion]) -> None:
+    def dispensing_reference(self, row: MedicationSuggestion) -> EvidenceRef | None:
+        photo_refs = []
+        for (source_id, item_id), transcript in self.transcripts.items():
+            if transcript.id != row.id or transcript.dispensing_source_id != source_id:
+                continue
+            ref = EvidenceRef(source_id=source_id, item_id=item_id)
+            if ref in documented_dispensing_refs(transcript, self.sources, self.items):
+                photo_refs.append(ref)
+
+        if photo_refs:
+            return photo_refs[0] if len(photo_refs) == 1 else None
+
+        source = self.sources.get(row.dispensing_source_id)
+        if source is None or source.kind != SourceKind.PRESCRIPTION:
+            return None
+        return next(
+            (ref for ref in documented_dispensing_refs(row, self.sources, self.items) if ref.item_id is not None),
+            None,
+        )
+
+    def dispensing_facility(self, ref: EvidenceRef) -> DispensingFacility | None:
+        transcript = self.transcripts.get((ref.source_id, ref.item_id))
+        if isinstance(transcript, LabelMedicationSuggestion) and transcript.dispensing_facility is not None:
+            return transcript.dispensing_facility
+
+        source = self.sources[ref.source_id]
+        if not source.organization:
+            return None
+        return DispensingFacility(
+            evidence=ref,
+            **source.model_dump(include=set(DispensingFacility.model_fields) - {"evidence"}),
+        )
+
+    def ground_row(
+        self, row: MedicationSuggestion, rows: Sequence[MedicationSuggestion],
+    ) -> DispensingFacility | None:
         row.follow_ups = []
         if not row.observed_names:
             if row.identity_status == "named":
@@ -212,17 +251,11 @@ class FormGrounding:
             report for report in row.reported_use if self.supports_report(report, row, rows)
         ]
 
-        dispensing = self.sources.get(row.dispensing_source_id)
-        if (
-            dispensing is None
-            or not dispensing.organization
-            or dispensing.kind not in {SourceKind.LABEL_PHOTO, SourceKind.ADDITIONAL_PHOTO, SourceKind.PRESCRIPTION}
-            or not any(
-                ref.source_id == dispensing.id and ref.item_id is not None
-                for ref in row.sources
-            )
-        ):
-            row.dispensing_source_id = None
+        dispensing = self.dispensing_reference(row)
+        facility = self.dispensing_facility(dispensing) if dispensing is not None else None
+        row.dispensing_source_id = facility.evidence.source_id if facility is not None else None
+        if facility is not None and facility.evidence not in row.sources:
+            row.sources.append(facility.evidence)
         prior_clinic = next((
             source.id for source in self.form.evidence.sources
             if source.availability == "unavailable" and source.kind == SourceKind.PRESCRIPTION
@@ -309,6 +342,7 @@ class FormGrounding:
                 )
             )
             row.regimens.extend(parsed.regimens)
+        return facility
 
 
 def analyze_medication_form(
@@ -337,9 +371,14 @@ def analyze_medication_form(
                 image = crop_label(photo, location, item.source_id) if location else photo
             except LabelPhotoError as exc:
                 raise FormAnalysisError(str(exc)) from None
-            result = read_label(form.evidence.case_id, sources[item.source_id], item, image, location, provider)
+            result = read_label(
+                form.evidence.case_id, sources[item.source_id], item, image, location, provider,
+                extract_facility=True,
+            )
             transcripts[item.source_id, item.id] = result.rows[0]
-    provider_input["label_transcripts"] = [r.model_dump(mode="json") for r in transcripts.values()]
+    provider_input["label_transcripts"] = [
+        row.model_dump(mode="json", exclude={"dispensing_facility"}) for row in transcripts.values()
+    ]
     if (len(transcripts) == 1 and len(form.evidence.sources) == 1 and
             len(form.evidence.items) == 1 and not form.question):
         proposed = AnalysisResult(case_id=form.evidence.case_id, rows=list(transcripts.values()))
@@ -356,8 +395,11 @@ def analyze_medication_form(
             raise EvidenceValidationError("The preview omitted a transcribed item.")
         for row in proposed.rows:
             grounding.ground_names(row)
+        facilities = {}
         for row in proposed.rows:
-            grounding.ground_row(row, proposed.rows)
+            facility = grounding.ground_row(row, proposed.rows)
+            if facility is not None:
+                facilities[row.id] = facility
         grounded = AnalysisResult.model_validate(proposed.model_dump())
         validate_analysis_result(grounded, form.evidence)
     except (ValidationError, EvidenceValidationError):
@@ -368,6 +410,7 @@ def analyze_medication_form(
     return AnalysisPreview(
         case_id=grounded.case_id,
         rows=grounded.rows,
+        dispensing_facilities=facilities,
         unavailable_sources=[
             source for source in form.evidence.sources if source.availability == "unavailable"
         ],
