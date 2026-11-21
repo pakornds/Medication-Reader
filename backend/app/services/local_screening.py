@@ -17,7 +17,7 @@ from app.schemas.local_screening import (
 )
 from app.schemas.regimen import validate_regimen_evidence
 from app.schemas.review import ReviewRow
-from app.services.checks import _traceable
+from app.services.checks import STOPPED_WARNING, _traceable, use_exclusion
 from app.services.local_reference_db import open_reference
 
 
@@ -72,10 +72,9 @@ def _independent_identity(row: ReviewRow, evidence: CaseEvidence, identity: Evid
 
 def _eligibility(row: ReviewRow, evidence: CaseEvidence) -> str | None:
     verification = row.verification
-    if verification is None or verification.reviewer.role not in {"doctor", "pharmacist"}:
-        return "Current use has not been verified by a clinician."
-    if verification.status != "current":
-        return "Stopped medication is outside current-use screening." if verification.status == "no_longer_current" else "Current use is uncertain."
+    reason = use_exclusion(row)
+    if reason:
+        return reason
     if not verification.identity or not verification.normalized_medication_id:
         return "No verified product identity and TPU."
     if {d.id for d in row.discrepancies} != set(verification.resolved_discrepancies):
@@ -114,8 +113,18 @@ def _route_scope(row: ReviewRow, expected: str | None) -> tuple[str | None, bool
 
 
 def _resolve(
-    tmt: sqlite3.Connection, evidence: CaseEvidence, row: ReviewRow, release: str, legacy_release: str
+    tmt: sqlite3.Connection, evidence: CaseEvidence, row: ReviewRow, release: str, legacy_release: str,
+    *, encounter: bool = False,
 ) -> Product:
+    if encounter and not use_exclusion(row) and row.verification.identity:
+        # The admission verifies a full label. Resolve only a unique exact catalogue
+        # label, then apply the same release and change checks as a confirmed TPU.
+        matches = tmt.execute(
+            "SELECT tpu FROM product WHERE label = ? LIMIT 2", (row.verification.identity.value,)
+        ).fetchall()
+        code = matches[0]["tpu"] if len(matches) == 1 else None
+        verified = row.verification.model_copy(update={"normalized_medication_id": code})
+        row = row.model_copy(update={"verification": verified})
     label = row.unknown_label or next((item.value for item in row.observed_names), row.id)
     result = Product(ScreenedRow(row_id=row.id, label=label, reason=_eligibility(row, evidence)))
     if result.row.reason:
@@ -285,14 +294,14 @@ def _ddi_report(products: list[Product], meta: dict[str, str]) -> tuple[str, str
         return source["archive_filename"], source["sha256"], results
 
 
-def screen_local(request: LocalScreeningRequest) -> LocalScreeningResult:
+def screen_local(request: LocalScreeningRequest, *, encounter: bool = False) -> LocalScreeningResult:
     try:
         with open_reference("LOCAL_TMT_DB") as tmt:
             meta = dict(tmt.execute("SELECT key,value FROM metadata"))
             if not all(meta.get(key) for key in ("tmt_release", "legacy_tmt_release", "mapping_version", "mapping_sha256")):
                 raise ReferenceUnavailable("The Thai product database has incomplete release metadata.")
             products = [
-                _resolve(tmt, request.evidence, row, meta["tmt_release"], meta["legacy_tmt_release"])
+                _resolve(tmt, request.evidence, row, meta["tmt_release"], meta["legacy_tmt_release"], encounter=encounter)
                 for row in request.rows
             ]
     except (sqlite3.Error, OSError) as exc:
@@ -320,5 +329,6 @@ def screen_local(request: LocalScreeningRequest) -> LocalScreeningResult:
         fest_release=fest_release, mapping_version=meta["mapping_version"],
         ddi_unavailable_reason=ddi_unavailable_reason,
         ddi_scope="Product/form-based lookup using supported constituent ATCs and their FEST classes. Rules indexed solely by combination-product ATCs or substance names/IDs are outside this scope. Review actual route, dose, timing and exposure separately.",
+        warnings=[STOPPED_WARNING] if any(use_exclusion(row) == STOPPED_WARNING for row in request.rows) else [],
         checked_at=datetime.now(UTC), rows=[p.row for p in products], pairs=pairs,
     )

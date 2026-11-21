@@ -56,9 +56,24 @@
 
     let finishFailedRequest
     let scenario = 'fail'
+    const searches = []
+    let resolveEarlierSearch
     let submitted, uploaded, sent
     win().fetch = async (url,options) => {
-      if (String(url).includes('/checks/local/products')) return Response.json({tmt_release:'demo',products:[{tpu:'0007',label:'Demo M tablet',active_tmt:true}]})
+      if (String(url).includes('/checks/local/products')) {
+        const term = new URL(url, win().location.href).searchParams.get('q')
+        searches.push(term)
+        if (term === 'earlier') return new Promise(resolve => { resolveEarlierSearch = resolve })
+        return Response.json({tmt_release:'demo',products:term.startsWith('demo') ? [
+          {tpu:'0007',label:'Demo M tablet',active_tmt:true,strength:'5 mg',dose_form:'tablet'}
+        ] : []})
+      }
+      if (String(url).endsWith('/regimens/parse')) {
+        const body = JSON.parse(options.body)
+        return Response.json({row_id:body.row_id,regimens:[{component_id:body.component_id,basis:body.basis,
+          directions_text:body.directions_text,parse_status:'complete',dose_amount:1,dose_unit:'tablet',time_of_day:['morning'],
+          evidence:{directions_text:body.source,dose_amount:body.source,dose_unit:body.source,time_of_day:body.source}}]})
+      }
       assert(String(url).endsWith('/medication-analysis'),'expected endpoint')
       submitted = JSON.parse(options.body.get('form'))
       uploaded = options.body.getAll('photos').map(file => file.name)
@@ -69,6 +84,10 @@
         const named = item.kind === 'label_region'
         return {id:item.row_id,identity_status:named?'named':'unlabeled',unknown_label:named?null:'Unknown medication A',
           sources:[ref],observed_names:named?[{value:'Demo A',evidence:ref}]:[],
+          regimens:named?[{component_id:'scan-timing',basis:'documented',directions_text:'1 tablet each morning',
+            parse_status:'complete',dose_amount:1,dose_unit:'tablet',schedule_type:'frequency',frequency_count:1,
+            period_value:1,period_unit:'day',time_of_day:['morning'],evidence:Object.fromEntries(
+              ['directions_text','dose_amount','dose_unit','schedule_type','frequency_count','period_value','period_unit','time_of_day'].map(k=>[k,ref]))}]:[],
           label_fields:{},reported_use:[],discrepancies:[],follow_ups:[],reverse_crop:named?null:ref}
       })
       return Response.json({case_id:submitted.evidence.case_id,rows,unassigned_reports:submitted.patient_report})
@@ -121,15 +140,58 @@
 
     await click('Enter medicine manually')
     assert(!button('Analyze evidence'), 'manual mode only shows its own main action')
-    type(field('Product name or code'),'Demo')
-    await click('Search catalogue')
-    await expect(() => doc().querySelector('.product-list button'),'catalogue response')
-    doc().querySelector('.product-list button').click()
+    const medicineInput = field('Product name or code')
+    medicineInput.focus()
+    const fieldTop = () => field('Strength').getBoundingClientRect().top + win().scrollY
+    const originalTop = fieldTop()
+    type(medicineInput,'Earlier')
+    await expect(() => resolveEarlierSearch,'first lookup in flight')
+    type(medicineInput,'D')
+    type(medicineInput,'De')
+    type(medicineInput,'Demo')
+    await expect(() => doc().querySelector('.product-list [role=option]:not([aria-disabled=true])'),'typing shows catalogue results')
+    resolveEarlierSearch(Response.json({tmt_release:'old',products:[]}))
+    await new Promise(resolve => setTimeout(resolve,30))
+    assert(searches.join(',')==='earlier,demo','only settled queries reach the catalogue')
+    assert(fieldTop()===originalTop,'opening suggestions keeps the form still')
+    type(medicineInput,'Demo M')
+    assert(doc().querySelector('[role=option]') && fieldTop()===originalTop,'matching choices stay visible during refinement')
+    const press = key => medicineInput.dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true,cancelable:true}))
+    press('Escape')
+    await expect(() => medicineInput.getAttribute('aria-expanded')==='false','Escape dismisses choices')
+    press('ArrowDown')
+    await expect(() => medicineInput.getAttribute('aria-activedescendant') && doc().activeElement===medicineInput,'arrow navigation retains typing focus')
+    press('Enter')
+    await expect(() => medicineInput.value==='Demo M tablet' && field('Strength').value==='5 mg' && field('Form').value==='tablet','selection fills the product presentation')
+    type(medicineInput,'Unlisted')
+    await expect(() => searches.includes('unlisted') && !doc().querySelector('.product-list [aria-disabled=false]'),'unlisted name can be entered')
+    assert(field('Strength').value==='' && !field('Strength').readOnly && field('Form').value==='','changing identity clears the prior presentation')
+    type(medicineInput,'Demo')
+    await expect(() => doc().querySelector('.product-list [role=option]:not([aria-disabled=true])'),'can reselect after a manual name')
+    doc().querySelector('.product-list [role=option]:not([aria-disabled=true])').click()
     type(field('Source wording or reference'),'Synthetic transfer record listing Demo M tablet')
+    type(field('Quantity prescribed (as written)'),'21 tablets')
+    const wording = field('Directions as written or reported')
+    type(wording,'1 tablet each morning')
+    await click('Fill fields from wording')
+    await expect(() => field('Dose per use').value==='1','parsed dose available to amend')
+    type(field('Dose per use'),'1.5')
+    type(wording,'No morning doses')
+    await expect(() => field('Dose per use').value==='' && button('Morning').getAttribute('aria-pressed')==='false','replacement source withdraws amended and parsed values')
+    type(wording,'')
+    type(field('Dose per use'),'2')
+    wording.focus()
+    type(wording,'2')
+    type(wording,'2 tablets at night')
+    wording.blur()
+    assert(field('Dose per use').value==='2','first-time wording preserves manually entered fields')
+    type(field('Dose per use'),'2')
+    type(field('Dose unit'),'tablets')
+    await click('Night')
     await click('Read photos or notes')
     assert(field('Patient or caregiver report').value.includes('ตอนเช้า'),'evidence retained across modes')
     await click('Enter medicine manually')
-    assert(field('Medicine name').value==='Demo M tablet','unfinished manual entry retained')
+    assert(field('Product name or code').value==='Demo M tablet','unfinished manual entry retained')
     await click('Add to draft')
     await expect(() => doc().querySelector('.draft-line')?.textContent.includes('Demo M'), 'manual draft row')
 
@@ -152,6 +214,11 @@
     doc().querySelector('a[href="/new-patient/review"]').click()
     await expect(() => doc().querySelectorAll('article').length===2,'review has confirmed rows')
     assert(doc().querySelector('article').textContent.includes('0007'),'catalogue product retained as string')
+    const [manualReview,scanReview] = doc().querySelectorAll('article')
+    assert(manualReview.textContent.includes('21 tablets') && manualReview.querySelector('.regimen-readback dl').textContent.includes('2 tablets')
+      && manualReview.querySelector('.regimen-readback dl').textContent.includes('Night'),'manual package quantity and dose remain separate')
+    assert(scanReview.querySelector('.regimen-readback dl').textContent.includes('Morning')
+      && scanReview.querySelector('.regimen-readback').textContent.includes('1 tablet each morning'),'scan and manual schedules use the same readback')
     doc().querySelector('button[title="Switch to Thai"]').click()
     await expect(() => doc().querySelector('h1').textContent === 'ทบทวน','Thai review')
     frame.width='320'

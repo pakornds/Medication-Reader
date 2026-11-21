@@ -1,4 +1,5 @@
 """Revisioned, encounter-scoped mock review records shared by demo staff sessions."""
+from base64 import b64decode
 from collections import defaultdict
 from copy import deepcopy
 from datetime import UTC, datetime
@@ -17,12 +18,14 @@ from app.services.labels import LabelPhotoError, crop_label
 
 from app.schemas.analysis import Discrepancy
 from app.schemas.admission import (
-    Action, AddEvidence, AddRow, Decision, Finish, Import, Interview, NewEncounter, Proposal, Refer, Verify,
+    Action, AddEvidence, AddRow, AssessIdentityIncident, AttestCurrentUse, Decision,
+    Finish, Import, Interview, NewEncounter, Proposal, RecordUnavailableSource, Refer, Verify,
 )
-from app.schemas.evidence import REPORT_KINDS, Observation, CaseEvidence, EvidenceItem, EvidenceRef, EvidenceSource, SourcedValue
+from app.schemas.evidence import REPORT_KINDS, Observation, CaseEvidence, EvidenceItem, EvidenceRef, EvidenceSource, EvidenceValidationError, SourcedValue
 from app.schemas.review import CurrentUseVerification, ImportRequest, ReviewRow
-from app.schemas.regimen import RegimenParseRequest
+from app.schemas.regimen import RegimenParseRequest, validate_regimen_evidence
 from app.services.regimens import parse_directions
+from app.services.admission_incidents import record_identity_incident, remember_identity_dispute
 from app.services.hospital import HospitalError
 from app.services.import_eligibility import ApprovalLedger, EligibilityError, selected_evidence
 
@@ -60,6 +63,108 @@ def shares_origin(entry, other):
     if entry["photo"] and other["photo"]:
         return entry["photo"]["data"] == other["photo"]["data"]
     return False
+
+
+def crop_overlap(first, second):
+    x, y, width, height = first
+    other_x, other_y, other_width, other_height = second
+    overlap_width = min(x + width, other_x + other_width) - max(x, other_x)
+    overlap_height = min(y + height, other_y + other_height) - max(y, other_y)
+    return max(0, overlap_width) * max(0, overlap_height)
+
+
+def capture_row_crops(case, attachment):
+    crops = defaultdict(list)
+    if not attachment:
+        return crops
+    manifest = PackageCapture.model_validate(case["capture"])
+    for package in manifest.packages:
+        for item in package.items:
+            row_id = case["capture_rows"][item.row_id]
+            for entry in item.evidence:
+                if entry.region.attachment_id == attachment:
+                    bounds = manifest.locate(entry.region).bounds
+                    crops[row_id].append((bounds.x, bounds.y, bounds.width, bounds.height))
+    return crops
+
+
+def retire_sources(row, source_ids):
+    if not source_ids:
+        return
+    row["superseded"].extend(source_ids)
+    row["verified"] = None
+    row.pop("imported_at", None)
+    row.pop("screening_attestation", None)
+    if row["confirmed"] and row["confirmed"]["source_id"] in source_ids:
+        row["confirmed"] = None
+    if row["proposal"] and row["proposal"]["reference"] in source_ids:
+        row["proposal"] = None
+
+
+def validate_item_retake(case, row, old, replacement, capture_attachment):
+    old_photo, new_photo = old["photo"], replacement["photo"]
+    require(old_photo and new_photo and old["source"]["kind"] == replacement["source"]["kind"]
+            and old_photo["bag"] == new_photo["bag"], "Retake the same item and photo view.")
+    new_crop = tuple(new_photo["region"])
+    same_origin = shares_origin(old, replacement)
+    old_overlap = crop_overlap(new_crop, old_photo["region"]) if same_origin else 0
+    if same_origin:
+        require(old_overlap > 0, "A crop of the same photo must overlap the item being retaken.")
+    known_crops = capture_row_crops(case, capture_attachment)
+    target_overlap = max([old_overlap, *(crop_overlap(new_crop, crop) for crop in known_crops[row["id"]])])
+    for other in case["rows"].values():
+        if other is row or (row.get("package_id") and row["package_id"] == other.get("package_id")):
+            continue
+        other_crops = known_crops[other["id"]] + [
+            tuple(e["photo"]["region"]) for e in active(other) if e["photo"] and shares_origin(replacement, e)
+        ]
+        require(new_crop not in other_crops,
+                "An exact crop can only be shared by items in the same confirmed package.")
+        for crop in other_crops:
+            overlap = crop_overlap(new_crop, crop)
+            require(not overlap or overlap < target_overlap, "The retake crop overlaps a different item.")
+
+
+def retired_view_sources(case, originals, previous, manifest, replaced):
+    removed_matches = []
+    if replaced.side == "front":
+        # An existing reverse match depended on a package located on the old front.
+        removed_matches = [m for m in previous.reverse_matches if m.status == "confirmed"]
+        confirmed_regions = {m.region.region_id for m in removed_matches}
+        prior_pairs = {(m.package_id, m.region.region_id) for m in previous.reverse_matches}
+        require(not any((m.package_id, m.region.region_id) in prior_pairs or
+                        (m.status == "confirmed" and m.region.region_id in confirmed_regions)
+                        for m in manifest.reverse_matches),
+                "Confirm previous reverse matches again after replacing the front view.")
+
+    retired = {s.id for s in previous.sources if s.attachment_id == replaced.attachment_id}
+    retired.update(e.source_id for package in previous.packages for item in package.items for e in item.evidence
+                   if any(e.region == match.region for match in removed_matches))
+    matched_packages = {m.package_id for m in removed_matches}
+    original_data = originals[replaced.attachment_id].content
+    other_view = previous.reverse if replaced.side == "front" else previous.front
+    other_attachment = other_view.attachment_id if other_view else None
+    other_kind = "reverse_photo" if replaced.side == "front" else "label_photo"
+    other_data = originals[other_attachment].content if other_attachment else None
+    reverse_attachment = previous.reverse.attachment_id if removed_matches else None
+    reverse_data = originals[reverse_attachment].content if reverse_attachment else None
+    for row in case["rows"].values():
+        for entry in active(row):
+            source = entry["source"]
+            if not entry["photo"]:
+                continue
+            photo_data = b64decode(entry["photo"]["data"])
+            on_other_view = (source["attachment_id"] == other_attachment
+                             and source["kind"] == other_kind and photo_data == other_data)
+            on_replaced_view = source["attachment_id"] == replaced.attachment_id or (
+                photo_data == original_data and not on_other_view
+            )
+            paired_to_replaced_front = row.get("package_id") in matched_packages and (
+                source["attachment_id"] == reverse_attachment or photo_data == reverse_data
+            )
+            if on_replaced_view or paired_to_replaced_front:
+                retired.add(source["id"])
+    return retired
 
 
 DOCUMENTED_FIELDS = ("strength", "form", "dose", "directions", "indication")
@@ -103,6 +208,31 @@ def reviewable_entry(entry):
     return not photo or ((front or photo["pairing"] == "matched") and not photo["appearance"])
 
 
+def unresolved_photo(entry):
+    return bool(entry["photo"] and (not entry["name"] or not reviewable_entry(entry)))
+
+
+def hold_report_identity(case, row):
+    """Keep a report-based name as a proposal once a physical unknown is linked."""
+    if row["unknown"]:
+        return
+    named = [entry for entry in active(row) if entry["name"] and reviewable_entry(entry)]
+    if not named or named[0]["source"]["kind"] not in REPORT_KINDS:
+        return
+    if any(entry["photo"] or entry["identity_basis"] for entry in named):
+        return
+
+    entry = named[0]
+    source_id = entry["source"]["id"]
+    added = next(event for event in reversed(case["events"])
+                 if event["action"] in {"add", "link"} and source_id in event["sources"])
+    row["unknown"] = True
+    row["verified"] = None
+    row.pop("imported_at", None)
+    row["proposal"] = dict(name=entry["product"], reference=source_id, proposer=added["actor"]["id"],
+                           independent_entry=False)
+
+
 def new_row(row_id, unknown):
     return dict(id=row_id, unknown=unknown, entries=[], superseded=[], proposal=None,
                 confirmed=None, referred=False, interview=None, verified=None)
@@ -113,9 +243,36 @@ def import_snapshot_key(row):
     # Keep the verified identity, use, regimen and their selected citations.
     # Audit metadata and incidental evidence do not change the clinical snapshot.
     answer = verified["answer"]
-    review = [verified["identity"], verified["source_id"], answer["ownership"],
-              answer["current_use"], answer["dose"], answer["route"], answer["schedule"]]
+    review = [verified["identity"], verified["source_id"], answer["ownership"], answer["current_use"]]
+    if verified.get("regimens"):
+        clinical_components = [
+            {key: value for key, value in component.items() if key != "component_id"}
+            for component in verified["regimens"]
+        ]
+        review.append(sorted(dumps(component, sort_keys=True) for component in clinical_components))
+    else:
+        review.extend([answer["dose"], answer["route"], answer["schedule"]])
     return sha256(dumps(review, sort_keys=True).encode()).hexdigest()
+
+
+def entry_evidence(row_id, entry):
+    source = EvidenceSource.model_validate(entry["source"])
+    kind = "record_excerpt"
+    if entry["photo"]:
+        kind = "label_region" if reviewable_entry(entry) else "pill_crop"
+        if kind == "label_region" and source.kind == "reverse_photo":
+            kind = "matched_reverse_label"
+    return source, EvidenceItem(id=row_id, source_id=source.id, row_id=row_id, kind=kind)
+
+
+def verified_regimen_fields(verified, interview_ref):
+    if verified.get("regimens"):
+        return {"regimens": verified["regimens"]}
+    fields = {}
+    for key, interview_key in (("dose", "dose"), ("route", "route"), ("frequency", "schedule")):
+        if value := verified["answer"].get(interview_key):
+            fields[key] = SourcedValue(value=value, evidence=interview_ref)
+    return fields
 
 
 def capture_orientation(media_type, data):
@@ -145,7 +302,7 @@ class AdmissionStore:
         assigned = {actor.id, "demo-pharmacist", *("demo-" + role for role in request.assigned_roles)}
         case = dict(id="admission-" + uuid4().hex, patient_alias=request.patient_alias,
                     assigned=sorted(assigned), revision=1, status="In progress", created_at=now(),
-                    rows={}, events=[], receipts=[])
+                    rows={}, events=[], receipts=[], identity_incidents={}, unavailable_sources={})
         with self.lock:
             self.records[case["id"]] = case
         return case
@@ -193,9 +350,17 @@ class AdmissionStore:
                 require(self.retries[key] == digest, "Request ID already used.", 409)
                 return original
             require(original["revision"] == request.revision, "Encounter changed. Reload before saving.", 409)
-            if isinstance(cmd, (Import, Decision)) or original["status"] == "Awaiting pharmacist review":
+            if isinstance(cmd, (Import, Decision, AssessIdentityIncident)) or original["status"] == "Awaiting pharmacist review":
                 require(actor.role == "pharmacist", "Pharmacist required.", 403)
-            require(original["status"] != "Finished" or isinstance(cmd, Import), "Review is finished.", 409)
+            require(original["status"] != "Finished" or isinstance(cmd, (Import, AssessIdentityIncident)),
+                    "Review is finished.", 409)
+            unavailable = original.get("unavailable_sources", {})
+            if isinstance(cmd, (AddRow, AddEvidence)):
+                require(cmd.entry.source.id not in unavailable, "Use a new logical source ID.")
+            if isinstance(cmd, Proposal):
+                require(cmd.reference not in unavailable, "An unavailable source cannot support identity.")
+            if isinstance(cmd, Verify):
+                require(cmd.identity_source_id not in unavailable, "An unavailable source cannot support identity.")
             case = deepcopy(original)
             details = self.transition(case, actor, cmd, request.request_id)
             for row_id in details["rows"]:
@@ -232,10 +397,27 @@ class AdmissionStore:
 
             originals = self.originals.get(case_id, {}).copy()
             previous = PackageCapture.model_validate(original["capture"]) if "capture" in original else None
+            replaced = command.replaces_view
+            retired_sources = set(original.get("retired_capture_sources", ()))
+            if replaced:
+                old = getattr(previous, replaced.side) if previous else None
+                require(old and (old.attachment_id, old.revision) == (replaced.attachment_id, replaced.revision),
+                        "The view selected for replacement is stale.", 409)
+                retired_sources.update(retired_view_sources(original, originals, previous, manifest, replaced))
+            require(not retired_sources.intersection(s.id for s in manifest.sources),
+                    "Use new source IDs for evidence on a retaken or invalidated view.")
+            require(not any(source.id in original.get("unavailable_sources", {}) for source in manifest.sources),
+                    "Use a new logical source ID.")
+
             for side in ("front", "reverse"):
                 view = getattr(manifest, side)
                 old = getattr(previous, side) if previous else None
-                if old:
+                if replaced and side == replaced.side:
+                    require(view and view.revision > old.revision and view.attachment_id not in originals
+                            and side in images, "Supply a new original and a newer revision for the retaken view.")
+                    require(not any(images[side][1] == image.content for image in originals.values()),
+                            "Upload a different original for the replacement view.")
+                elif old:
                     require(view and old.attachment_id == view.attachment_id,
                             "Use the retake workflow to replace an existing original.", 409)
                     old_regions = {r.id: r for r in old.regions}
@@ -260,6 +442,13 @@ class AdmissionStore:
                 view.exif_orientation = orientation
 
             case = deepcopy(original)
+            if replaced:
+                for row in case["rows"].values():
+                    retire_sources(row, [e["source"]["id"] for e in active(row)
+                                         if e["source"]["id"] in retired_sources])
+                case["retired_capture_sources"] = sorted(retired_sources)
+                case["retired_capture_attachments"] = [*case.get("retired_capture_attachments", ()),
+                                                        replaced.attachment_id]
             links = case.setdefault("capture_rows", {})
             items = {item.row_id: (package.id, item) for package in manifest.packages for item in package.items}
             require(command.existing_rows.keys() <= items.keys(), "Link an item from the current capture.")
@@ -280,15 +469,25 @@ class AdmissionStore:
                         case["rows"][target] = new_row(target, unknown=True)
                     links[item_id] = target
                 row = case["rows"][links[item_id]]
-                require(row.get("package_id", package_id) == package_id, "An item cannot move between packages.")
+                moved_after_front_retake = replaced and replaced.side == "front" and target == row["id"]
+                require(row.get("package_id", package_id) == package_id or moved_after_front_retake,
+                        "An item cannot move between packages without confirming a replacement front view.")
                 row["package_id"] = package_id
                 row["capture_item_id"] = item_id
+                if all(evidence.kind == "appearance" for evidence in item.evidence):
+                    hold_report_identity(case, row)
+                    attachments = set(row.get("unknown_capture_attachments", []))
+                    attachments.update(evidence.region.attachment_id for evidence in item.evidence)
+                    row["unknown_capture_attachments"] = sorted(attachments)
 
             case["capture"] = manifest.model_dump(mode="json")
             case["revision"] += 1
-            case["events"].append(dict(action="capture", actor=actor.model_dump(), at=now(),
-                                       revision=case["revision"], rows=list(links.values()),
-                                       sources=[s.id for s in manifest.sources]))
+            event = dict(action="capture", actor=actor.model_dump(), at=now(),
+                         revision=case["revision"], rows=list(links.values()), sources=[s.id for s in manifest.sources])
+            if replaced:
+                event["replaces_view"] = replaced.model_dump()
+                event["superseded_sources"] = sorted(retired_sources.difference(original.get("retired_capture_sources", ())))
+            case["events"].append(event)
             self.records[case_id] = case
             self.originals[case_id] = originals
             self.retries[key] = digest
@@ -316,8 +515,51 @@ class AdmissionStore:
         except LabelPhotoError as exc:
             raise HTTPException(422, str(exc)) from None
 
+    def photo_origin(self, case, entry, *, targeted_retake):
+        if not entry["photo"]:
+            return None
+        originals = self.originals.get(case["id"], {})
+        if not originals:
+            return None
+        source = entry["source"]
+        data = b64decode(entry["photo"]["data"], validate=True)
+        capture = case["capture"]
+        view_attachments = {
+            view["attachment_id"]: kind
+            for side, kind in (("front", "label_photo"), ("reverse", "reverse_photo"))
+            if (view := capture.get(side))
+        }
+        attachment = source["attachment_id"]
+        if attachment in originals:
+            require(attachment in view_attachments, "Select a current capture original.")
+            matches_view = source["kind"] == view_attachments[attachment] and data == originals[attachment].content
+            if matches_view:
+                return attachment
+            require(not targeted_retake, "Capture evidence must match its original and photo view.")
+        require(not any(data == originals[old].content for old in case.get("retired_capture_attachments", ())),
+                "Select a current capture original.")
+        matching_views = {attachment: kind for attachment, kind in view_attachments.items()
+                          if data == originals[attachment].content}
+        capture_attachment = next((attachment for attachment, kind in matching_views.items()
+                                   if source["kind"] == kind), None)
+        require(not targeted_retake or not matching_views or capture_attachment,
+                "Capture evidence must match its original and photo view.")
+        return capture_attachment
+
     def transition(self, case, actor, cmd, request_id):
         rows = case["rows"]
+        if isinstance(cmd, RecordUnavailableSource):
+            source_id = cmd.source.id
+            unavailable = case.setdefault("unavailable_sources", {})
+            used_ids = {entry["source"]["id"] for row in rows.values() for entry in row["entries"]}
+            used_ids.update(source_id for event in case["events"] for source_id in event.get("sources", ()))
+            require(source_id not in unavailable and source_id not in used_ids, "Use a new logical source ID.")
+            unavailable[source_id] = {"source": cmd.source.model_dump(mode="json"), "follow_up": cmd.follow_up}
+            return dict(rows=[], sources=[source_id])
+        if isinstance(cmd, AttestCurrentUse):
+            return attest_current_use(self.row(rows, cmd.row_id), actor, cmd)
+        if isinstance(cmd, (AddEvidence, Interview, Proposal, Decision)) and cmd.row_id in rows:
+            rows[cmd.row_id].pop("screening_attestation", None)
         if isinstance(cmd, (AddRow, AddEvidence)):
             entry = cmd.entry.model_dump(mode="json")
             if cmd.entry.scan_fields:
@@ -330,6 +572,9 @@ class AdmissionStore:
                         parts.append(entry[field])
                 entry["product"] = " ".join(parts)
             sid = entry["source"]["id"]
+            require(sid not in case.get("retired_capture_sources", ()), "Use a new logical source ID.")
+            targeted_retake = isinstance(cmd, AddEvidence) and cmd.replaces is not None
+            capture_attachment = self.photo_origin(case, entry, targeted_retake=targeted_retake)
             require(not any(sid == e["source"]["id"] for r in rows.values() for e in r["entries"]),
                     "Use a new logical source ID.")
             if isinstance(cmd, AddRow):
@@ -340,11 +585,10 @@ class AdmissionStore:
                 row = self.row(rows, cmd.row_id)
                 if cmd.replaces:
                     old = entry_for(row, cmd.replaces)
-                    require(old["photo"] and entry["photo"] and old["photo"]["bag"] == entry["photo"]["bag"],
-                            "Retake the same bag or item.")
-                    row["superseded"].append(cmd.replaces)
-                    if row["confirmed"] and row["confirmed"]["source_id"] == cmd.replaces:
-                        row["confirmed"] = None
+                    validate_item_retake(case, row, old, entry, capture_attachment)
+                    retire_sources(row, [cmd.replaces])
+            if unresolved_photo(entry):
+                hold_report_identity(case, row)
             if isinstance(cmd, AddEvidence) and row["unknown"] and entry["name"]:
                 if row["confirmed"] and row["confirmed"]["name"].casefold() != entry["product"].casefold():
                     row["confirmed"] = None
@@ -352,6 +596,8 @@ class AdmissionStore:
                     row["proposal"] = dict(name=entry["product"], reference=sid, proposer=actor.id,
                                            independent_entry=bool(entry["identity_basis"]))
             row["entries"].append(entry)
+            if not row["unknown"]:
+                remember_identity_dispute(row, [e for e in active(row) if e["name"] and reviewable_entry(e)])
             row["verified"] = None
             return dict(rows=[row["id"]], sources=[sid], replaces=getattr(cmd, "replaces", None))
 
@@ -383,6 +629,15 @@ class AdmissionStore:
                 history[import_snapshot_key(row)] = receipt["imported_at"]
             return dict(rows=cmd.row_ids, imported_at=receipt["imported_at"])
 
+        if isinstance(cmd, AssessIdentityIncident):
+            incident = case["identity_incidents"].get(cmd.incident_id)
+            require(incident is not None, "Identity incident unavailable.", 404)
+            assessment = dict(outcome=cmd.outcome, assessment=cmd.assessment,
+                              recorder=actor.model_dump(), recorded_at=now())
+            incident["pharmacy_assessments"].append(assessment)
+            return dict(rows=[incident["row_id"]], identity_incident_id=cmd.incident_id,
+                        pharmacy_assessment=assessment)
+
         row = self.row(rows, cmd.row_id)
         details = dict(rows=[row["id"]])
         if isinstance(cmd, Interview):
@@ -412,13 +667,19 @@ class AdmissionStore:
             require(row["unknown"], "Select an original unknown item.")
             entry = entry_for(row, cmd.source_id)
             if cmd.outcome in {"confirm", "correct"}:
-                challenged = [row["entries"][0]]
+                challenged = [other for other in row["entries"] if unresolved_photo(other)]
                 if row["proposal"] and not row["proposal"].get("independent_entry"):
                     challenged.extend(e for e in row["entries"] if e["source"]["id"] == row["proposal"]["reference"])
-                require(not any(shares_origin(entry, other) for other in challenged),
+                capture_attachments = row.get("unknown_capture_attachments", ())
+                capture_originals = self.originals.get(case["id"], {})
+                photo_bytes = b64decode(entry["photo"]["data"]) if entry["photo"] and capture_attachments else None
+                require(entry["source"]["attachment_id"] not in capture_attachments
+                        and not any(capture_originals[attachment].content == photo_bytes
+                                    for attachment in capture_attachments if attachment in capture_originals)
+                        and not any(shares_origin(entry, other) for other in challenged),
                         "A second crop of the same challenged source cannot confirm identity.")
                 require(cmd.name and entry["name"] and cmd.name.casefold() == entry["product"].casefold()
-                        and entry["identity_basis"] and entry != row["entries"][0] and reviewable_entry(entry)
+                        and entry["identity_basis"] and reviewable_entry(entry)
                         and entry["source"]["kind"] in {"prescription", "reviewer_record", "transfer_record",
                                                       "label_photo", "additional_photo", "reverse_photo"}
                         and (not row["proposal"] or row["proposal"]["reference"] != cmd.source_id
@@ -438,11 +699,24 @@ class AdmissionStore:
             answer = row["interview"]
             require(answer and cmd.source_id == answer["source_id"], "Review the sourced interview first.")
             entry_for(row, cmd.source_id)
+            if answer.get("ownership_source_id"):
+                entry_for(row, answer["ownership_source_id"])
             require(answer["ownership"] != "uncertain" and answer["current_use"] != "uncertain",
                     "Clarify ownership and current use.")
             require((answer["ownership"] == "other") == (answer["current_use"] == "not_owned"),
                     "Resolve conflicting ownership and use.")
-            if answer["current_use"] == "current":
+            if cmd.regimens:
+                entries = [entry_evidence(row["id"], entry) for entry in active(row)]
+                evidence = CaseEvidence(case_id=case["id"], sources=[source for source, _ in entries],
+                                        items=[item for _, item in entries])
+                try:
+                    for component in cmd.regimens:
+                        validate_regimen_evidence(component, row["id"], evidence)
+                        if answer["current_use"] == "current":
+                            require(component.has_verified_regimen(), "Complete every verified regimen component.")
+                except EvidenceValidationError as exc:
+                    raise HTTPException(422, str(exc)) from None
+            elif answer["current_use"] == "current":
                 require(all(answer[k] for k in ("dose", "route", "schedule")), "Record the actual regimen.")
             require(not needs_identity(row), "Identity requires pharmacist review.")
             named = [e for e in active(row) if e["name"] and reviewable_entry(e)]
@@ -451,15 +725,34 @@ class AdmissionStore:
             conflicts = conflicting_fields(row)
             require((len(variants) <= 1 and not conflicts) or cmd.resolution,
                     "Document the resolution of conflicting evidence.")
+            verified_at = now()
             identity = row["confirmed"]
             if not row["unknown"]:
                 identity_conflict = len(variants) > 1 or any(key in {"strength", "form"} for key in conflicts)
                 require(not identity_conflict or cmd.identity_source_id, "Choose the supported identity source.")
                 chosen = entry_for(row, cmd.identity_source_id) if cmd.identity_source_id else named[-1]
                 require(chosen in named, "Choose a source that documents this identity.")
+                remember_identity_dispute(row, named)
+                disputed_ids = row.get("disputed_identity_source_ids", [])
+                if disputed_ids:
+                    history = {entry["source"]["id"]: entry for entry in row["entries"]}
+                    require(all(source_id in history for source_id in disputed_ids),
+                            "The original conflicting evidence is unavailable for review.")
+                    originals = [history[source_id] for source_id in disputed_ids]
+                    require(cmd.resolution and cmd.identity_source_id and chosen["source"]["id"] not in disputed_ids
+                            and chosen["source"]["kind"] not in REPORT_KINDS and chosen["identity_basis"],
+                            "Cite separate item-specific documentation to resolve the disputed identity.")
+                    conflicting = originals + [entry for entry in named if entry is not chosen and entry not in originals]
+                    require(not any(shares_origin(chosen, entry) for entry in conflicting),
+                            "A second crop of the same challenged source cannot confirm identity.")
+                    details["identity_incident_id"] = record_identity_incident(
+                        case, row["id"], conflicting, chosen, actor, cmd.resolution, verified_at,
+                    )
                 identity = dict(name=chosen["product"], source_id=chosen["source"]["id"])
-            row["verified"] = dict(actor=actor.model_dump(), at=now(), source_id=cmd.source_id,
+            row["verified"] = dict(actor=actor.model_dump(), at=verified_at, source_id=cmd.source_id,
                                    identity=identity, resolution=cmd.resolution, answer=deepcopy(answer))
+            if cmd.regimens:
+                row["verified"]["regimens"] = [component.model_dump(mode="json") for component in cmd.regimens]
             return dict(**details, verification=row["verified"], sources=[cmd.source_id] +
                         ([identity["source_id"]] if identity else []))
         row["verified"] = None
@@ -487,25 +780,17 @@ class AdmissionStore:
                     "Only medicines verified as belonging to this patient can be imported.")
             refs = {}
             for entry in active(row):
-                source = EvidenceSource.model_validate(entry["source"])
+                source, item = entry_evidence(row["id"], entry)
                 sources.append(source)
-                kind = "record_excerpt"
-                if entry["photo"]:
-                    kind = "label_region" if reviewable_entry(entry) else "pill_crop"
-                if kind == "label_region" and source.kind == "reverse_photo":
-                    kind = "matched_reverse_label"
-                item = EvidenceItem(id=row["id"], source_id=source.id, row_id=row["id"], kind=kind)
                 items.append(item)
                 refs[source.id] = EvidenceRef(source_id=source.id, item_id=item.id)
             ref = refs[verified["source_id"]]
             identity = verified["identity"]
             name = SourcedValue(value=identity["name"], evidence=refs[identity["source_id"]])
-            def sourced(key):
-                return SourcedValue(value=answer[key], evidence=ref) if answer[key] else None
             verification = CurrentUseVerification(
                 reviewer=verified["actor"], verified_at=verified["at"], identity=name, evidence=[ref],
                 status="current" if answer["current_use"] == "current" else "no_longer_current",
-                dose=sourced("dose"), route=sourced("route"), frequency=sourced("schedule"))
+                **verified_regimen_fields(verified, ref))
             label_fields = {}
             identity_entry = entry_for(row, identity["source_id"])
             identity_observations = entry_observations(identity_entry)
@@ -569,3 +854,73 @@ class AdmissionStore:
             raise HTTPException(422, exc.detail.message) from None
         except HospitalError as exc:
             raise HTTPException(409 if exc.detail.code == "retry_conflict" else 503, exc.detail.message) from None
+
+
+_SCREENING_ROLES = frozenset({"doctor", "pharmacist"})
+
+
+def screening_verification(row):
+    """Return the encounter verification available to screening for the current evidence."""
+    verified = row.get("verified") or {}
+    if (verified.get("actor") or {}).get("role") in _SCREENING_ROLES:
+        return verified
+    attestation = row.get("screening_attestation")
+    if attestation and (
+        attestation["answer"] == row["interview"]
+        and attestation["active_sources"] == [entry["source"]["id"] for entry in active(row)]
+        and not needs_identity(row)
+    ):
+        if not row["unknown"] or _attested_identity(row["confirmed"]) == attestation["identity"]:
+            return attestation
+    return verified
+
+
+def _attested_identity(identity):
+    if identity:
+        return {"name": identity["name"], "source_id": identity["source_id"]}
+    return None
+
+
+def attest_current_use(row, actor, cmd):
+    require(actor.role in _SCREENING_ROLES, "A doctor or pharmacist is required to attest current use.", 403)
+    require(not row.get("disputed_identity_source_ids") or row.get("verified"),
+            "Resolve the documented identity conflict before attesting current use.")
+    answer = row["interview"]
+    require(answer and cmd.source_id == answer["source_id"], "Review the sourced interview first.")
+    source = entry_for(row, cmd.source_id)
+    require(source["source"]["kind"] in REPORT_KINDS or source["record_basis"] == "documented_interview",
+            "Cite an actual report or the documented prior interview excerpt.")
+    require(answer["ownership"] == "patient" and answer["current_use"] == "current",
+            "Attest only verified patient-owned current use.")
+    if ownership_source_id := answer.get("ownership_source_id"):
+        entry_for(row, ownership_source_id)
+
+    require(not needs_identity(row), "Identity requires pharmacist review.")
+    entries = active(row)
+    conflict = "Resolve the documented identity conflict before attesting current use."
+    if row["unknown"]:
+        identity = _attested_identity(row["confirmed"])
+        require(identity, "Identity requires pharmacist review.")
+        documented = entry_for(row, identity["source_id"])
+        observations = [source]
+    else:
+        observations = [entry for entry in entries if entry["name"] and reviewable_entry(entry)]
+        named_documents = [entry for entry in observations if entry["source"]["kind"] not in REPORT_KINDS]
+        require(named_documents, "Cite active evidence of this medication’s identity.")
+        variants = {entry["product"].strip().casefold() for entry in named_documents}
+        require(len(variants) == 1 and not {"strength", "form"}.intersection(conflicting_fields(row)), conflict)
+        documented = named_documents[-1]
+        identity = dict(name=documented["product"], source_id=documented["source"]["id"])
+
+    supported_names = {documented[key].strip().casefold() for key in ("name", "product")}
+    # A report can cite the documented product or its unqualified name. It cannot establish identity.
+    require(all(not entry["name"] or entry["product"].strip().casefold() in supported_names
+                for entry in observations), conflict)
+
+    attestation = dict(actor=actor.model_dump(), at=now(), source_id=cmd.source_id, identity=identity,
+                       answer=deepcopy(answer), active_sources=[entry["source"]["id"] for entry in entries])
+    row["screening_attestation"] = attestation
+    sources = [cmd.source_id, identity["source_id"]]
+    if ownership_source_id:
+        sources.append(ownership_source_id)
+    return dict(rows=[row["id"]], sources=list(dict.fromkeys(sources)), attestation=attestation)

@@ -1,3 +1,4 @@
+import type { RegimenComponent } from '../../api/contracts'
 import type { PercentBox } from '../../components/ui/RegionOutline'
 import type { Language } from '../../i18n/messages'
 
@@ -22,13 +23,20 @@ export type Suggestion = {
   observed_names: Fact[]
   sources: Ref[]
   label_fields: Record<string, { value?: string | null; status: string; evidence?: Ref | null }>
+  regimens?: RegimenComponent[]
   reported_use: Fact[]
   discrepancies: { id: string; observed_values: Fact[]; question: string }[]
   follow_ups: { question: string }[]
   reverse_crop?: Ref | null
 }
 export type Preview = { case_id: string; rows: Suggestion[]; unassigned_reports: Fact[] }
-export type Product = { tpu: string; label: string; active_tmt: boolean }
+export type Product = {
+  tpu: string
+  label: string
+  active_tmt: boolean
+  strength: string
+  dose_form: string
+}
 export type CatalogueMatch = { product: Product; release: string }
 export type Evidence = { photos: Photo[]; notes: Note[]; question: string }
 export type Medicine = {

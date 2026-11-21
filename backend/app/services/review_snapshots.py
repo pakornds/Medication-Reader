@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from json import dumps, loads
 from pathlib import Path
+from typing import Literal
 from uuid import uuid4
 
 from pydantic import Field
@@ -21,7 +22,7 @@ from app.schemas.review_scopes import (
     ScreeningRow,
     ScreeningSnapshot,
 )
-from app.services.admissions import active
+from app.services.admissions import active, screening_verification
 from app.services.fixture_scopes import evaluate_fixture_report
 
 _FIXTURE_PATH = Path(__file__).resolve().parents[3] / "fixtures/checks/demo-overlap-v2/case.json"
@@ -51,9 +52,20 @@ class SnapshotVersion(ContractModel):
     current: bool
 
 
+RegimenField = Literal["dose", "route", "schedule"]
+
+
+class RegimenAnalysisUnavailable(ContractModel):
+    row_id: Text
+    status: Literal["unavailable"] = "unavailable"
+    missing_fields: list[RegimenField] = Field(min_length=1)
+    reason: Text
+
+
 class VersionedScreeningReport(ScreeningReport):
     mapping_version: Text
     warnings: list[Text] = Field(default_factory=list)
+    regimen_analysis: list[RegimenAnalysisUnavailable] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -165,7 +177,7 @@ class ReviewSnapshotStore:
         stopped = {row.id for row in existing.snapshot.rows if row.use_status == "stopped"}
         nurse_only = {
             row["id"] for row in case["rows"].values()
-            if _current_use_status(row["verified"] or {}) == "nurse_only"
+            if _current_use_status(screening_verification(row)) == "nurse_only"
         }
         for scope in report.scopes:
             if scope.reason_code == "use_not_current":
@@ -177,6 +189,7 @@ class ReviewSnapshotStore:
             **report.model_dump(),
             mapping_version=existing.version.mapping_version,
             warnings=[_STOPPED_WARNING] if enabled and stopped else [],
+            regimen_analysis=_regimen_gaps(case, existing.snapshot) if enabled and kind == "DRP" else [],
         )
         existing.reports[kind] = versioned
         return versioned
@@ -234,9 +247,30 @@ def _project_snapshot(
     rows = []
     evidence = []
     exposure_evidence = {}
+    # A capture can locate a row before staff add an interview or other entry.
+    # Cite only that item's assigned regions, including their attachment revisions.
+    capture_evidence = {}
+    entry_ids = {entry["source"]["id"] for row in case["rows"].values() for entry in active(row)}
+    for package in case.get("capture", {}).get("packages", []):
+        for item in package["items"]:
+            row_id = case["capture_rows"][item["row_id"]]
+            links = []
+            for cited in item["evidence"]:
+                region = cited["region"]
+                identifier = "capture:" + dumps([cited["source_id"], cited["item_id"]], separators=(",", ":"))
+                while identifier in entry_ids:
+                    identifier = "capture:" + identifier
+                links.append(identifier)
+                evidence.append(ScreeningEvidence(
+                    id=identifier, revision=region["revision"], description=dumps(region, sort_keys=True),
+                ))
+            capture_evidence[row_id] = links
     for row in case["rows"].values():
         entries = active(row)
-        rows.append(_project_row(row, entries, reference, case["revision"]))
+        projected = _project_row(row, entries, reference, case["revision"])
+        if projected.mapping_status == "unresolved":
+            projected.evidence_ids.extend(capture_evidence.get(row["id"], []))
+        rows.append(projected)
         evidence.extend(
             ScreeningEvidence(id=entry["source"]["id"], revision=case["revision"], description=entry["source"]["kind"])
             for entry in entries
@@ -280,8 +314,32 @@ def _current_use_status(verification: dict) -> str:
     return "pending"
 
 
+def _regimen_gaps(case: dict, snapshot: ScreeningSnapshot) -> list[RegimenAnalysisUnavailable]:
+    gaps = []
+    fields: tuple[RegimenField, ...] = ("dose", "route", "schedule")
+    for row in snapshot.rows:
+        if row.use_status != "current" or row.mapping_status != "complete":
+            continue
+        verification = screening_verification(case["rows"][row.id])
+        if verification.get("regimens"):
+            # Current-use verification requires a complete dose, route and schedule for every component.
+            continue
+        answer = verification["answer"]
+        missing = [field for field in fields if not answer.get(field)]
+        if missing:
+            if len(missing) == 1:
+                detail = f"the {missing[0]} is missing"
+            else:
+                detail = f"these fields are missing: {', '.join(missing)}"
+            gaps.append(RegimenAnalysisUnavailable(
+                row_id=row.id, missing_fields=missing,
+                reason=f"Regimen analysis unavailable because {detail}.",
+            ))
+    return gaps
+
+
 def _project_row(row: dict, entries: list[dict], reference: FixtureReference, revision: int) -> ScreeningRow:
-    verification = row["verified"] or {}
+    verification = screening_verification(row)
     identity = verification.get("identity") or {}
     answer = verification.get("answer") or {}
     product = reference.products.get(identity.get("name", "").casefold())
@@ -289,13 +347,22 @@ def _project_row(row: dict, entries: list[dict], reference: FixtureReference, re
 
     entry_ids = [entry["source"]["id"] for entry in entries]
     verified_ids = {identity.get("source_id"), verification.get("source_id")}
+    components = verification.get("regimens") or []
+    route = (answer.get("route") or "").strip().casefold() or None
+    schedule = (answer.get("schedule") or "").strip().casefold()
+    if components:
+        for component in components:
+            verified_ids.update(ref["source_id"] for ref in component["evidence"].values())
+        routes = {(component.get("route") or "").strip().casefold() or None for component in components}
+        route = routes.pop() if len(routes) == 1 else None
+        prn = {component.get("as_needed") for component in components}
+        schedule = "prn" if prn == {True} else "scheduled" if prn == {False} else None
     if product and not (verified_ids - set(entry_ids)):
         links = sorted(verified_ids)
         mapping_status = "complete"
     else:
         links = entry_ids
         mapping_status = "incomplete" if identity else "unresolved"
-    schedule = (answer.get("schedule") or "").strip().casefold()
     return ScreeningRow(
         id=row["id"],
         revision=revision,
@@ -303,7 +370,7 @@ def _project_row(row: dict, entries: list[dict], reference: FixtureReference, re
         product_name=product.product_name if product else None,
         ingredient_ids=product.ingredient_ids if mapping_status == "complete" else [],
         mapping_status=mapping_status,
-        route=(answer.get("route") or "").strip().casefold() or None,
+        route=route,
         use_status="pending" if use_status == "nurse_only" else use_status,
         schedule=schedule if schedule in {"scheduled", "prn"} else None,
         evidence_ids=links,

@@ -1,60 +1,53 @@
 import { InputField } from '../../components/ui/InputField'
 import { Button } from '../../components/ui/Button'
-import { useEffect, useRef, useState } from 'react'
-import { LuPlus, LuSearch } from 'react-icons/lu'
+import { useState } from 'react'
+import { LuPlus } from 'react-icons/lu'
 import type { IntakeText } from '../../i18n/intake'
-import { searchProducts } from '../../api/reconciliation'
-import { newNote, type CatalogueMatch, type Medicine, type Product } from './draft'
+import { DirectionsEditor } from './DirectionsEditor'
+import { newStatement, toComponents } from './regimen'
+import type { RegimenText } from '../../i18n/regimen'
+import { MedicinePicker } from './MedicinePicker'
+import { newNote, type CatalogueMatch, type Medicine } from './draft'
 
 export function ManualMedicineEntry({
   t,
+  rt,
+  caseId,
   onAdd,
 }: {
+  rt: RegimenText
+  caseId: string
   t: IntakeText
   onAdd: (medicine: Medicine) => void
 }) {
-  const [query, setQuery] = useState('')
-  const [results, setResults] = useState<{ products: Product[]; tmt_release: string } | null>(null)
   const [selected, setSelected] = useState<CatalogueMatch>()
   const [name, setName] = useState('')
   const [strength, setStrength] = useState('')
   const [form, setForm] = useState('')
   const [source, setSource] = useState('')
-  const [status, setStatus] = useState<'idle' | 'searching' | 'error'>('idle')
-  const request = useRef<AbortController | null>(null)
-  useEffect(() => () => request.current?.abort(), [])
-  async function search() {
-    request.current?.abort()
-    const controller = new AbortController()
-    request.current = controller
-    setStatus('searching')
-    try {
-      const found = await searchProducts(query.trim(), controller.signal)
-      if (!controller.signal.aborted) {
-        setResults(found)
-        setStatus('idle')
-      }
-    } catch {
-      if (!controller.signal.aborted) setStatus('error')
-    }
-  }
+  const [quantity, setQuantity] = useState('')
+  const [rowId, setRowId] = useState(() => crypto.randomUUID())
+  const [statements, setStatements] = useState(() => [newStatement()])
+  const [pendingParses, setPendingParses] = useState(0)
   function add() {
-    request.current?.abort()
+    if (pendingParses > 0) return
+    const directions = statements.filter((s) => s.note.text.trim())
     const note = { ...newNote('other_record'), text: source.trim() }
     const evidence = { source_id: note.id }
     const label_fields = Object.fromEntries(
-      Object.entries({ strength, form })
+      Object.entries({ strength, form, amount_prescribed: quantity })
         .filter(([, value]) => value.trim())
         .map(([key, value]) => [key, { value: value.trim(), status: 'readable', evidence }]),
     )
     onAdd({
       origin: 'manual',
       catalogue: selected,
-      evidence: { photos: [], notes: [note], question: '' },
+      evidence: { photos: [], notes: [note, ...directions.map((s) => s.note)], question: '' },
       row: {
-        id: crypto.randomUUID(),
+        id: rowId,
         identity_status: 'named',
-        sources: [evidence],
+        sources: [evidence, ...directions.map((s) => ({ source_id: s.note.id }))],
+        regimens: directions.flatMap(toComponents),
         observed_names: [{ value: name.trim(), evidence }],
         label_fields,
         reported_use: [],
@@ -67,62 +60,28 @@ export function ManualMedicineEntry({
     setForm('')
     setStrength('')
     setSource('')
-    setQuery('')
-    setResults(null)
-    setStatus('idle')
+    setQuantity('')
+    setRowId(crypto.randomUUID())
+    setStatements([newStatement()])
   }
   return (
     <div className="stack">
       <p className="hint">{t.manualHint}</p>
-      <form
-        className="search-line"
-        onSubmit={(e) => {
-          e.preventDefault()
-          void search()
+      <MedicinePicker
+        t={t}
+        name={name}
+        selected={selected}
+        onChange={(value) => {
+          setName(value)
+          setSelected(undefined)
         }}
-      >
-        <InputField
-          label={t.query}
-          maxLength={120}
-          value={query}
-          onChange={(e) => {
-            request.current?.abort()
-            setQuery(e.target.value)
-            setResults(null)
-            setStatus('idle')
-          }}
-        />
-        <Button type="submit" disabled={!query.trim() || status === 'searching'}>
-          <LuSearch />
-          {t.search}
-        </Button>
-      </form>
-      {status === 'searching' && <p role="status">{t.searching}</p>}
-      {status === 'error' && <p role="alert">{t.catalogFail}</p>}
-      {results &&
-        (results.products.length ? (
-          <ul className="product-list">
-            {results.products.map((p) => (
-              <li key={p.tpu}>
-                <button
-                  onClick={() => {
-                    setSelected({ product: p, release: results.tmt_release })
-                    setName(p.label)
-                    setResults(null)
-                  }}
-                >
-                  <strong>{p.label}</strong>
-                  <small>
-                    TPU {p.tpu}
-                    {p.active_tmt ? '' : ' · ' + t.historical}
-                  </small>
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p role="status">{t.noProducts}</p>
-        ))}
+        onSelect={(match) => {
+          setSelected(match)
+          setName(match.product.label)
+          setStrength('')
+          setForm('')
+        }}
+      />
       <form
         className="stack"
         onSubmit={(e) => {
@@ -130,15 +89,6 @@ export function ManualMedicineEntry({
           add()
         }}
       >
-        <InputField
-          label={t.name}
-          required
-          value={name}
-          onChange={(e) => {
-            setSelected(undefined)
-            setName(e.target.value)
-          }}
-        />
         {selected && (
           <small>
             TPU {selected.product.tpu} · {selected.release}
@@ -147,16 +97,63 @@ export function ManualMedicineEntry({
         <div className="field-pair">
           <InputField
             label={t.strength}
-            value={strength}
+            value={selected?.product.strength || strength}
+            readOnly={Boolean(selected?.product.strength)}
             onChange={(e) => setStrength(e.target.value)}
           />
-          <InputField label={t.form} value={form} onChange={(e) => setForm(e.target.value)} />
+          <InputField
+            label={t.form}
+            value={selected?.product.dose_form || form}
+            readOnly={Boolean(selected?.product.dose_form)}
+            onChange={(e) => setForm(e.target.value)}
+          />
         </div>
         <label>
           {t.manualSource}
           <textarea required value={source} onChange={(e) => setSource(e.target.value)} />
         </label>
-        <Button variant="primary" type="submit" disabled={!name.trim() || !source.trim()}>
+        <InputField
+          label={rt.quantity}
+          value={quantity}
+          onChange={(e) => setQuantity(e.target.value)}
+        />
+        {statements.map((statement) => (
+          <div className="stack" key={statement.note.id}>
+            <DirectionsEditor
+              statement={statement}
+              caseId={caseId}
+              rowId={rowId}
+              t={rt}
+              setPendingParses={setPendingParses}
+              onChange={(next) =>
+                setStatements((current) =>
+                  current.map((s) => (s.note.id === next.note.id ? next : s)),
+                )
+              }
+            />
+            {statements.length > 1 && (
+              <Button
+                variant="text"
+                onClick={() =>
+                  setStatements((current) => current.filter((s) => s.note.id !== statement.note.id))
+                }
+              >
+                {rt.remove}
+              </Button>
+            )}
+          </div>
+        ))}
+        <Button
+          variant="text"
+          onClick={() => setStatements((current) => [...current, newStatement()])}
+        >
+          {rt.add}
+        </Button>
+        <Button
+          variant="primary"
+          type="submit"
+          disabled={!name.trim() || !source.trim() || pendingParses > 0}
+        >
           <LuPlus />
           {t.addMedicine}
         </Button>

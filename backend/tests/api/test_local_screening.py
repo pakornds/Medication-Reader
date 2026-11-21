@@ -1,21 +1,13 @@
-"""Use small fictional reference releases to exercise the actual HTTP contract."""
+"""Exercise release and clinical coverage logic with fictional SQLite references."""
 
 import sqlite3
 from contextlib import closing
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
-from app.api.local_screening import router
-
-
-@pytest.fixture
-def client():
-    app = FastAPI()
-    app.include_router(router)
-    with TestClient(app) as session:
-        yield session
+from app.schemas.local_screening import LocalScreeningRequest
+from app.services.local_screening import ReferenceUnavailable, screen_local
 
 
 @pytest.fixture
@@ -82,15 +74,13 @@ def body(codes=("101", "202", None)):
         "case_id": "fictional-encounter", "sources": [dict(id="record", kind="transfer_record")], "items": items}}
 
 
-def run(client, request):
-    response = client.post("/checks/local", json=request)
-    assert response.status_code == 200, response.text
-    return response.json()
+def run(request):
+    return screen_local(LocalScreeningRequest.model_validate(request)).model_dump(mode="json")
 
 
-def test_opposing_groups_hierarchy_citations_partial_scope_and_snapshot(client, refs):
+def test_opposing_groups_hierarchy_citations_partial_scope_and_snapshot(refs):
     request = body()
-    result = run(client, request)
+    result = run(request)
     assert (result["fest_release"], result["tmt_release"]) == ("fest-test", "tmt-test")
     assert len(result["pairs"]) == 3
     pair, *gaps = result["pairs"]
@@ -105,9 +95,9 @@ def test_opposing_groups_hierarchy_citations_partial_scope_and_snapshot(client, 
     for gap in gaps:
         assert gap["ddi"]["status"] == gap["duplicate"]["status"] == "unassessed"
     assert result["rows"][2]["reason"] and not result["rows"][2]["tpu"]
-    assert result["snapshot_id"] == run(client, request)["snapshot_id"]
+    assert result["snapshot_id"] == run(request)["snapshot_id"]
     request["rows"][0]["revision"] += 1
-    assert result["snapshot_id"] != run(client, request)["snapshot_id"]
+    assert result["snapshot_id"] != run(request)["snapshot_id"]
 
 
 @pytest.mark.parametrize("field,value", [
@@ -117,15 +107,15 @@ def test_opposing_groups_hierarchy_citations_partial_scope_and_snapshot(client, 
     ("evidence", [{"source_id": "record", "item_id": "item-1"}]),
     ("reviewer", {"id": "clerk", "name": "Fixture clerk", "role": "staff"}),
 ])
-def test_unverified_or_mismatched_product_is_outside_both_checks(client, refs, field, value):
+def test_unverified_or_mismatched_product_is_outside_both_checks(refs, field, value):
     request = body(("101", "202"))
     request["rows"][0]["verification"][field] = value
-    result = run(client, request)
+    result = run(request)
     assert result["rows"][0]["reason"]
     assert result["pairs"][0]["ddi"]["status"] == result["pairs"][0]["duplicate"]["status"] == "unassessed"
 
 
-def test_disputed_identity_needs_a_new_independent_source(client, refs):
+def test_disputed_identity_needs_a_new_independent_source(refs):
     request = body(("101", "202"))
     row = request["rows"][0]
     ref = row["sources"][0]
@@ -133,105 +123,106 @@ def test_disputed_identity_needs_a_new_independent_source(client, refs):
                                  observed_values=[{"value": "Demo Blue", "evidence": ref},
                                                   {"value": "Demo Pink", "evidence": ref}])]
     row["verification"]["resolved_discrepancies"] = ["identity-conflict"]
-    result = run(client, request)
+    result = run(request)
     assert result["pairs"][0]["ddi"]["status"] == "unassessed"
     assert "independent" in result["rows"][0]["reason"]
 
 
-def test_partial_mapping_does_not_clear_or_assert_duplicate(client, refs):
-    pair, = run(client, body(("101", "303")))["pairs"]
+def test_partial_mapping_does_not_clear_or_assert_duplicate(refs):
+    pair, = run(body(("101", "303")))["pairs"]
     assert pair["duplicate"]["status"] == pair["ddi"]["status"] == "unassessed"
 
 
-def test_unassessed_parent_does_not_hide_explicit_opposing_group_rule(client, refs):
+def test_unassessed_parent_does_not_hide_explicit_opposing_group_rule(refs):
     with closing(sqlite3.connect(refs[1])) as db:
         db.execute("INSERT INTO unassessed VALUES (?,?)", ("demo", '<Entry><InteraksjonIkkeVurdert><Atc V="A01"/></InteraksjonIkkeVurdert></Entry>'))
         db.commit()
-    pair, = run(client, body(("101", "202")))["pairs"]
+    pair, = run(body(("101", "202")))["pairs"]
     assert pair["ddi"]["status"] == "potential" and pair["ddi"]["interactions"][0]["rule_id"] == "demo-rule"
     assert pair["duplicate"]["status"] == "potential"
 
 
-def test_exact_unassessed_marks_scope_and_retains_any_positive_rule(client, refs):
+def test_exact_unassessed_marks_scope_and_retains_any_positive_rule(refs):
     with closing(sqlite3.connect(refs[1])) as db:
         db.execute("INSERT INTO unassessed VALUES (?,?)", ("explicit", '<Entry><InteraksjonIkkeVurdert><Atc V="A01AA01"/></InteraksjonIkkeVurdert></Entry>'))
         db.commit()
-    pair, = run(client, body(("101", "202")))["pairs"]
+    pair, = run(body(("101", "202")))["pairs"]
     assert pair["ddi"]["status"] == "partial" and "unassessed" in pair["ddi"]["reasons"][0]
     assert pair["ddi"]["interactions"][0]["rule_id"] == "demo-rule"
     assert pair["duplicate"]["status"] == "potential"
     with closing(sqlite3.connect(refs[1])) as db:
         db.execute("DELETE FROM atc_member WHERE rule_id='demo-rule'")
         db.commit()
-    pair, = run(client, body(("101", "202")))["pairs"]
+    pair, = run(body(("101", "202")))["pairs"]
     assert pair["ddi"]["status"] == "unassessed" and not pair["ddi"]["interactions"]
 
 
-def test_no_rule_limited_negative_and_no_pair(client, refs):
+def test_no_rule_limited_negative_and_no_pair(refs):
     with closing(sqlite3.connect(refs[1])) as db:
         db.execute("DELETE FROM atc_member WHERE rule_id='demo-rule'")
         db.commit()
-    pair, = run(client, body(("101", "202")))["pairs"]
+    pair, = run(body(("101", "202")))["pairs"]
     assert pair["ddi"]["status"] == "lookup_complete" and not pair["ddi"]["interactions"]
     assert "limited coverage" in pair["ddi"]["reasons"][0]
-    assert run(client, body(("101",)))["pairs"] == []
+    assert run(body(("101",)))["pairs"] == []
 
 
-def test_missing_db_or_stale_crosswalk_fails_closed(client, refs, monkeypatch, tmp_path):
+def test_missing_db_or_stale_crosswalk_fails_closed(refs, monkeypatch, tmp_path):
     with closing(sqlite3.connect(refs[1])) as db:
         db.execute("UPDATE source SET sha256='different'")
         db.commit()
-    report = run(client, body())
+    report = run(body())
     assert report["fest_release"] is None and "different releases" in report["ddi_unavailable_reason"]
     assert report["pairs"][0]["ddi"]["status"] == "unassessed"
     assert report["pairs"][0]["duplicate"]["status"] == "potential"
     monkeypatch.setenv("LOCAL_FEST_DB", str(tmp_path / "missing-fest.sqlite"))
-    without_fest = run(client, body())
+    without_fest = run(body())
     assert "missing" in without_fest["ddi_unavailable_reason"]
     assert without_fest["pairs"][0]["duplicate"]["status"] == "potential"
     missing = tmp_path / "missing.sqlite"
     monkeypatch.setenv("LOCAL_TMT_DB", str(missing))
-    response = client.post("/checks/local", json=body())
-    assert response.status_code == 503 and not missing.exists()
-    assert response.json()["detail"]["code"] == "local_reference_unavailable"
+    with pytest.raises(ReferenceUnavailable):
+        run(body())
+    assert not missing.exists()
 
 
-def test_duplicate_row_ids_rejected(client, refs):
+def test_duplicate_row_ids_rejected(refs):
     request = body(("101",))
     request["rows"].append(request["rows"][0])
-    assert client.post("/checks/local", json=request).status_code == 422
+    with pytest.raises(ValidationError):
+        run(request)
 
 
-def test_changed_product_needs_explicit_current_release_and_reports_single_row_mapping(client, refs):
+def test_changed_product_needs_explicit_current_release_and_reports_single_row_mapping(refs):
     with closing(sqlite3.connect(refs[0])) as db:
         db.execute("UPDATE product SET legacy_status='clinical_fields_changed' WHERE tpu='101'")
         db.commit()
     request = body(("101",))
-    stale = run(client, request)["rows"][0]
+    stale = run(request)["rows"][0]
     assert stale["tpu"] is None and "changed" in stale["reason"]
     verification = request["rows"][0]["verification"]
     verification["tmt_release"] = "prior-release"
-    assert "different TMT release" in run(client, request)["rows"][0]["reason"]
+    assert "different TMT release" in run(request)["rows"][0]["reason"]
     verification["tmt_release"] = "tmt-test"
-    selected = run(client, request)["rows"][0]
+    selected = run(request)["rows"][0]
     assert selected["tpu"] == "101" and selected["composition_status"] == "complete" and selected["ddi_status"] == "mapped"
 
 
-def test_reference_classed_no_action_does_not_become_an_alert(client, refs):
+def test_reference_classed_no_action_does_not_become_an_alert(refs):
     with closing(sqlite3.connect(refs[1])) as db:
         db.execute("UPDATE rule SET relevance_no='Ingen tiltak nødvendig'")
         db.commit()
-    ddi = run(client, body(("101", "202")))["pairs"][0]["ddi"]
+    ddi = run(body(("101", "202")))["pairs"][0]["ddi"]
     assert ddi["status"] == "lookup_complete"
     assert ddi["interactions"][0]["relevance"] == "Ingen tiltak nødvendig"
 
 
 @pytest.mark.parametrize("route,expected", [("ophthalmic", "differs"), ("per documented schedule", "cannot be compared")])
-def test_explicit_route_conflict_retains_signal_and_prevents_a_negative(client, refs, route, expected):
+def test_explicit_route_conflict_retains_signal_and_prevents_a_negative(refs, route, expected):
     request = body(("101", "202"))
     row = request["rows"][0]
     row["verification"]["route"] = {"value": route, "evidence": row["sources"][0]}
-    report = run(client, request)
+    report = run(request)
     pair, = report["pairs"]
     assert pair["ddi"]["status"] == "partial"
     assert expected in report["rows"][0]["route_note"] and expected in pair["ddi"]["reasons"][0]
@@ -240,20 +231,20 @@ def test_explicit_route_conflict_retains_signal_and_prevents_a_negative(client, 
     with closing(sqlite3.connect(refs[1])) as db:
         db.execute("DELETE FROM atc_member WHERE rule_id='demo-rule'")
         db.commit()
-    pair, = run(client, request)["pairs"]
+    pair, = run(request)["pairs"]
     assert pair["ddi"]["status"] == "unassessed"
 
 
-def test_absent_route_is_explicit_and_form_mapping_gaps_are_human_readable(client, refs):
+def test_absent_route_is_explicit_and_form_mapping_gaps_are_human_readable(refs):
     request = body(("101", "202", "303"))
-    result = run(client, request)
+    result = run(request)
     assert "Actual route is missing" in result["rows"][0]["route_note"]
     pair = result["pairs"][1]
     assert pair["ddi"]["status"] == "unassessed"
     assert "exact ingredients, form and catalogue route" in pair["ddi"]["reasons"][0]
 
 
-def test_structured_component_route_controls_the_gap(client, refs):
+def test_structured_component_route_controls_the_gap(refs):
     request = body(("101", "202"))
     row = request["rows"][0]
     ref = row["sources"][0]
@@ -262,21 +253,21 @@ def test_structured_component_route_controls_the_gap(client, refs):
         "parse_status": "complete", "route": "ophthalmic",
         "evidence": {"directions_text": ref, "route": ref},
     }]
-    assert run(client, request)["pairs"][0]["ddi"]["status"] == "partial"
+    assert run(request)["pairs"][0]["ddi"]["status"] == "partial"
     component = row["verification"]["regimens"][0]
     component.update(route="oral", directions_text="oral")
-    result = run(client, request)
+    result = run(request)
     assert result["pairs"][0]["ddi"]["status"] == "potential"
     assert result["rows"][0]["route_note"] is None
 
 
 @pytest.mark.parametrize("release", [None, "tmt-legacy"])
-def test_exact_historical_identity_without_clinical_changes_resolves_current_reference(client, refs, release):
+def test_exact_historical_identity_without_clinical_changes_resolves_current_reference(refs, release):
     request = body(("101", "202"))
     verification = request["rows"][0]["verification"]
     verification.update(tmt_release=release)
     verification["identity"]["value"] = "Blue original presentation"
-    report = run(client, request)
+    report = run(request)
     assert report["rows"][0]["tpu"] == "101" and report["rows"][0]["label"] == "Demo Blue tablet"
     assert report["pairs"][0]["ddi"]["status"] == "potential"
     assert report["pairs"][0]["duplicate"]["status"] == "potential"
@@ -292,7 +283,7 @@ def test_exact_historical_identity_without_clinical_changes_resolves_current_ref
     ("tmt-legacy", "Blue original presentation", "new_to_legacy"),
     (None, "Blue original presentation", "absent_in_snapshot"),
 ])
-def test_wrong_release_label_or_changed_legacy_selection_remains_unassessed(client, refs, release, label, status):
+def test_wrong_release_label_or_changed_legacy_selection_remains_unassessed(refs, release, label, status):
     with closing(sqlite3.connect(refs[0])) as db:
         db.execute("UPDATE product SET legacy_status=? WHERE tpu='101'", (status,))
         db.commit()
@@ -300,6 +291,6 @@ def test_wrong_release_label_or_changed_legacy_selection_remains_unassessed(clie
     verification = request["rows"][0]["verification"]
     verification.update(tmt_release=release)
     verification["identity"]["value"] = label
-    report = run(client, request)
+    report = run(request)
     assert report["rows"][0]["tpu"] is None and report["rows"][0]["reason"]
     assert report["pairs"][0]["ddi"]["status"] == report["pairs"][0]["duplicate"]["status"] == "unassessed"
