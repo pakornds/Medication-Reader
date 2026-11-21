@@ -21,6 +21,7 @@ class IdentityResolutionEvidence(ContractModel):
 
     discrepancy_id: Text
     evidence: EvidenceRef
+    documented_name: Text
     identity_basis: Literal["matched_original_package", "dispensing_confirmation", "item_specific_record"]
     finding: Text
 

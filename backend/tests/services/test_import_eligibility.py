@@ -124,8 +124,9 @@ def test_disputed_identity_cannot_be_resolved_with_a_second_crop(prepared_import
         row.verification.identity_resolutions = [IdentityResolutionEvidence(
             discrepancy_id="discrepancy",
             evidence=second_crop.evidence,
+            documented_name=second_crop.value,
             identity_basis="matched_original_package",
-            finding="Read the name from the second crop of the bag.",
+            finding=f"Read {second_crop.value} from the second crop of the bag.",
         )]
 
     with pytest.raises(EligibilityError) as exc:

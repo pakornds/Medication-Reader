@@ -105,10 +105,14 @@ def _validate_identity_resolutions(
         SourceKind.PRESCRIPTION, SourceKind.TRANSFER_RECORD, SourceKind.REVIEWER_RECORD,
     }:
         raise error
+    verified_name = identity.value.strip().casefold()
     for dispute_id, resolution in resolutions.items():
+        finding = resolution.finding.strip().casefold()
         if (
             resolution.evidence != reference
-            or resolution.finding.strip().casefold() == identity.value.strip().casefold()
+            or resolution.documented_name.strip().casefold() != verified_name
+            or verified_name not in finding
+            or finding == verified_name
         ):
             raise error
         for observed in disputes[dispute_id].observed_values:

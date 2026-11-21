@@ -158,6 +158,7 @@ def disputed_identity_body(request_body):
         "identity_resolutions": [{
             "discrepancy_id": "possible-wrong-label",
             "evidence": confirmation,
+            "documented_name": "Demo B",
             "identity_basis": "dispensing_confirmation",
             "finding": "The pharmacist matched synthetic bag B-021 to Demo B in the dispensing log.",
         }],
@@ -181,6 +182,8 @@ def use_second_crop(body):
     ("shared_attachment", "independent_identity_evidence_required"),
     ("other_row", "invalid_evidence"),
     ("unavailable", "invalid_evidence"),
+    ("different_verified_name", "independent_identity_evidence_required"),
+    ("different_finding_name", "independent_identity_evidence_required"),
 ])
 async def test_disputed_identity_requires_an_available_independent_item(transport, disputed_identity_body, problem, code):
     client, hospital, _ = transport
@@ -189,9 +192,14 @@ async def test_disputed_identity_requires_an_available_independent_item(transpor
         use_second_crop(body)
     elif problem == "other_row":
         body["evidence"]["items"][-1]["row_id"] = "row-a"
-    else:
+    elif problem == "unavailable":
         body["evidence"]["sources"][-1].update({"availability": "unavailable", "unavailable_reason": "Pending"})
         body["evidence"]["items"].pop()
+    elif problem == "different_verified_name":
+        body["rows"][0]["verification"]["identity"]["value"] = "Demo C"
+    else:
+        resolution = body["rows"][0]["verification"]["identity_resolutions"][0]
+        resolution["finding"] = "The pharmacist matched synthetic bag B-021 to Demo C in the dispensing log."
     approval = await client.post("/imports/approvals", json={"evidence": body["evidence"], "row": body["rows"][0]})
     assert approval.status_code == 422
     assert approval.json()["detail"]["code"] == code
