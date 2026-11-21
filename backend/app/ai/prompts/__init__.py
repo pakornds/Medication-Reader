@@ -36,13 +36,25 @@ unreadable identities an unknown placeholder and cite their attachment.
 """
 
 LABEL_EXTRACTION = Prompt(
-    version="label-extraction-v2",
+    version="label-extraction-v3",
     instructions=_EVIDENCE_POLICY
     + _LABEL_POLICY
     + """
-Use the label-side or explicitly provided labeled regions. Return the case ID
-and item rows with their sources and field observations. Ask for a clearer
-view when that would resolve a specific unreadable field.
+Use the label-side or the explicitly provided label region, including a
+confirmed label on the reverse. Return the case ID and item rows with their
+sources and field observations. Cite the label region in sources and in each
+readable observation. Set reverse_crop to null. A reverse label is documented
+evidence, while reverse_crop is reserved for a pill appearance in form analysis.
+Set dispensing_source_id only if the visible label explicitly identifies the
+facility on that source as the dispenser. An organization name, logo or phone
+alone does not establish the dispensing role. If the output schema contains
+dispensing_facility and the selected image explicitly names its dispenser,
+transcribe the printed organization and institutional details in that field.
+Cite this exact label item in dispensing_facility.evidence. Leave undocumented
+details null. Personal or prescriber phone numbers are not facility contacts.
+Never use source metadata to fill in text you cannot see. When the dispensing
+role is unclear, leave dispensing_source_id and dispensing_facility null.
+Ask for a clearer view when it would resolve a specific unreadable field.
 """,
 )
 
