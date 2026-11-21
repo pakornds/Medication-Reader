@@ -16,6 +16,16 @@ class ReviewerIdentity(ContractModel):
     role: Literal["pharmacist", "doctor", "nurse", "staff"]
 
 
+class IdentityResolutionEvidence(ContractModel):
+    """Document how an independent source establishes the verified identity."""
+
+    discrepancy_id: Text
+    evidence: EvidenceRef
+    documented_name: Text
+    identity_basis: Literal["matched_original_package", "dispensing_confirmation", "item_specific_record"]
+    finding: Text
+
+
 class CurrentUseVerification(ContractModel):
     reviewer: ReviewerIdentity
     verified_at: AwareDatetime
@@ -29,6 +39,7 @@ class CurrentUseVerification(ContractModel):
     regimens: list[RegimenComponent] = Field(default_factory=list)
     evidence: list[EvidenceRef] = Field(min_length=1)
     resolved_discrepancies: list[Text] = Field(default_factory=list)
+    identity_resolutions: list[IdentityResolutionEvidence] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_regimens(self) -> "CurrentUseVerification":
