@@ -154,6 +154,13 @@ class Finish(ContractModel):
     action: Literal["finish"]
 
 
+class AssessIdentityIncident(ContractModel):
+    action: Literal["assess_identity_incident"]
+    incident_id: Text
+    outcome: Literal["confirmed_medication_error", "not_confirmed", "needs_review"]
+    assessment: Text
+
+
 class Import(ContractModel):
     action: Literal["import"]
     row_ids: list[Text] = Field(min_length=1)
@@ -162,7 +169,8 @@ class Import(ContractModel):
 class Action(ContractModel):
     revision: int = Field(ge=1)
     request_id: Text
-    command: Annotated[AddRow | AddEvidence | Interview | Verify | Proposal | Decision | Refer | Finish | Import,
+    command: Annotated[AddRow | AddEvidence | Interview | Verify | Proposal | Decision | Refer | Finish | Import
+                       | AssessIdentityIncident,
                        Field(discriminator="action")]
 
 

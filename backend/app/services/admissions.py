@@ -18,12 +18,13 @@ from app.services.labels import LabelPhotoError, crop_label
 
 from app.schemas.analysis import Discrepancy
 from app.schemas.admission import (
-    Action, AddEvidence, AddRow, Decision, Finish, Import, Interview, NewEncounter, Proposal, Refer, Verify,
+    Action, AddEvidence, AddRow, AssessIdentityIncident, Decision, Finish, Import, Interview, NewEncounter, Proposal, Refer, Verify,
 )
 from app.schemas.evidence import REPORT_KINDS, Observation, CaseEvidence, EvidenceItem, EvidenceRef, EvidenceSource, SourcedValue
 from app.schemas.review import CurrentUseVerification, ImportRequest, ReviewRow
 from app.schemas.regimen import RegimenParseRequest
 from app.services.regimens import parse_directions
+from app.services.admission_incidents import record_identity_incident
 from app.services.hospital import HospitalError
 from app.services.import_eligibility import ApprovalLedger, EligibilityError, selected_evidence
 
@@ -171,7 +172,7 @@ class AdmissionStore:
         assigned = {actor.id, "demo-pharmacist", *("demo-" + role for role in request.assigned_roles)}
         case = dict(id="admission-" + uuid4().hex, patient_alias=request.patient_alias,
                     assigned=sorted(assigned), revision=1, status="In progress", created_at=now(),
-                    rows={}, events=[], receipts=[])
+                    rows={}, events=[], receipts=[], identity_incidents={})
         with self.lock:
             self.records[case["id"]] = case
         return case
@@ -219,9 +220,10 @@ class AdmissionStore:
                 require(self.retries[key] == digest, "Request ID already used.", 409)
                 return original
             require(original["revision"] == request.revision, "Encounter changed. Reload before saving.", 409)
-            if isinstance(cmd, (Import, Decision)) or original["status"] == "Awaiting pharmacist review":
+            if isinstance(cmd, (Import, Decision, AssessIdentityIncident)) or original["status"] == "Awaiting pharmacist review":
                 require(actor.role == "pharmacist", "Pharmacist required.", 403)
-            require(original["status"] != "Finished" or isinstance(cmd, Import), "Review is finished.", 409)
+            require(original["status"] != "Finished" or isinstance(cmd, (Import, AssessIdentityIncident)),
+                    "Review is finished.", 409)
             case = deepcopy(original)
             details = self.transition(case, actor, cmd, request.request_id)
             for row_id in details["rows"]:
@@ -416,6 +418,15 @@ class AdmissionStore:
                 history[import_snapshot_key(row)] = receipt["imported_at"]
             return dict(rows=cmd.row_ids, imported_at=receipt["imported_at"])
 
+        if isinstance(cmd, AssessIdentityIncident):
+            incident = case["identity_incidents"].get(cmd.incident_id)
+            require(incident is not None, "Identity incident unavailable.", 404)
+            assessment = dict(outcome=cmd.outcome, assessment=cmd.assessment,
+                              recorder=actor.model_dump(), recorded_at=now())
+            incident["pharmacy_assessments"].append(assessment)
+            return dict(rows=[incident["row_id"]], identity_incident_id=cmd.incident_id,
+                        pharmacy_assessment=assessment)
+
         row = self.row(rows, cmd.row_id)
         details = dict(rows=[row["id"]])
         if isinstance(cmd, Interview):
@@ -490,14 +501,25 @@ class AdmissionStore:
             conflicts = conflicting_fields(row)
             require((len(variants) <= 1 and not conflicts) or cmd.resolution,
                     "Document the resolution of conflicting evidence.")
+            verified_at = now()
             identity = row["confirmed"]
             if not row["unknown"]:
                 identity_conflict = len(variants) > 1 or any(key in {"strength", "form"} for key in conflicts)
                 require(not identity_conflict or cmd.identity_source_id, "Choose the supported identity source.")
                 chosen = entry_for(row, cmd.identity_source_id) if cmd.identity_source_id else named[-1]
                 require(chosen in named, "Choose a source that documents this identity.")
+                documented = [entry for entry in named if entry["source"]["kind"] not in REPORT_KINDS]
+                if len({entry["name"].casefold() for entry in documented}) > 1:
+                    conflicting = [entry for entry in documented if entry is not chosen]
+                    require(chosen in documented and chosen["identity_basis"],
+                            "Cite separate item-specific documentation to resolve the disputed identity.")
+                    require(not any(shares_origin(chosen, entry) for entry in conflicting),
+                            "A second crop of the same challenged source cannot confirm identity.")
+                    details["identity_incident_id"] = record_identity_incident(
+                        case, row["id"], conflicting, chosen, actor, cmd.resolution, verified_at,
+                    )
                 identity = dict(name=chosen["product"], source_id=chosen["source"]["id"])
-            row["verified"] = dict(actor=actor.model_dump(), at=now(), source_id=cmd.source_id,
+            row["verified"] = dict(actor=actor.model_dump(), at=verified_at, source_id=cmd.source_id,
                                    identity=identity, resolution=cmd.resolution, answer=deepcopy(answer))
             return dict(**details, verification=row["verified"], sources=[cmd.source_id] +
                         ([identity["source_id"]] if identity else []))
