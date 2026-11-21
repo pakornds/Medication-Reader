@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Package layout · Synthetic encounter</title>
+<link rel="stylesheet" href="../../../src/components/package-layout/editor.css">
+<style>body{margin:auto;max-width:76rem;padding:1rem;background:#f5f6f8;font:1rem/1.5 system-ui} header{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;margin-bottom:1rem}button{padding:.45rem}pre{white-space:pre-wrap;overflow-wrap:anywhere}</style>
+<header aria-label="Synthetic encounter controls"><strong>Synthetic encounter</strong>
+<button id="reverse">Load reverse</button><button id="retake">Replace reverse</button><button id="remove">Remove reverse</button><button id="propose">Load example regions</button></header>
+<main id="editor"></main><details><summary>Selected attachment IDs and geometry</summary><pre id="output"></pre></details>
+<script type="module">
+import {mountPackageLayout} from "../../../src/components/package-layout/editor.mjs";
+const boxes = [[30,30,168,116],[218,40,170,120],[362,120,110,100]];
+function image(reverse) {
+  const labels = reverse ? ["B · reverse","A · reverse","Opaque"] : ["A · 5 mg","B · 10 mg","C · box"];
+  const shapes = boxes.map(([x,y,w,h],i) =>
+    '<g transform="translate('+x+' '+y+')"><rect width="'+w+'" height="'+h+'" rx="8" fill="'+['#dbeae0','#f5ddbd','#d5ddea'][i]+'" stroke="#5c6874"/><text x="12" y="48" font-size="18">'+labels[i]+'</text></g>').join('');
+  return "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="500" height="250"><rect width="500" height="250" fill="#ecece7"/><g font-family="sans-serif">'+shapes+'</g></svg>');
+}
+let sequence = 0;
+const editor = mountPackageLayout(document.querySelector("#editor"), {caseId:"synthetic-layout", onChange(snapshot, observations) {
+  document.querySelector("#output").textContent = JSON.stringify({snapshot, observations}, null, 2);
+}});
+editor.setPhoto("front", {attachment_id:"demo-front", url:image(false)});
+function loadReverse() { editor.setPhoto("reverse", {attachment_id:"demo-reverse-" + ++sequence, url:image(true)}); }
+document.querySelector("#reverse").onclick = loadReverse;
+document.querySelector("#retake").onclick = loadReverse;
+document.querySelector("#remove").onclick = () => editor.setPhoto("reverse", null);
+document.querySelector("#propose").onclick = () => {
+  for (const side of ["front","reverse"]) {
+    const view = editor.snapshot()[side];
+    if (view && !view.regions.length) editor.addProposals(side, {...view,
+      bounds: boxes.map(([x,y,width,height])=>({x:x/500,y:y/250,width:width/500,height:height/250}))});
+  }
+};
+</script>
+</html>
