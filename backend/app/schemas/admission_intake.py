@@ -5,6 +5,7 @@ from uuid import UUID
 from pydantic import Field
 
 from app.schemas.analysis import MedicationSuggestion
+from app.schemas.catalogue_identity import CatalogueIdentity
 from app.schemas.evidence import ContractModel, EvidenceItem, EvidenceSource, Text
 from app.schemas.package_capture import RegionBounds
 
@@ -27,6 +28,7 @@ class IntakePart(ContractModel):
     row: MedicationSuggestion
     origin: Literal['manual', 'analysis']
     catalogue: IntakeChoice | None = None
+    catalogue_identity: CatalogueIdentity | None = None
     sources: list[EvidenceSource]
     items: list[EvidenceItem]
     notes: dict[Text, Text]

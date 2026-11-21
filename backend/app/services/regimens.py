@@ -19,6 +19,44 @@ THAI_DAILY = re.compile(
     r"(?:รับประทาน\s*)?(?:ครั้งละ\s*)?(?P<amount>[1-9][0-9]{0,7}(?:\.[0-9]{1,6})?)\s*"
     r"(?P<unit>เม็ด|แคปซูล)\s*ทุก(?:วันตอน|ตอน)?(?P<time>เช้า|กลางวัน|เย็น)"
 )
+THAI_TIMES = {"เช้า": "morning", "กลางวัน": "noon", "เย็น": "evening", "ก่อนนอน": "bedtime"}
+THAI_TIME = "|".join(THAI_TIMES)
+THAI_TIME_SEPARATOR = r"(?:\s*[-–,]\s*|\s+)"
+THAI_LABEL_FREQUENCY = re.compile(
+    r"(?P<oral>รับประทาน\s*)?(?P<site>ที่มีอาการ\s*)?(?:ครั้งละ\s*)?"
+    r"(?P<amount>ครึ่ง|[1-9][0-9]{0,7}(?:\.[0-9]{1,6})?)\s*(?P<unit>เม็ด|แคปซูล|หยด)\s*"
+    r"วันละ\s*(?P<count>[1-9][0-9]?)\s*ครั้ง(?:\s*(?P<meal>ก่อนอาหาร|หลังอาหาร))?"
+    rf"(?:\s*(?P<times>(?:{THAI_TIME})(?:{THAI_TIME_SEPARATOR}(?:{THAI_TIME})){{0,3}}))?"
+    r"(?:\s*(?P<course>รับประทานทุกวันจนยาหมด))?"
+    r"(?:\s*[;；]\s*(?P<storage>มีอายุการใช้\s*[1-9][0-9]*\s*(?:วัน|เดือน|สัปดาห์)"
+    r"\s*หลัง(?:จาก)?เปิดใช้ครั้งแรก))?"
+)
+
+
+def _thai_label_frequency(text: str) -> tuple[dict, str | None] | None:
+    match = THAI_LABEL_FREQUENCY.fullmatch(text)
+    if not match:
+        return None
+    count = int(match["count"])
+    times = [THAI_TIMES[word] for word in re.findall(THAI_TIME, match["times"] or "")]
+    if times and (len(times) != count or len(set(times)) != count):
+        return None
+    fields = {
+        "dose_amount": 0.5 if match["amount"] == "ครึ่ง" else float(match["amount"]),
+        "dose_unit": {"เม็ด": "tablet", "แคปซูล": "capsule", "หยด": "drop"}[match["unit"]],
+        "schedule_type": "frequency", "frequency_count": count, "period_value": 1, "period_unit": "day",
+    }
+    if times:
+        fields["time_of_day"] = times
+    if match["oral"]:
+        fields["route"] = "oral"
+    if match["meal"]:
+        fields["meal_relation"] = {"ก่อนอาหาร": "before meals", "หลังอาหาร": "after meals"}[match["meal"]]
+    # The schema has one verbatim remainder. Keep the full wording when separate
+    # site, duration or storage clauses cannot be captured as one source span.
+    residuals = [match[key].strip() for key in ("site", "course", "storage") if match[key]]
+    remainder = text if len(residuals) > 1 else next(iter(residuals), None)
+    return fields, remainder
 
 
 def _timing(text: str) -> tuple[dict, str | None] | None:
@@ -48,6 +86,8 @@ def _timing(text: str) -> tuple[dict, str | None] | None:
 
 
 def _clause(text: str) -> tuple[dict, str | None] | None:
+    if fields := _thai_label_frequency(text):
+        return fields
     if match := THAI_DAILY.fullmatch(text):
         return {
             "dose_amount": float(match["amount"]), "dose_unit": {"เม็ด": "tablet", "แคปซูล": "capsule"}[match["unit"]],

@@ -1,11 +1,12 @@
 import type { CatalogueMatch, Suggestion } from '../pages/new-patient/draft'
-import type { Decision, EvidenceSource, ImportReceipt, Interview, PackageCapture, ReviewerIdentity, SourceEntry } from './contracts'
+import type { CatalogueIdentity, Decision, EvidenceSource, ImportReceipt, Interview, PackageCapture, ReviewerIdentity, SourceEntry } from './contracts'
 
 type InterviewAnswers = Omit<Interview, 'action' | 'row_id'>
 type IdentifiedItem = { name: string; source_id: string }
 
 export interface AdmissionRow {
   intake_document_excerpts?: Record<string, string>
+  intake_catalogue_identity?: CatalogueIdentity
   intake_sources?: Suggestion[]
   intake_corrections?: Partial<Record<'name' | 'strength' | 'form' | 'directions', string>>
   intake?: Suggestion

@@ -22,6 +22,7 @@ export type AddRow = {
 export type AnalysisPreview = {
   case_id: string
   rows: Array<MedicationSuggestion>
+  catalogue_identities?: Partial<Record<string, CatalogueIdentity>>
   located_regions?: Array<LocatedRegion>
   photo_issues?: Array<PhotoIssue>
   remaining_evidence_unassessed?: boolean
@@ -89,6 +90,14 @@ export type CaseEvidence = {
   case_id: string
   sources: Array<EvidenceSource>
   items?: Array<QuotedEvidenceItem | EvidenceItem>
+}
+
+export type CatalogueIdentity = {
+  ingredient: string
+  trade_name: string | null
+  release: string
+  candidate_tpus: Array<string>
+  evidence: Array<EvidenceRef>
 }
 
 export type CheckExclusion = {
@@ -310,6 +319,7 @@ export type IntakeMedicine = {
   row: MedicationSuggestion
   origin: "manual" | "analysis"
   catalogue?: IntakeChoice | null
+  catalogue_identity?: CatalogueIdentity | null
   sources: Array<EvidenceSource>
   items: Array<EvidenceItem>
   notes: Partial<Record<string, string>>
@@ -324,6 +334,7 @@ export type IntakePart = {
   row: MedicationSuggestion
   origin: "manual" | "analysis"
   catalogue?: IntakeChoice | null
+  catalogue_identity?: CatalogueIdentity | null
   sources: Array<EvidenceSource>
   items: Array<EvidenceItem>
   notes: Partial<Record<string, string>>

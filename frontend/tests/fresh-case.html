@@ -81,6 +81,7 @@
     button('Start fresh case').click()
     button('Keep current case').click()
     await expect(() => doc().querySelector('.suggestion input')?.checked, 'Cancel lost the selected row')
+    button('Edit photos or notes').click()
     button('Analyze evidence').click()
     await expect(() => complete, 'Analysis did not start')
     button('Start fresh case').click()

@@ -22,7 +22,10 @@ flowchart TD
   extract["Analyze evidence or transcribe a located label"]
   pair --> extract
   note["Patient report or transfer record"] --> extract
-  extract -->|"Named or unidentified prefill"| row
+  extract -->|"Printed medicine names"| lookup["Retrieve compatible products from local TMT"]
+  lookup --> interpret["OpenAI compares printed names with candidate brand and ingredient records"]
+  interpret -->|"Catalogue-supported identity or original wording for review"| row
+  extract -->|"Unidentified item"| row
   row --> compare["Check original evidence, correct fields and compare catalogue candidates"]
   compare --> save["Save the draft into the assigned encounter"]
   save --> interview["Interview and record actual use per medicine"]
@@ -41,7 +44,7 @@ flowchart TD
 ```
 
 1. **Add a medicine manually.** Search and select one catalogue product. The combined name, strength and form appear on one editable row immediately. Keep the product ID, name, strength and form in separate fields internally. Staff enter the patient’s dose, schedule and source on that row. Manual selection bypasses AI extraction. If the catalogue has no match, enter the evidenced name, strength and form in the same row and leave the catalogue ID blank.
-2. **Prefill the same row layout from a scan.** Keep items in their original packaging or separate groups. Photograph the labels first, then optionally flip the same items in place for a reverse photo. If pairing is uncertain, ask staff to match the item or retake the photo. Extract legible label fields, retain the original wording and cite the matching label region. Show catalogue candidates where available. For a loose or unreadable item, create an unknown row and attach a matched crop when supported. Mark scan-prefilled fields as awaiting review. A typed patient account or transfer record can supply additional evidence.
+2. **Prefill the same row layout from a scan.** Keep items in their original packaging or separate groups. Photograph the labels first, then optionally flip the same items in place for a reverse photo. If pairing is uncertain, ask staff to match the item or retake the photo. Extract legible label fields, retain the original wording and cite the matching label region. For a named label, retrieve candidate records from the installed Thai TMT catalogue and let OpenAI compare the printed spellings, strength and form against the shortlist. The server checks the returned identifiers against compatible records. Display the supported ingredient and trade name together in one heading. Keep original spellings and the source crop in the details. An unresolved match remains available for manual review, and selecting a product or verifying clinical use requires staff action. For a loose or unreadable item, create an unknown row and attach a matched crop when supported. Mark scan-prefilled fields as awaiting review. A typed patient account or transfer record can supply additional evidence.
 3. **Review in place.** Staff can correct a prefill, discard an erroneous suggestion or link new evidence to an existing medicine. If a scan might describe a manually entered medicine, ask staff to confirm the association before combining rows. A retry or rescan preserves manual edits, verified values and unrelated rows. Keep conflicting source values visible. Selecting a catalogue product supplies its identity as a candidate and does not verify actual use.
 4. **Interview and finish the clinical review.** The [admission workspace](reconciliation-contract.md#admission-encounters) makes a dated worksheet available with the first row. An assigned clinician can explicitly finish routine review. Refer items in current use whose identity remains unresolved and all pending proposals for previously unknown items. Only a pharmacist can resolve a previously unknown identity using independently documented, item-specific evidence. Finishing and referring produce dated review events.
 

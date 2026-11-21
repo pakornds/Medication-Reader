@@ -171,6 +171,9 @@ def retire_sources(row, source_ids):
     if not source_ids:
         return
     row["superseded"].extend(source_ids)
+    hint = row.get("intake_catalogue_identity")
+    if hint and any(ref["source_id"] in source_ids for ref in hint["evidence"]):
+        row.pop("intake_catalogue_identity")
     row["verified"] = None
     row.pop("imported_at", None)
     row.pop("screening_attestation", None)
@@ -293,6 +296,7 @@ def unresolved_photo(entry):
 
 def hold_report_identity(case, row):
     """Keep a report-based name as a proposal once a physical unknown is linked."""
+    row.pop("intake_catalogue_identity", None)
     if row["unknown"]:
         return
     named = [entry for entry in active(row) if entry["name"] and reviewable_entry(entry)]
@@ -670,6 +674,8 @@ class AdmissionStore:
             return attest_current_use(self.row(rows, cmd.row_id), actor, cmd)
         if isinstance(cmd, (AddEvidence, Interview, Proposal, Decision)) and cmd.row_id in rows:
             rows[cmd.row_id].pop("screening_attestation", None)
+            if isinstance(cmd, (Proposal, Decision)):
+                rows[cmd.row_id].pop("intake_catalogue_identity", None)
         if isinstance(cmd, (AddRow, AddEvidence)):
             resolved = resolve_entry(case, cmd.entry)
             entry = resolved.model_dump(mode="json")
@@ -706,6 +712,8 @@ class AdmissionStore:
                     row["proposal"] = dict(name=entry["product"], reference=sid, proposer=actor.id,
                                            independent_entry=bool(entry["identity_basis"]))
             row["entries"].append(entry)
+            if entry.get("name") or entry.get("form") or entry.get("strength") or unresolved_photo(entry):
+                row.pop("intake_catalogue_identity", None)
             if not row["unknown"]:
                 remember_identity_dispute(row, [e for e in active(row) if e["name"] and reviewable_entry(e)])
             row["verified"] = None
