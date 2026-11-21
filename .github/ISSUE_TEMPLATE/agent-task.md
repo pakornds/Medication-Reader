@@ -2,7 +2,7 @@
 name: Agent task
 about: Spec for an agent to read, implement, and report status on
 title: "[TASK] "
-labels: ["status:todo"]
+labels: ["status:todo", "priority:medium"]
 assignees: ""
 ---
 
@@ -52,7 +52,6 @@ assignees: ""
 - **PR:** none
 - **Depends on:** <!-- #N, #M or "none" -->
 - **Merge after:** <!-- #N, #M or "none". Use for PR ordering only. -->
-- **Priority:** medium <!-- low | medium | high -->
 - **Last update:** YYYY-MM-DD
 
 ### Progress checklist

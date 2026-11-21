@@ -73,7 +73,7 @@ Create it from the **Agent task** template (New issue -> Agent task). Fill in ev
 | Out of scope | Things the agent might be tempted to build | Leaving it empty |
 | Acceptance criteria | Commands + expected results | "works correctly" |
 | Example | Real input -> exact expected output | Placeholder values |
-| Status | `Depends on`, `Merge after` if needed, priority | Leaving dependencies implicit |
+| Status | `Depends on`, `Merge after` if needed | Leaving dependencies implicit |
 
 For example, an API ticket for interaction screening can finish when a request containing an unknown medication returns that item as unchecked with a reason, and the endpoint test verifies the response. The UI ticket owns displaying that reason. Link both from the integration ticket that exercises the combined workflow.
 
@@ -96,6 +96,7 @@ Agent-ready:
 - [ ] Owned paths and shared interfaces are clear for any parallel work
 - [ ] No open questions remain
 - [ ] Label is `status:todo`
+- [ ] Exactly one priority label is set (high, medium or low). Use medium when unspecified.
 
 ## Check for conflicting requirements
 
@@ -118,7 +119,7 @@ When asked to plan a feature:
 5. Link every task from the spec's *Task breakdown*.
 
 ```bash
-gh issue create --template agent-task.md --title "[TASK] ..." --body-file task.md --label status:todo
+gh issue create --template agent-task.md --title "[TASK] ..." --body-file task.md --label status:todo --label priority:medium
 ```
 
 ## Setup prompt for another repository
@@ -138,7 +139,7 @@ Create or update these files:
 - `.github/ISSUE_TEMPLATE/agent-task.md` — Include the outcome, owned paths and tests, exclusions, concrete input and expected result, acceptance checks, Depends on, Merge after, and a status block for owner, branch, PR, and progress.
 - `.github/pull_request_template.md` — Include the closing issue reference, acceptance checks, verification results, independent review findings, and merge order.
 
-Use GitHub Issues as the shared queue and communication board. Create any missing labels: `agent-ready`, `status:todo`, `status:in-progress`, `status:blocked`, `status:in-review`, `status:done`. Each ticket has one status label. A human adds `agent-ready` after reviewing the ticket.
+Use GitHub Issues as the shared queue and communication board. Create any missing labels: `agent-ready`, `status:todo`, `status:in-progress`, `status:blocked`, `status:in-review`, `status:done`. Each ticket has one status label. Give each open card exactly one priority label: `priority:high` for time-sensitive work, `priority:medium` for normal work (default), or `priority:low` for deferrable work. Use the label as the source of truth. When setting up an existing board, preserve assigned priorities and translate explicit priority fields on unlabeled cards before applying the default. Apply the chosen label on creation through either the issue template or the CLI. When reprioritizing, replace the previous priority label. A human adds `agent-ready` after reviewing the ticket.
 
 ## Ticket planning
 
@@ -158,7 +159,7 @@ Write a definition of done for each ticket at the boundary it owns. Name who or 
 
 Review each acceptance criterion against the ticket's agreed scope. Record passed, failed, or unverified with the observed result or blocker. Fix and rerun failed checks. Obtain evidence for unverified criteria before merge. Keep unmet requirements on the ticket and record genuinely separate work on its own linked issue. When all ticket criteria pass, report that explicitly even if the broader feature has other open tickets.
 
-1. Read the current issues, comments, branches, and PRs. Choose an open, unassigned ticket labeled `agent-ready` and `status:todo` whose dependencies have merged. Prefer related tickets when several qualify.
+1. Read the current issues, comments, branches, and PRs. Choose an open, unassigned ticket labeled `agent-ready` and `status:todo` whose dependencies have merged. Choose the highest priority among eligible tickets (high, medium, low). Prefer related tickets at equal priority.
 2. Acquire an atomic remote claim keyed by issue number before editing. Use a unique worker/run ID even when computers share one GitHub account. If another worker wins, choose another ticket. If the result is uncertain, verify ownership. Document owner-checked release, explicit handoff, and recovery of abandoned claims.
 3. After claiming, recheck for existing work and overlapping paths. Record the worker ID, branch, and owned paths on the issue. Assign it, set `status:in-progress`, and post a claim comment. Use one implementation branch, worktree, and PR per ticket.
 4. Start immediately after confirming ownership. Keep working between checks. After three minutes and every three minutes during active work, recheck the claim, ticket comments, related branches, commits, and PRs. Recheck on resume and before pushing. If a conflict appears, preserve edits and resolve it with the other worker before continuing on the affected paths.
