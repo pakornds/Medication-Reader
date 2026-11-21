@@ -82,3 +82,26 @@ def test_confirmation_requires_resolved_identity_and_valid_catalogue_pair(client
         "tpu": "108591", "tmt_release": "TMTRF20200217",
     }, status=422)
     assert case.state["rows"][loose]["verified"] is None
+
+
+def test_short_trade_name_requires_item_specific_strength_and_form(client, catalogue, monkeypatch):
+    monkeypatch.setenv("LOCAL_TMT_DB", str(catalogue))
+    case = Case(client, "doctor")
+    selected = {"tpu": "108455", "tmt_release": "TMTRF20200217"}
+    for sid, name, strength, form in [
+        ("good", "AMLOC", "5 mg", "tablet"), ("other-strength", "AMLOC", "10 mg", "tablet"),
+        ("other-form", "AMLOC", "5 mg", "syrup"), ("ambiguous", "AMLOC", None, None),
+        ("unrelated", "Uncatalogued synthetic medicine", "5 mg", "tablet"),
+    ]:
+        wording = " ".join(part for part in (name, strength, form) if part)
+        row = case.add(record(sid, "prescription", wording, name=name, strength=strength, form=form))
+        case.link(row, record("use-" + sid, "patient_report", "Patient interview"))
+        case.interview(row, "use-" + sid)
+        if sid == "good":
+            case.send("verify", row_id=row, source_id="use-" + sid, confirmed_product={**selected, "tpu": "108591"}, status=422)
+            assert client.get(case.path, headers=headers("pharmacist")).json() == case.state
+            case.send("verify", row_id=row, source_id="use-" + sid, confirmed_product=selected)
+            assert case.state["rows"][row]["verified"]["identity"]["normalized_medication_id"] == "108455"
+        else:
+            case.send("verify", row_id=row, source_id="use-" + sid, confirmed_product=selected, status=422)
+            assert client.get(case.path, headers=headers("pharmacist")).json() == case.state
