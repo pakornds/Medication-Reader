@@ -20,6 +20,15 @@ Closes #<!-- issue number -->
 
 <!-- For runnable changes, include the reproduction steps and observed result. Show the evidence directly to the user in the per-ticket completion update as well. -->
 
+## Scenario results
+
+<!-- One line per affected scenario from docs/specs/medication-reader-v1.md#scenarios. -->
+- SC-? | passed / expected failure (owning ticket #) / regressed | evidence
+
+## Design comparison
+
+<!-- UI changes only. For each changed screen, place the screenshot beside its design frame from frontend/docs/ref. List each visible difference and the decision that allows it, if any. Remove for non-UI changes. -->
+
 ## Independent agent review
 
 - Reviewed commit SHA:

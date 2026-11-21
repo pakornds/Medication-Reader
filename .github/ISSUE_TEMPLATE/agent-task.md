@@ -13,6 +13,8 @@ assignees: ""
 - **Owned files/modules:** `path/to/file`
 - **Shared contracts:** <!-- Link shared types or API examples, or write "none" -->
 - **Related issues:** #
+- **Scenarios affected:** <!-- e.g. SC-1, SC-3 from docs/specs/medication-reader-v1.md#scenarios, or "none" -->
+- **Screen and design frame:** <!-- UI work only, e.g. Review, frontend/docs/ref/02 Workspace — conflict. Otherwise "none" -->
 - **Stack / constraints:** <!-- e.g. Python, uv, no new dependencies -->
 - **References:** <!-- docs, links, examples -->
 
@@ -27,6 +29,8 @@ assignees: ""
 - [ ] Tests pass: `<test command>`
 - [ ] Lint/type checks pass: `<lint command>`
 - [ ] <!-- For each requirement give the input or precondition, action, and observable result at this ticket's boundary. Cover relevant failure cases. -->
+- [ ] Affected scenario tests pass, or keep their recorded expected failure, and no other scenario regresses
+- [ ] UI work: screenshot of each changed screen beside its design frame, at desktop and phone width
 - [ ] Docs/README updated if behavior changed
 
 ## Example
