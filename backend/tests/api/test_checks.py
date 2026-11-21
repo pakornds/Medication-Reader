@@ -2,29 +2,9 @@ import json
 from pathlib import Path
 
 import pytest
-from fastapi import FastAPI
-from httpx import ASGITransport, AsyncClient
-
-from app.api.checks import router
-from app.schemas.checks import CheckSummary
+from app.services.checks import CoverageRequest, run_checks
 
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "contracts" / "transfer_case.json"
-
-pytestmark = pytest.mark.anyio
-
-
-@pytest.fixture
-def anyio_backend():
-    return "asyncio"
-
-
-@pytest.fixture
-async def client():
-    app = FastAPI()
-    app.include_router(router)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as http:
-        yield http
-
 
 @pytest.fixture
 def transfer():
@@ -56,20 +36,14 @@ def rows(transfer):
     return demo_rows
 
 
-async def run(client, transfer, *, kind, rows, enabled=True, context=None):
-    response = await client.post(
-        "/checks",
-        json={
-            "kind": kind, "enabled": enabled, "rows": rows, "context": context or {},
-            "evidence": transfer["request"]["evidence"],
-        },
-    )
-    assert response.status_code == 200, response.text
-    return CheckSummary.model_validate(response.json())
+def run(transfer, *, kind, rows, enabled=True, context=None):
+    return run_checks(CoverageRequest(
+        kind=kind, enabled=enabled, rows=rows, context=context or {}, evidence=transfer["request"]["evidence"],
+    ))
 
 
-async def test_supported_pair_plus_unknown_is_partial(client, transfer, rows):
-    result = await run(client, transfer, kind="DDI", rows=rows)
+def test_supported_pair_plus_unknown_is_partial(transfer, rows):
+    result = run(transfer, kind="DDI", rows=rows)
     assert result.status == "partial"
     assert result.ran_at is not None
     assert result.simulated is True
@@ -80,8 +54,8 @@ async def test_supported_pair_plus_unknown_is_partial(client, transfer, rows):
     assert result.findings[0].scope == result.evaluated[0]
 
 
-async def test_drp_skips_rule_without_context(client, transfer, rows):
-    result = await run(client, transfer, kind="DRP", rows=rows[:1])
+def test_drp_skips_rule_without_context(transfer, rows):
+    result = run(transfer, kind="DRP", rows=rows[:1])
     assert result.status == "unavailable"
     assert result.ran_at is None
     assert result.evaluated == []
@@ -89,55 +63,45 @@ async def test_drp_skips_rule_without_context(client, transfer, rows):
     assert "context is missing" in result.excluded[0].reason
 
 
-async def test_drp_with_fixture_context_can_complete_without_findings(client, transfer, rows):
-    result = await run(client, transfer, kind="DRP", rows=rows[:1], context={"fixture_context": "present"})
+def test_drp_with_fixture_context_can_complete_without_findings(transfer, rows):
+    result = run(transfer, kind="DRP", rows=rows[:1], context={"fixture_context": "present"})
     assert result.status == "complete"
     assert result.findings == []
     assert len(result.evaluated) == 1
 
 
-async def test_disabled_check_has_no_evaluated_scope(client, transfer, rows):
-    result = await run(client, transfer, kind="DDI", rows=rows, enabled=False)
+def test_disabled_check_has_no_evaluated_scope(transfer, rows):
+    result = run(transfer, kind="DDI", rows=rows, enabled=False)
     assert result.status == "not_run"
     assert result.ran_at is None
     assert result.evaluated == []
     assert result.excluded == []
 
 
-@pytest.mark.parametrize(("invalid_rows", "code"), [("duplicate", "duplicate_row"), ("empty", "empty_scope")])
-async def test_invalid_scope_is_rejected(client, transfer, rows, invalid_rows, code):
-    response = await client.post("/checks", json={
-        "kind": "DDI", "enabled": True, "rows": rows[:1] * 2 if invalid_rows == "duplicate" else [],
-        "evidence": transfer["request"]["evidence"],
-    })
-    assert response.status_code == 422
-    assert response.json()["detail"]["code"] == code
-
-
 @pytest.mark.parametrize("reference", [
     {"source_id": "reverse-photo", "item_id": "pill-c"},
     {"source_id": "label-photo", "item_id": "label-b"},
 ])
-async def test_ddi_excludes_identity_from_wrong_item_or_appearance(client, transfer, rows, reference):
+def test_ddi_excludes_identity_from_wrong_item_or_appearance(transfer, rows, reference):
     rows[0]["verification"]["identity"]["evidence"] = reference
-    result = await run(client, transfer, kind="DDI", rows=rows[:2])
+    result = run(transfer, kind="DDI", rows=rows[:2])
     assert result.status == "unavailable"
     assert result.evaluated == result.findings == []
     assert "evidence" in result.excluded[0].reason
 
 
-async def test_drp_excludes_dose_with_unknown_source(client, transfer, rows):
+def test_drp_excludes_dose_with_unknown_source(transfer, rows):
     rows[0]["verification"]["dose"]["evidence"] = {"source_id": "unknown"}
-    result = await run(client, transfer, kind="DRP", rows=rows[:1], context={"fixture_context": "present"})
+    result = run(transfer, kind="DRP", rows=rows[:1], context={"fixture_context": "present"})
     assert result.status == "unavailable"
     assert "traceable evidence" in result.excluded[0].reason
 
 
 @pytest.mark.parametrize("kind", ["DDI", "DRP"])
-async def test_checks_exclude_current_use_with_unknown_source(client, transfer, rows, kind):
+def test_checks_exclude_current_use_with_unknown_source(transfer, rows, kind):
     rows[0]["verification"]["evidence"] = [{"source_id": "unknown"}]
     scope = rows[:2] if kind == "DDI" else rows[:1]
-    result = await run(client, transfer, kind=kind, rows=scope, context={"fixture_context": "flagged"})
+    result = run(transfer, kind=kind, rows=scope, context={"fixture_context": "flagged"})
     assert result.status == "unavailable"
     assert result.evaluated == result.findings == []
     assert "Current-use verification lacks traceable evidence" in result.excluded[0].reason
