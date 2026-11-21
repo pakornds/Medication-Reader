@@ -100,7 +100,7 @@ const en = {
   noMedicines: 'Add evidence or enter a medicine to begin.',
   back: 'Back to input',
   query: 'Product name or code',
-  noProducts: 'No matching products. You can enter the evidenced name below.',
+  noProducts: 'No matching products. You can use the name you typed.',
   catalogFail: 'Catalogue unavailable. You can still enter the evidenced name.',
   searching: 'Searching…',
   strength: 'Strength',

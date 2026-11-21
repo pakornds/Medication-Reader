@@ -93,7 +93,7 @@
   :is(.btn, .primary-btn, .text-action) svg, .intake button svg, .intake a svg, .draft-line svg { width: 1.05rem; height: 1.05rem; flex-shrink: 0; }
   .field-label, .intake label { display: block; font-size: .87rem; font-weight: 600; }
   .intake label > small { margin-inline-start: .5rem; font-weight: normal; }
-  .field-label > input, .intake textarea, .intake select {
+  .field-label > input, .medicine-control > input, .intake textarea, .intake select {
     display: block; min-width: 0; width: 100%; margin-top: .35rem; padding: .55rem .7rem;
     min-height: 2.6rem; border: 1px solid var(--line); border-radius: .45rem; background: var(--bg-2); color: var(--text-1);
     font-size: 1rem; font-weight: normal;
@@ -124,9 +124,20 @@
   .section-heading .hint { margin-top: .25rem; }
   .written-evidence { margin-top: clamp(1rem, 2.5vw, 2rem); padding-top: 1.5rem; border-top: 1px solid var(--line); }
   .note-block + .note-block { border-top: 1px solid var(--line); padding-top: 1rem; }
-  .product-list { max-height: 16rem; overflow: auto; }
-  .product-list button { display: grid; width: 100%; text-align: start; padding: .65rem; border-bottom: 1px solid var(--line); }
-  .product-list button:hover { background: var(--bg-hover); }
+  .medicine-picker, .medicine-control { position: relative; }
+  .medicine-control > input { padding-inline-start: 2.5rem; }
+  .medicine-control > svg { position: absolute; inset-inline-start: .8rem; top: 50%; transform: translateY(-40%); pointer-events: none; color: var(--text-2); }
+  .medicine-menu { position: absolute; inset-inline: 0; top: calc(100% + .25rem); z-index: 5; overflow: hidden; border: 1px solid var(--line); border-radius: .65rem; background: var(--bg-2); box-shadow: 0 8px 24px #10233c24; }
+  .medicine-picker[data-placement=above] .medicine-menu { top: auto; bottom: calc(100% + .25rem); }
+  .product-list { position: relative; max-height: min(18rem, var(--menu-space, 40dvh)); overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+  .product-list [role=option] { padding: .6rem .85rem; cursor: pointer; border-inline-start: 3px solid transparent; }
+  .product-list [role=option] + [role=option] { border-top: 1px solid var(--line); }
+  .product-list [role=option]:hover:not([aria-disabled=true]) { background: var(--bg-hover); }
+  .product-list [aria-selected=true] { background: var(--bg-selected); border-inline-start-color: var(--accent); }
+  .product-list [aria-disabled=true] { color: var(--text-2); cursor: default; }
+  .product-name { display: block; font-size: .93rem; font-weight: 600; line-height: 1.4; }
+  .product-detail { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: .15rem .75rem; margin-top: .2rem; font-size: .8rem; color: var(--text-2); font-variant-numeric: tabular-nums; }
+  .medicine-message { padding: .65rem .9rem; font-size: .875rem; color: var(--text-2); }
   .intake .pick-row { display: flex; gap: .65rem; align-items: center; }
   .pick-row input { width: 1.15rem; height: 1.15rem; accent-color: var(--accent); }
   .row-evidence { padding: .8rem 0; font-size: .95rem; }

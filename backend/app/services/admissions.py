@@ -18,7 +18,7 @@ from app.services.labels import LabelPhotoError, crop_label
 
 from app.schemas.analysis import Discrepancy
 from app.schemas.admission import (
-    Action, AddEvidence, AddRow, Decision, Finish, Import, Interview, NewEncounter, Proposal, Refer, Verify,
+    Action, AddEvidence, AddRow, AttestCurrentUse, Decision, Finish, Import, Interview, NewEncounter, Proposal, Refer, Verify,
 )
 from app.schemas.evidence import REPORT_KINDS, Observation, CaseEvidence, EvidenceItem, EvidenceRef, EvidenceSource, SourcedValue
 from app.schemas.review import CurrentUseVerification, ImportRequest, ReviewRow
@@ -349,6 +349,10 @@ class AdmissionStore:
 
     def transition(self, case, actor, cmd, request_id):
         rows = case["rows"]
+        if isinstance(cmd, AttestCurrentUse):
+            return attest_current_use(self.row(rows, cmd.row_id), actor, cmd)
+        if isinstance(cmd, (AddEvidence, Interview, Proposal, Decision)) and cmd.row_id in rows:
+            rows[cmd.row_id].pop("screening_attestation", None)
         if isinstance(cmd, (AddRow, AddEvidence)):
             entry = cmd.entry.model_dump(mode="json")
             if cmd.entry.scan_fields:
@@ -608,3 +612,71 @@ class AdmissionStore:
             raise HTTPException(422, exc.detail.message) from None
         except HospitalError as exc:
             raise HTTPException(409 if exc.detail.code == "retry_conflict" else 503, exc.detail.message) from None
+
+
+_SCREENING_ROLES = frozenset({"doctor", "pharmacist"})
+
+
+def screening_verification(row):
+    """Return the encounter verification available to screening for the current evidence."""
+    verified = row.get("verified") or {}
+    if (verified.get("actor") or {}).get("role") in _SCREENING_ROLES:
+        return verified
+    attestation = row.get("screening_attestation")
+    if attestation and (
+        attestation["answer"] == row["interview"]
+        and attestation["active_sources"] == [entry["source"]["id"] for entry in active(row)]
+        and not needs_identity(row)
+    ):
+        if not row["unknown"] or _attested_identity(row["confirmed"]) == attestation["identity"]:
+            return attestation
+    return verified
+
+
+def _attested_identity(identity):
+    if identity:
+        return {"name": identity["name"], "source_id": identity["source_id"]}
+    return None
+
+
+def attest_current_use(row, actor, cmd):
+    require(actor.role in _SCREENING_ROLES, "A doctor or pharmacist is required to attest current use.", 403)
+    answer = row["interview"]
+    require(answer and cmd.source_id == answer["source_id"], "Review the sourced interview first.")
+    source = entry_for(row, cmd.source_id)
+    require(source["source"]["kind"] in REPORT_KINDS or source["record_basis"] == "documented_interview",
+            "Cite an actual report or the documented prior interview excerpt.")
+    require(answer["ownership"] == "patient" and answer["current_use"] == "current",
+            "Attest only verified patient-owned current use.")
+    if ownership_source_id := answer.get("ownership_source_id"):
+        entry_for(row, ownership_source_id)
+
+    require(not needs_identity(row), "Identity requires pharmacist review.")
+    entries = active(row)
+    conflict = "Resolve the documented identity conflict before attesting current use."
+    if row["unknown"]:
+        identity = _attested_identity(row["confirmed"])
+        require(identity, "Identity requires pharmacist review.")
+        documented = entry_for(row, identity["source_id"])
+        observations = [source]
+    else:
+        observations = [entry for entry in entries if entry["name"] and reviewable_entry(entry)]
+        named_documents = [entry for entry in observations if entry["source"]["kind"] not in REPORT_KINDS]
+        require(named_documents, "Cite active evidence of this medication’s identity.")
+        variants = {entry["product"].strip().casefold() for entry in named_documents}
+        require(len(variants) == 1 and not {"strength", "form"}.intersection(conflicting_fields(row)), conflict)
+        documented = named_documents[-1]
+        identity = dict(name=documented["product"], source_id=documented["source"]["id"])
+
+    supported_names = {documented[key].strip().casefold() for key in ("name", "product")}
+    # A report can cite the documented product or its unqualified name. It cannot establish identity.
+    require(all(not entry["name"] or entry["product"].strip().casefold() in supported_names
+                for entry in observations), conflict)
+
+    attestation = dict(actor=actor.model_dump(), at=now(), source_id=cmd.source_id, identity=identity,
+                       answer=deepcopy(answer), active_sources=[entry["source"]["id"] for entry in entries])
+    row["screening_attestation"] = attestation
+    sources = [cmd.source_id, identity["source_id"]]
+    if ownership_source_id:
+        sources.append(ownership_source_id)
+    return dict(rows=[row["id"]], sources=list(dict.fromkeys(sources)), attestation=attestation)
