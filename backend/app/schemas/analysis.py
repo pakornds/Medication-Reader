@@ -81,6 +81,25 @@ class AnalysisResult(ContractModel):
         return self
 
 
+class DispensingFacility(ContractModel):
+    evidence: EvidenceRef
+    organization: Text
+    organization_type: Literal["clinic", "hospital", "community_pharmacy", "other"] | None = None
+    department_or_ward: Text | None = None
+    organization_address: Text | None = None
+    organization_phone: Text | None = None
+    organization_phone_extension: Text | None = None
+    organization_email: Text | None = None
+
+
+class LabelMedicationSuggestion(MedicationSuggestion):
+    dispensing_facility: DispensingFacility | None = None
+
+
+class LabelAnalysisResult(AnalysisResult):
+    rows: list[LabelMedicationSuggestion]
+
+
 class AnalysisRequest(ContractModel):
     evidence: CaseEvidence
     patient_report: list[SourcedValue] = Field(default_factory=list)
@@ -113,7 +132,7 @@ def documented_dispensing_refs(
     if (
         source is None
         or source.availability != "available"
-        or not source.organization
+        or (source.kind not in PHOTO_KINDS and not source.organization)
         or source.kind in REPORT_KINDS
     ):
         return []

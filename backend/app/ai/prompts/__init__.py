@@ -47,9 +47,14 @@ readable observation. Set reverse_crop to null. A reverse label is documented
 evidence, while reverse_crop is reserved for a pill appearance in form analysis.
 Set dispensing_source_id only if the visible label explicitly identifies the
 facility on that source as the dispenser. An organization name, logo or phone
-alone does not establish the dispensing role. Personal phone numbers are not
-facility contact details. Ask for a clearer view when it would resolve a
-specific unreadable field.
+alone does not establish the dispensing role. If the output schema contains
+dispensing_facility and the selected image explicitly names its dispenser,
+transcribe the printed organization and institutional details in that field.
+Cite this exact label item in dispensing_facility.evidence. Leave undocumented
+details null. Personal or prescriber phone numbers are not facility contacts.
+Never use source metadata to fill in text you cannot see. When the dispensing
+role is unclear, leave dispensing_source_id and dispensing_facility null.
+Ask for a clearer view when it would resolve a specific unreadable field.
 """,
 )
 

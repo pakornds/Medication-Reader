@@ -26,12 +26,9 @@ def synthetic_scene(*, matched: bool = True, documented: bool = True):
             "case_id": "demo-dispensing",
             "sources": [
                 {"id": "clinic-alpha", "kind": "label_photo", "attachment_id": "front-scene",
-                 "organization": "Demo Clinic Alpha", "organization_type": "clinic",
-                 "organization_address": "99 Demo Lane", "contact": "Patient phone 081-555XXXX"},
+                 "contact": "Patient phone 081-555XXXX"},
                 {"id": "front-b", "kind": "label_photo", "attachment_id": "front-scene"},
-                {"id": "hospital-beta", "kind": "reverse_photo", "attachment_id": "reverse-scene",
-                 "organization": "Demo Hospital Beta", "organization_type": "hospital",
-                 "department_or_ward": "Outpatient Pharmacy", "organization_phone": "02-123XXXX"},
+                {"id": "hospital-beta", "kind": "reverse_photo", "attachment_id": "reverse-scene"},
                 {"id": "pill-photo", "kind": "reverse_photo", "attachment_id": "reverse-scene",
                  "organization": "Unverified Facility", "contact": "Unrelated phone 079-123XXXX"},
             ],
@@ -85,7 +82,7 @@ def named(row_id, name, ref, dispensing_source=None):
     }
 
 
-def fixture_transport(request, _timeout, *, documented):
+def fixture_transport(request, _timeout, *, documented, wrong_region):
     content = json.loads(request.data)["input"][0]["content"]
     manifest = json.loads(content[0]["text"])
     if "items" in manifest:
@@ -94,8 +91,20 @@ def fixture_transport(request, _timeout, *, documented):
         ref = {"source_id": source_id, "item_id": item["id"]}
         name = "Demo A" if item["row_id"] == "row-a" else "Demo B"
         is_dispenser = source_id == "clinic-alpha" or (source_id == "hospital-beta" and documented)
-        dispenser = source_id if is_dispenser else None
-        rows = [named(item["row_id"], name, ref, dispenser)]
+        # Include only the fields visibly documented in the isolated label.
+        row = named(item["row_id"], name, ref, source_id if is_dispenser else None)
+        if source_id == "clinic-alpha":
+            row["dispensing_facility"] = {
+                "evidence": ref, "organization": "Demo Clinic Alpha", "organization_type": "clinic",
+                "organization_address": "99 Demo Lane",
+            }
+        elif source_id == "hospital-beta" and documented:
+            citation = {"source_id": "hospital-beta", "item_id": "front-b"} if wrong_region else ref
+            row["dispensing_facility"] = {
+                "evidence": citation, "organization": "Demo Hospital Beta", "organization_type": "hospital",
+                "department_or_ward": "Outpatient Pharmacy", "organization_phone": "02-123XXXX",
+            }
+        rows = [row]
     else:
         rows = [
             named("row-a", "Demo A", {"source_id": "clinic-alpha", "item_id": "front-a"}),
@@ -113,14 +122,14 @@ def fixture_transport(request, _timeout, *, documented):
 
 
 @pytest.mark.parametrize(
-    "matched,documented",
-    [(True, True), (False, True), (True, False)],
-    ids=["confirmed-reverse", "unpaired-reverse", "facility-role-unclear"],
+    "matched,documented,wrong_region",
+    [(True, True, False), (False, True, False), (True, False, False), (True, True, True)],
+    ids=["confirmed-reverse", "unpaired-reverse", "facility-role-unclear", "wrong-region"],
 )
-def test_medication_analysis_preserves_only_attributed_facilities(matched, documented):
+def test_medication_analysis_preserves_only_attributed_facilities(matched, documented, wrong_region):
     provider = OpenAIClient(
         api_key="fixture-key", model="fixture-model",
-        transport=partial(fixture_transport, documented=documented),
+        transport=partial(fixture_transport, documented=documented, wrong_region=wrong_region),
     )
     with TestClient(create_app(get_provider=lambda: provider)) as client:
         response = client.post(
@@ -141,7 +150,7 @@ def test_medication_analysis_preserves_only_attributed_facilities(matched, docum
     assert rows["row-c"]["dispensing_source_id"] is None
     assert "row-c" not in facilities
 
-    if matched and documented:
+    if matched and documented and not wrong_region:
         assert rows["row-b"]["dispensing_source_id"] == "hospital-beta"
         beta = facilities["row-b"]
         assert beta["evidence"] == {"source_id": "hospital-beta", "item_id": "reverse-b"}
