@@ -97,10 +97,19 @@ Agent-ready:
 - [ ] No open questions remain
 - [ ] Label is `status:todo`
 
+## Check for conflicting requirements
+
+Before filing or refining an implementation ticket, compare the proposed behavior with earlier revisions, other applicable specs and contracts, and accepted decisions in linked issues, comments and PRs. Check current code and tests for evidence of what ships. A difference from the implementation can be an ordinary feature gap. A conflict exists when two applicable requirements demand incompatible outcomes for the same case.
+
+If an approved change explicitly supersedes an earlier rule, link the decision and both sources, identify affected tickets and tests, and plan the remaining changes. If intent is unclear, cite both sources, give one input with the two competing expected results, and ask the user which should apply. Hold the affected ticket creation, scope changes and implementation until the decision is recorded. Reuse the existing discussion, notify active owners, continue unrelated work, and revisit pending decisions even when the spec revision is unchanged.
+
+For example, if a proposal lets any reviewer import a row while the approved spec requires a pharmacist, identify what each rule would do when a doctor submits a row. Record who can authorize that import before changing the endpoint ticket.
+
 ## For planning agents
 When asked to plan a feature:
 1. Write the spec first and stop for human review if there are open questions.
 2. For each new or changed requirement, fetch the latest default branch and compare the expected behavior against current code and tests. Search open and closed issues (including comments), open PRs and merged PRs by behavior, related terms and affected paths. Verify what actually landed. A closed issue alone does not establish that the requirement was delivered.
+   - Apply the [requirement conflict check](#check-for-conflicting-requirements) before classifying coverage.
    - Already implemented and verified: link the supporting code, tests or merged PR in the spec and skip ticket creation.
    - Already tracked: link the existing issue or PR. Refine the existing ticket for compatible missing acceptance checks and notify its owner if work is active.
    - Partially covered or untracked: describe the precise gap. Recheck GitHub immediately before filing, then create one issue per independently testable missing outcome with `status:todo`. Link prior work and record what it already covers.
@@ -132,6 +141,12 @@ Create or update these files:
 Use GitHub Issues as the shared queue and communication board. Create any missing labels: `agent-ready`, `status:todo`, `status:in-progress`, `status:blocked`, `status:in-review`, `status:done`. Each ticket has one status label. A human adds `agent-ready` after reviewing the ticket.
 
 ## Ticket planning
+
+Document which repository paths workers monitor for requirement changes. During assessment, follow relevant references to other available documentation and recorded decisions.
+
+Before filing or refining an implementation ticket, compare the proposed behavior with earlier revisions, other applicable specs and contracts, and accepted decisions in linked issues, comments and PRs. Check current code and tests for evidence of what ships. A difference from the implementation can be an ordinary feature gap. A conflict exists when two applicable requirements demand incompatible outcomes for the same case.
+
+If an approved change explicitly supersedes an earlier rule, link the decision and both sources, identify affected tickets and tests, and plan the remaining changes. If intent is unclear, cite both sources, give one input with the two competing expected results, and ask the user which should apply. Hold the affected ticket creation, scope changes and implementation until the decision is recorded. Reuse the existing discussion, notify active owners, continue unrelated work, and revisit pending decisions even when the spec revision is unchanged.
 
 During planning, check new or changed requirements against current code, tests, open and closed issues, and open and merged PRs. Link verified work. Update matching open tickets with any missing acceptance checks. Recheck GitHub immediately before filing and create tickets only for uncovered outcomes. When a requirement extends existing behavior, identify the existing code and tests the worker can modify within scope. On startup, resume and each three-minute check, fetch the default branch and compare the published spec with the last successfully assessed revision. On a first run, assess the current requirements. Skip unchanged content. Use the most capable available reasoning model for changed-requirement analysis when possible. Serialize issue creation across workers with a short, atomic planning claim independent of implementation claims. Under the claim, refresh issues and PRs, reuse matching work and file only independently testable uncovered outcomes as status:todo. Link the spec revision and section, and leave agent-ready to human review. Retry incomplete assessments at the next check.
 
