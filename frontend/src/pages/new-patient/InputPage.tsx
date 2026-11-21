@@ -4,7 +4,7 @@ import { InputField } from '../../components/ui/InputField'
 import { Button } from '../../components/ui/Button'
 import { useEffect, useRef, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useOutletContext } from 'react-router-dom'
 import {
   LuArrowRight,
   LuClipboardList,
@@ -47,6 +47,7 @@ export function InputPage({
   language: Language
 }) {
   const t = intake[language]
+  const setHasManualWork = useOutletContext<(hasWork: boolean) => void>()
   const [mode, setMode] = useState<'evidence' | 'manual'>('evidence')
   const [addSlot, setAddSlot] = useState(false)
   const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('idle')
@@ -317,6 +318,7 @@ export function InputPage({
             <div hidden={mode !== 'manual'}>
               <ManualMedicineEntry caseId={draft.caseId} rt={regimenText[language]}
                 t={t}
+                onWorkChange={setHasManualWork}
                 onAdd={(medicine) => setDraft((d) => ({ ...d, medicines: [...d.medicines, medicine] }))}
               />
             </div>

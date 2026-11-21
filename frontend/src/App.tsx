@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Navigate, Route, Routes, useMatch } from 'react-router-dom'
+import { Navigate, Route, Routes, useMatch, useNavigate } from 'react-router-dom'
 import { HomePage } from './pages/home/HomePage'
 import { NewPatientLayout } from './pages/new-patient/NewPatientLayout'
 import { InputPage } from './pages/new-patient/InputPage'
 import { DraftReview } from './pages/new-patient/AnalysisPreview'
-import { createDraft, withDraftValues, type DraftValues } from './pages/new-patient/draft'
+import { createDraft, hasCaseWork, withDraftValues, type DraftValues } from './pages/new-patient/draft'
 import { stages } from './pages/new-patient/stages'
 import { PageContainer } from './components/layout/PageContainer'
 import { TopBar } from './components/layout/TopBar'
@@ -27,6 +27,7 @@ export default function App() {
     }
   })
   const [draft, setDraft] = useState(createDraft)
+  const navigate = useNavigate()
   const [lastStage, setLastStage] = useState('input')
   const stage = useMatch('/new-patient/:stage')?.params.stage
   const t = messages[language]
@@ -61,6 +62,12 @@ export default function App() {
     }))
   }
 
+  function startFreshCase() {
+    setDraft(createDraft())
+    setLastStage('input')
+    navigate('/new-patient/input', { replace: true })
+  }
+
   return (
     <>
       <TopBar language={language} onLanguage={changeLanguage} />
@@ -68,7 +75,9 @@ export default function App() {
         <PageContainer>
           <Routes>
             <Route path="/" element={<HomePage language={language} />} />
-            <Route path="/new-patient" element={<NewPatientLayout language={language} />}>
+            <Route path="/new-patient" element={
+              <NewPatientLayout key={draft.caseId} language={language} hasWork={hasCaseWork(draft)} onStartFresh={startFreshCase} />
+            }>
               <Route index element={<Navigate to={lastStage} replace />} />
               <Route path="input" element={<InputPage draft={draft} setDraft={setDraft} language={language} />} />
               <Route path="review" element={<DraftReview draft={draft} language={language} onSave={saveDraftValues} />} />
