@@ -7,6 +7,8 @@ const sourceKinds = {
 };
 const photoKinds = new Set(["label_photo", "reverse_photo", "additional_photo"]);
 const clinicianRoles = new Set(["nurse", "doctor", "pharmacist"]);
+const identityRecords = new Set(["prescription", "transfer_record", "reviewer_record"]);
+const useRecords = new Set(["patient_report", "caregiver_report", "transfer_record", "reviewer_record", "other_record"]);
 const fieldNames = {
   identity: "Identity", directions: "Documented directions", reported_use: "Reported use",
   period_value: "Period length", time_of_day: "Time of day", as_needed: "As needed",
@@ -76,20 +78,26 @@ function citationsFor(row, evidence) {
       Boolean(describe(ref));
   }
 
-  function supportsIdentity(ref, independentOf = null) {
+  function supportsIdentity(ref, independent = false) {
     const source = sources.get(ref?.source_id);
     if (!source) return false;
-    const challenged = sources.get(independentOf?.source_id);
+    const challenged = independent ? sources.get(row.reverse_crop?.source_id) : null;
     if (challenged && (source.id === challenged.id ||
         (source.attachment_id && source.attachment_id === challenged.attachment_id))) return false;
     if (photoKinds.has(source.kind)) {
       const expected = source.kind === "reverse_photo" ? "matched_reverse_label" : "label_region";
       if (locate(ref)?.kind !== expected) return false;
+    } else if (independent && (!identityRecords.has(source.kind) || locate(ref)?.kind !== "record_excerpt")) {
+      return false;
     }
     return Boolean(describe(ref));
   }
 
-  return { describe, cropAvailable, supportsIdentity, used };
+  function supportsUse(ref) {
+    return useRecords.has(sources.get(ref?.source_id)?.kind) && Boolean(describe(ref));
+  }
+
+  return { describe, cropAvailable, supportsIdentity, supportsUse, used };
 }
 
 function sourceDetails(document, article, sources) {
@@ -147,14 +155,14 @@ function regimen(document, parent, components, cite) {
 
 function renderRow(document, row, options) {
   const { evidence, decisions, referrals, cropUrl, mode } = options;
-  const { describe: cite, cropAvailable, supportsIdentity, used } = citationsFor(row, evidence);
+  const { describe: cite, cropAvailable, supportsIdentity, supportsUse, used } = citationsFor(row, evidence);
   const article = node(document, "article");
   article.className = "handoff-row";
   for (const ref of row.sources) cite(ref, { claim: false });
   const unknown = row.identity_status !== "named";
   const verification = clinicianRoles.has(row.verification?.reviewer?.role) ? row.verification : null;
   const verifiedIdentity = verification?.identity && (!unknown || verification.reviewer.role === "pharmacist") &&
-    supportsIdentity(verification.identity.evidence, unknown ? row.reverse_crop : null) ? verification.identity : null;
+    supportsIdentity(verification.identity.evidence, unknown) ? verification.identity : null;
   const resolved = new Set(verification?.resolved_discrepancies ?? []);
   const discrepancies = row.discrepancies ?? [];
   const pendingIdentity = discrepancies.some(item => item.field === "identity" && !resolved.has(item.id)) ||
@@ -166,8 +174,13 @@ function renderRow(document, row, options) {
   if (unknown) article.append(node(document, "p", `Item ${row.id}`));
   if (pendingIdentity) article.append(node(document, "p", "Identity unresolved"));
   if (verification) {
-    const status = verification.status === "no_longer_current" ? "No longer current" :
-      verification.status === "current" && confirmedName ? "Verified current" : "Current use uncertain";
+    let status = "Current use uncertain";
+    if (verification.status === "no_longer_current") {
+      status = "No longer current";
+    } else if (verification.status === "current") {
+      if (confirmedName) status = "Verified current";
+      else if (verification.evidence.some(supportsUse)) status = "Current use verified for this unidentified item";
+    }
     article.append(node(document, "p", status));
   } else if (!pendingIdentity) {
     article.append(node(document, "p", "Verification pending"));

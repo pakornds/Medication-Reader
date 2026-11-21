@@ -159,3 +159,24 @@ test("a report keeps the reporter when the source also lists an organization", (
   const sheet = text(render(data));
   assert.match(sheet, /Patient report · Demo Clinic · Reported by Demo patient \[patient-account\]/);
 });
+
+test("a reported account can support current use while the physical identity stays unresolved", () => {
+  const data = snapshot();
+  const pending = data.rows[2];
+  const interview = { source_id: "patient-account" };
+  data.rows = [pending];
+  pending.verification = { status: "current", reviewer: { name: "Demo nurse", role: "nurse" },
+    verified_at: datedAt, evidence: [interview] };
+  const current = text(render(data));
+  assert.match(current, /Identity unresolved\nCurrent use verified for this unidentified item/);
+  pending.verification.reviewer = { name: "Demo pharmacist", role: "pharmacist" };
+  pending.verification.identity = { value: "Reported name only", evidence: interview };
+  const unresolved = text(render(data));
+  assert.match(unresolved, /Unknown medication A[\s\S]*Identity unresolved/);
+  assert.doesNotMatch(unresolved, /Reported name only|Verified identity/);
+
+  const confirmed = { source_id: "ward-record", item_id: "confirmation-c" };
+  data.evidence.items.push({ id: confirmed.item_id, source_id: confirmed.source_id, row_id: pending.id, kind: "record_excerpt" });
+  pending.verification.identity = { value: "Separately identified item", evidence: confirmed };
+  assert.match(text(render(data)), /Separately identified item[\s\S]*Verified current/);
+});
