@@ -129,9 +129,7 @@ class FormGrounding:
         if source.kind in PHOTO_KINDS:
             item = self.items.get((ref.source_id, ref.item_id))
             return (
-                source.kind != SourceKind.REVERSE_PHOTO
-                and item is not None
-                and item.kind == "label_region"
+                item is not None and item.supports_label(source.kind)
             )
         return any(fact.value in text for text in self.texts.get(source.id, []))
 
@@ -234,8 +232,7 @@ class FormGrounding:
             )
             supported = observation.evidence is None or (
                 source is not None and source.kind not in REPORT_KINDS
-                and source.kind != SourceKind.REVERSE_PHOTO
-                and (source.kind not in PHOTO_KINDS or (region is not None and region.kind == "label_region"))
+                and (source.kind not in PHOTO_KINDS or (region is not None and region.supports_label(source.kind)))
                 and (
                     observation.value is None
                     or self.supports_fact(
