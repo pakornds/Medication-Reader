@@ -52,6 +52,37 @@ function missingRegimen(answer) {
   return regimenKeys.filter(key => !answer?.[key]);
 }
 
+function reviewableIdentity(entry) {
+  return entry.name && (!entry.photo || (!entry.photo.appearance &&
+    (entry.photo.front_attributed || entry.photo.pairing === "matched")));
+}
+
+function observedIdentityField(entry, key) {
+  if (entry[key]) return entry[key];
+  const scan = entry.scan_fields?.[key];
+  if (scan?.status === "readable" && entry.label_overrides && !entry.label_overrides.includes(key)) return scan.value;
+  return null;
+}
+
+function screeningIdentityIsSupported(row, entries, source) {
+  const named = entries.filter(reviewableIdentity);
+  const documents = named.filter(entry => !reportKinds.has(entry.source.kind));
+  const identity = row.unknown
+    ? entries.find(entry => entry.source.id === row.confirmed?.source_id)
+    : documents.at(-1);
+  if (!identity) return false;
+  const product = entry => (entry.product || entry.name).trim().toLowerCase();
+  if (!row.unknown) {
+    if (new Set(documents.map(product)).size > 1) return false;
+    for (const key of ["strength", "form"]) {
+      const values = entries.map(entry => observedIdentityField(entry, key)).filter(Boolean);
+      if (new Set(values.map(value => value.trim().toLowerCase())).size > 1) return false;
+    }
+  }
+  const supported = [identity.name.trim().toLowerCase(), product(identity)];
+  return (row.unknown ? [source] : named).every(entry => !entry.name || supported.includes(product(entry)));
+}
+
 function activeAttestation(row, entries) {
   const attestation = row.screening_attestation;
   if (!attestation || !row.interview) return null;
@@ -80,16 +111,13 @@ export function canAttestCurrentUse(row, actor) {
   }
   const entries = row.entries.filter(entry => !row.superseded.includes(entry.source.id));
   const source = entries.find(entry => entry.source.id === answer.source_id);
-  const documented = entries.filter(entry => entry.name && !reportKinds.has(entry.source.kind));
   return Boolean(source && (reportKinds.has(source.source.kind) || source.record_basis === "documented_interview") &&
-    (row.confirmed || documented.length) && !activeAttestation(row, entries));
+    screeningIdentityIsSupported(row, entries, source) && !activeAttestation(row, entries));
 }
 
 export function namedIdentityOptions(row) {
   const disputed = row.disputed_identity_source_ids || [];
-  const candidates = row.entries.filter(entry => !row.superseded.includes(entry.source.id) &&
-    entry.name && (!entry.photo || (!entry.photo.appearance &&
-      (entry.photo.front_attributed || entry.photo.pairing === "matched"))));
+  const candidates = row.entries.filter(entry => !row.superseded.includes(entry.source.id) && reviewableIdentity(entry));
   return candidates.filter(entry => {
     if (!disputed.length) return true;
     if (disputed.includes(entry.source.id) || !entry.identity_basis || reportKinds.has(entry.source.kind)) return false;

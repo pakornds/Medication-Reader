@@ -92,6 +92,10 @@ test("only a doctor or pharmacist can attest sourced current use with an incompl
   assert.deepEqual(admissionReview({}, row).missingRegimen, ["dose"]);
   assert.equal(canAttestCurrentUse(row, { role: "nurse" }), false);
   assert.equal(canAttestCurrentUse(row, { role: "doctor" }), true);
+  const sameName = (id, strength) => ({ ...order, source: { id, kind: "prescription" }, strength, product: "Demo A " + strength });
+  const distinctStrengths = { ...row, entries: [sameName("first", "5 mg"), sameName("second", "10 mg"), report] };
+  assert.equal(canAttestCurrentUse(distinctStrengths, { role: "doctor" }), false);
+  assert.equal(canAttestCurrentUse({ ...distinctStrengths, superseded: ["first"] }, { role: "doctor" }), true);
   assert.equal(canAttestCurrentUse({ ...row, entries: [report] }, { role: "doctor" }), false);
   assert.equal(canAttestCurrentUse({ ...row, disputed_identity_source_ids: ["order", "other"] }, { role: "doctor" }), false);
   assert.equal(canAttestCurrentUse({ ...row, unknown: true }, { role: "pharmacist" }), false);
