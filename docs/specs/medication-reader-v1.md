@@ -10,16 +10,14 @@ Build a 12-hour, fixture-only web demo for hospital and community pharmacists, d
 
 ```mermaid
 flowchart TD
-    label["1. Photograph all items with labels facing up"]
+    label["1. Photograph items label-side up and optionally add medications or source notes manually"]
     reverse["2. Flip items in place and photograph the pill side"]
-    agent["3. Analyze both photos and any staff-entered reports or transfer records"]
+    agent["3. Analyze the collected evidence"]
     label --> reverse --> agent
     agent --> ocr["Read Thai and English labels from Photo 1"]
     agent --> flag["Flag unknown items and attach matched crops from Photo 2 when available"]
-    agent --> manual["Capture reported use with its source and date"]
     ocr --> list["Prepare a draft with evidence, discrepancies and follow-up questions"]
     flag --> list
-    manual --> list
     list --> handoff["4. Give the pharmacist or doctor the printed or digital list"]
     handoff --> review{"Can the reviewer verify actual use with the patient and available evidence?"}
     review -->|More evidence needed| follow["Keep the row pending and follow up with the patient or source before reviewing again"]
@@ -33,15 +31,15 @@ flowchart TD
     classDef human fill:#FFF2D7,stroke:#AF7627,color:#4E3213
     classDef storage fill:#E5F5EC,stroke:#398367,color:#173D30
     class label,reverse evidence
-    class ocr,flag,manual,list,agent,checks processing
+    class ocr,flag,list,agent,checks processing
     class handoff,review,follow,verified human
     class save,receipt storage
 ```
 
-1. A staff member opens a transient case. For **Photo 1**, arrange all the patient's medicines together on a plain background, including bags, boxes, blister packs, and loose or unlabeled items. Face the labels up and make the text readable in the frame. For **Photo 2**, flip the same bags or packs to show the pills where visible. Keep the items in their original positions so the two photos can be matched. Allow either photo to be retaken. Attach a source to each photo or supplemental manual record. Capture the evidence type, organization or reporter, department or ward, contact, and source date when available. Flag missing source details for follow-up. The demo uses `ศักดาเวชการ` and the masked contact `075-356XXXX`.
+1. A staff member opens a transient case. For **Photo 1**, arrange all the patient's medicines together on a plain background, including bags, boxes, blister packs, and loose or unlabeled items. Face the labels up and make the text readable in the frame. Staff can also add medicines manually during intake, including medicines the patient reports but did not photograph. Record the source and date when available. For **Photo 2**, flip the same bags or packs to show the pills where visible. Keep the items in their original positions so the two photos can be matched. Allow either photo to be retaken. Attach a source to each photo or supplemental manual record. Capture the evidence type, organization or reporter, department or ward, contact, and source date when available. Flag missing source details for follow-up. The demo uses `ศักดาเวชการ` and the masked contact `075-356XXXX`.
 2. Automatically read Thai, English, and bilingual labels from **Photo 1** and give each item or inseparable group one draft row. Capture the medication name, dose, indication, regimen or directions, amount prescribed, prescriber, and prescriber contact when explicitly documented. Also capture strength, dosage form, and expiry when visible. Preserve the original text, numerals, units, and dates and link each field to its evidence. Keep the dose separate from product strength and the amount prescribed separate from the number of pills visible. Leave missing or unreadable fields blank and allow the reviewer to fill them from a documented source. Do not infer indication, prescriber identity, or contact details.
 3. Give unlabeled items and items whose identity is unreadable a stable placeholder such as **Unknown medication A**, with an **Unlabeled** or **Unreadable** status. Match the same item across the photos and attach its crop from **Photo 2** when the match is supported. If pills are hidden or the match is uncertain, keep the row pending and ask the reviewer to match the images or retake the photo. A reviewer may inspect loose-pill descriptors and synthetic reference candidates. Require independent evidence to confirm identity.
-4. Show conflicting values side by side with their sources and ask for the specific missing evidence. Include manual additions for medicines the patient reports but did not photograph. Provide the same dated draft as a digital review list and a print-friendly list. Both show medication details, evidence references, reported use, discrepancies, follow-up items, and each matched Photo 2 crop beside its unknown item. Show a missing-image note when a crop is unavailable. The print layout includes space for verification and notes. The digital view links back to the photos and supports corrections. Drafts and unresolved rows carry visible status labels in both formats.
+4. Show conflicting values side by side with their sources and ask for the specific missing evidence. Provide the same dated draft as a digital review list and a print-friendly list. Both show medication details, evidence references, reported use, discrepancies, follow-up items, and each matched Photo 2 crop beside its unknown item. Show a missing-image note when a crop is unavailable. The print layout includes space for verification and notes. The digital view links back to the photos and supports corrections. Drafts and unresolved rows carry visible status labels in both formats.
 5. A pharmacist or doctor reviews the list with the patient or caregiver and uses other source records as needed. For each row, confirm identity and record whether the patient currently takes it, no longer takes it, or has uncertain use. For current medications, record the actual dose, route, and frequency as verified, separately from the printed directions. Record who verified the row, when, and which evidence supports it. Keep unresolved discrepancies pending and record any medicines missing from the photos. Clinical decisions and advice remain with the reviewer.
 6. The existing mock hospital import requires explicit pharmacist approval and valid source evidence for every selected row. Keep ineligible rows pending and show what remains after a partial import. Return the mock hospital's UTC import timestamp after success and save only that timestamp in local history. Timestamp searches may return multiple results for staff to disambiguate. Reloading restores the history and clears the draft.
 
