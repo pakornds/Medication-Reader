@@ -1,0 +1,50 @@
+"""Register the Medication Reader feature routers on an application instance."""
+
+import os
+from collections.abc import Callable
+from secrets import compare_digest
+from typing import Annotated
+
+from fastapi import FastAPI, HTTPException, Security
+from fastapi.security import APIKeyHeader
+
+from app.ai.client import OpenAIClient
+from app.api.checks import router as checks_router
+from app.api.imports import create_import_router
+from app.api.labels import create_labels_router
+from app.api.medication_analysis import create_medication_analysis_router
+from app.api.pill_candidates import router as pill_candidates_router
+from app.api.pills import create_pills_router
+from app.api.regimens import router as regimens_router
+from app.schemas.review import ReviewerIdentity
+from app.services.hospital import MockHospital
+from app.services.import_eligibility import ApprovalLedger
+
+DEMO_REVIEWER_HEADER = APIKeyHeader(
+    name="X-Demo-Reviewer-Token", scheme_name="DemoReviewer", auto_error=False
+)
+
+
+def resolve_demo_reviewer(
+    token: Annotated[str | None, Security(DEMO_REVIEWER_HEADER)],
+) -> ReviewerIdentity:
+    expected = os.environ.get("MEDICATION_READER_DEMO_REVIEWER_TOKEN")
+    if not expected or not token or not compare_digest(token.encode(), expected.encode()):
+        raise HTTPException(status_code=403, detail="A configured demo reviewer token is required.")
+    return ReviewerIdentity(id="demo-pharmacist", name="Demo pharmacist", role="pharmacist")
+
+
+def register_feature_routes(
+    app: FastAPI,
+    *,
+    hospital: MockHospital,
+    get_provider: Callable[[], OpenAIClient],
+    resolve_reviewer: Callable[..., ReviewerIdentity],
+) -> None:
+    app.include_router(create_labels_router(get_provider))
+    app.include_router(create_pills_router(get_provider))
+    app.include_router(pill_candidates_router)
+    app.include_router(create_medication_analysis_router(get_provider))
+    app.include_router(checks_router)
+    app.include_router(regimens_router)
+    app.include_router(create_import_router(ApprovalLedger(), hospital, resolve_reviewer))
