@@ -239,7 +239,13 @@ class FormGrounding:
     def ground_row(
         self, row: MedicationSuggestion, rows: Sequence[MedicationSuggestion],
     ) -> DispensingFacility | None:
+        refer_question = self.form.question and any(f.field == "treatment_referral" for f in row.follow_ups)
         row.follow_ups = []
+        if refer_question:
+            row.follow_ups.append(FollowUp(
+                field="treatment_referral",
+                question="Please discuss this treatment question with a pharmacist or doctor.",
+            ))
         if not row.observed_names:
             if row.identity_status == "named":
                 row.identity_status = "unreadable"
@@ -391,8 +397,6 @@ def analyze_medication_form(
         )
     grounding = FormGrounding(form, transcripts)
     try:
-        if {r.id for r in transcripts.values()} - {r.id for r in proposed.rows}:
-            raise EvidenceValidationError("The preview omitted a transcribed item.")
         for row in proposed.rows:
             grounding.ground_names(row)
         facilities = {}
@@ -406,6 +410,19 @@ def analyze_medication_form(
         raise ProviderError(
             "unsupported_form_evidence", "The preview could not be tied to the submitted evidence."
         ) from None
+    physical_row_ids = {
+        item.row_id for item in form.evidence.items if sources[item.source_id].kind in PHOTO_KINDS
+    }
+    # The validated item reference belongs to this row, even when several rows share a photo.
+    covered_row_ids = {
+        row.id for row in grounded.rows
+        if any(ref.item_id is not None and sources[ref.source_id].kind in PHOTO_KINDS for ref in row.sources)
+    }
+    if physical_row_ids - covered_row_ids:
+        raise ProviderError(
+            "unsupported_form_evidence",
+            "The preview omitted a located medication item or its photo evidence. Retry analysis or enter it manually.",
+        )
     used_reports = [report for row in grounded.rows for report in row.reported_use]
     return AnalysisPreview(
         case_id=grounded.case_id,
