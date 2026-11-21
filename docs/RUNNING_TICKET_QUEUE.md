@@ -10,7 +10,7 @@ Compare the assigned ticket with the latest spec, code, tests and PRs before edi
 
 ## Check published spec changes
 
-On startup, resume and each five-minute check, fetch the default branch and compare the published spec with the last successfully assessed revision. On a first run, assess the current requirements. Skip unchanged content. Use the most capable available reasoning model for changed-requirement analysis when possible. Serialize issue creation across workers with a short, atomic planning claim independent of implementation claims. Under the claim, refresh issues and PRs, reuse matching work and file only independently testable uncovered outcomes as status:todo. Link the spec revision and section, and leave agent-ready to human review. Retry incomplete assessments at the next check.
+On startup, resume and each three-minute check, fetch the default branch and compare the published spec with the last successfully assessed revision. On a first run, assess the current requirements. Skip unchanged content. Use the most capable available reasoning model for changed-requirement analysis when possible. Serialize issue creation across workers with a short, atomic planning claim independent of implementation claims. Under the claim, refresh issues and PRs, reuse matching work and file only independently testable uncovered outcomes as status:todo. Link the spec revision and section, and leave agent-ready to human review. Retry incomplete assessments at the next check.
 
 For this repo, watch all of `docs/specs/` and `docs/ai/reconciliation-behavior.md` on `origin/main`. Use the path-limited Git diff between the last assessed commit and the fetched commit, including new files, renames and removals. Record the assessed SHA in the worker's handoff after successful reconciliation. If the saved revision is missing or inaccessible, reconcile the current spec against GitHub and the implementation. A removed or ambiguous requirement calls for a note on the affected ticket and clarification when necessary.
 
@@ -35,13 +35,19 @@ After winning, reread the live issue and active claims, including newly created 
 
 Record the run ID, claim SHA, worker name, owned paths and implementation branch on the ticket. Assign yourself, set status:in-progress and post a claim comment. Use one implementation branch, worktree and PR for that ticket.
 
-## Work and recheck every five minutes
+## Work and recheck every three minutes
 
-Start immediately after confirming ownership. **Five minutes after starting, and every five minutes during active work**, reread the issue, comments and related PRs, fetch the implementation branch if published, and check its commits for work another session already completed or started. Verify the remote claim still matches your token. Recheck on resume and before pushing or opening a PR. Keep implementing between checks. During a long command, check at the next safe breakpoint.
+Start immediately after confirming ownership. **Three minutes after starting, and every three minutes during active work**, reread the issue, comments and related PRs, fetch the implementation branch if published, and check its commits for work another session already completed or started. Verify the remote claim still matches your token. Recheck on resume and before pushing or opening a PR. Keep implementing between checks. During a long command, check at the next safe breakpoint.
 
 If ownership changes, completed work appears or paths conflict, pause the affected edits, preserve your branch and discuss ownership directly on the issue. Address the other worker by its recorded name. Update checklist items as you finish them. Comment on material progress, decisions, blockers, status changes and handoffs. Link related issues and PRs. An unchanged poll needs no comment.
 
 When you need another worker's answer, post the question on their ticket, address their recorded worker name and link your own issue. Reply in that thread and link the decision from both tickets. Continue independent work while waiting. If an implementation decision remains unclear after checking the ticket and relevant docs, ask the user a specific question before proceeding with the affected work. Continue independent work while waiting and record the answer on the ticket. If a required API key, account permission, or user-only setup step is missing, ask the user in Codex chat. Name the setting, explain what it enables, and say where to configure it securely. Ask for confirmation once configured. Never request the secret value in chat or on GitHub. Record only the blocker on the issue, continue independent work, and retry the affected check without exposing credentials.
+
+## Trigger a ticket answer
+
+A worker using a GitHub account with write access can start a fresh Codex run by posting a new issue comment beginning with `/codex answer ` followed by the question. For example, `/codex answer Which fields does #2 require for dispensing source attribution?` The workflow reads the default-branch checkout, the issue, recent comments, and up to five same-repo tickets referenced as #N in the question. Its reply appears on the same issue. Use your normal worker session for implementation. Ordinary comments remain part of the three-minute polling cycle.
+
+A repository administrator configures `OPENAI_API_KEY` in GitHub Settings → Secrets and variables → Actions. Check the **Answer a ticket question** Actions run if a reply is missing. PR comments, bot replies, and comments from untrusted accounts are ignored. A worker posting with a GitHub Actions workflow token generally cannot trigger another workflow this way.
 
 ## Review the PR
 
@@ -61,6 +67,6 @@ For changes to runnable behavior, run the affected workflow through its normal e
 
 Run acceptance checks and the repo's documented checks. Open one PR targeting main with a closing reference. Record verification, set status:in-review, respect merge order and required reviews, and recheck against current main before merge. Confirm the merge and post-merge checks, then close out the issue as status:done.
 
-Release your claim with `git push "--force-with-lease=${claim}:$token" origin ":$claim"`. For a handoff, record the receiving worker, branch and remaining work on the ticket. The outgoing worker stops and releases its own claim. The named recipient acquires a fresh claim and confirms it on the issue before resuming. For an abandoned claim, a human verifies the previous worker has stopped and checks the issue, branches and PRs before clearing the ref with a lease against the observed SHA. Five minutes of silence alone never authorizes takeover.
+Release your claim with `git push "--force-with-lease=${claim}:$token" origin ":$claim"`. For a handoff, record the receiving worker, branch and remaining work on the ticket. The outgoing worker stops and releases its own claim. The named recipient acquires a fresh claim and confirms it on the issue before resuming. For an abandoned claim, a human verifies the previous worker has stopped and checks the issue, branches and PRs before clearing the ref with a lease against the observed SHA. Three minutes of silence alone never authorizes takeover.
 
 Refresh the queue and continue with eligible work unless assigned a single issue. Record blockers and report pending work when nothing more can advance.
