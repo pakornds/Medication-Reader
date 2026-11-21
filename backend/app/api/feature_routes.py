@@ -54,7 +54,7 @@ def register_feature_routes(
 ) -> None:
     register_admissions(app, hospital, resolve_reviewer)
     app.include_router(create_labels_router(get_provider))
-    app.include_router(create_package_regions_router(get_provider))
+    app.include_router(create_package_regions_router(app.state.admissions, get_provider, resolve_reviewer))
     app.include_router(create_pills_router(get_provider))
     app.include_router(pill_candidates_router)
     app.include_router(create_medication_analysis_router(get_provider))
