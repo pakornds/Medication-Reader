@@ -139,22 +139,25 @@ def retired_view_sources(case, originals, previous, manifest, replaced):
                    if any(e.region == match.region for match in removed_matches))
     matched_packages = {m.package_id for m in removed_matches}
     original_data = originals[replaced.attachment_id].content
+    other_view = previous.reverse if replaced.side == "front" else previous.front
+    other_attachment = other_view.attachment_id if other_view else None
+    other_kind = "reverse_photo" if replaced.side == "front" else "label_photo"
+    other_data = originals[other_attachment].content if other_attachment else None
     reverse_attachment = previous.reverse.attachment_id if removed_matches else None
     reverse_data = originals[reverse_attachment].content if reverse_attachment else None
-    old_kind = "label_photo" if replaced.side == "front" else "reverse_photo"
     for row in case["rows"].values():
         for entry in active(row):
             source = entry["source"]
             if not entry["photo"]:
                 continue
             photo_data = b64decode(entry["photo"]["data"])
+            on_other_view = (source["attachment_id"] == other_attachment
+                             and source["kind"] == other_kind and photo_data == other_data)
             on_replaced_view = source["attachment_id"] == replaced.attachment_id or (
-                source["kind"] in {old_kind, "additional_photo"} and photo_data == original_data
+                photo_data == original_data and not on_other_view
             )
             paired_to_replaced_front = row.get("package_id") in matched_packages and (
-                source["attachment_id"] == reverse_attachment or (
-                    source["kind"] in {"reverse_photo", "additional_photo"} and photo_data == reverse_data
-                )
+                source["attachment_id"] == reverse_attachment or photo_data == reverse_data
             )
             if on_replaced_view or paired_to_replaced_front:
                 retired.add(source["id"])

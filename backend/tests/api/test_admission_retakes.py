@@ -110,8 +110,13 @@ def test_item_then_whole_view_retake_and_pharmacist_handoff(client):
     alias = label("alias-c", "Demo Medicine C", attachment="unused-attachment-id", orientation=6,
                   area=(.67, .1, .23, .35))
     case.link(row_c, alias)
-    case.interview(row_c, "report-c", ownership_source_id="alias-c", note="Preserve this clinician note.")
-    case.send("verify", row_id=row_c, source_id="report-c", identity_source_id="alias-c")
+    mislabeled = deepcopy(alias)
+    mislabeled["source"].update(id="cross-view-alias", kind="reverse_photo")
+    mislabeled["photo"]["front_attributed"] = False
+    case.link(row_c, mislabeled)
+    case.interview(row_c, "report-c", ownership_source_id="cross-view-alias",
+                   note="Preserve this clinician note.")
+    case.send("verify", row_id=row_c, source_id="report-c", identity_source_id="cross-view-alias")
     previous_c = deepcopy(case.state["rows"][row_c])
     previous_reverse = deepcopy(case.state["capture"]["reverse"])
     case.link(row_a, label("target-a", "Demo Medicine A", orientation=3), replaces="table-label-a")
@@ -161,7 +166,8 @@ def test_item_then_whole_view_retake_and_pharmacist_handoff(client):
     case.state = saved.json()
     assert case.state["rows"][row_a]["verified"]["answer"]["note"] == "Kept item edit."
     new_c = case.state["rows"][row_c]
-    assert new_c["superseded"] == ["table-label-c", "alias-c"] and new_c["verified"] is None
+    assert new_c["superseded"] == ["table-label-c", "alias-c", "cross-view-alias"]
+    assert new_c["verified"] is None
     assert new_c["interview"] == previous_c["interview"]
     assert case.state["capture"]["reverse"] == previous_reverse
     assert not case.state["capture"]["reverse_matches"]
