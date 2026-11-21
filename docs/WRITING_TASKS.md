@@ -75,6 +75,8 @@ Create it from the **Agent task** template (New issue -> Agent task). Fill in ev
 | Example | Real input -> exact expected output | Placeholder values |
 | Status | `Depends on`, `Merge after` if needed, priority | Leaving dependencies implicit |
 
+For example, an API ticket for interaction screening can finish when a request containing an unknown medication returns that item as unchecked with a reason, and the endpoint test verifies the response. The UI ticket owns displaying that reason. Link both from the integration ticket that exercises the combined workflow.
+
 ### Vague vs. agent-ready
 Vague:
 > Add error handling to the extractor.
@@ -85,8 +87,9 @@ Agent-ready:
 > - [ ] Tests in `tests/test_extract.py` cover all three cases
 
 ## 4. Ready checklist (before adding `agent-ready`)
-- [ ] Goal is a single outcome
-- [ ] Every requirement can be checked by a test or a command
+- [ ] Goal names one outcome, its consumer, and the boundary where success can be observed
+- [ ] Each requirement has a concrete input or precondition, action, and expected result, including relevant failure cases
+- [ ] Once prerequisites merge, this PR can demonstrate every ticket criterion. Link a separate issue for any later integration check.
 - [ ] Out of scope is filled in
 - [ ] Example has real input and exact output
 - [ ] `Depends on` and `Merge after` are set (or `none`), without circular dependencies
@@ -134,7 +137,11 @@ During planning, check new or changed requirements against current code, tests, 
 
 Give each ticket one independently testable outcome that fits in a small PR. Split frontend, backend, and features within either layer whenever they can be accepted independently. Put shared contracts, fixtures, and tooling in prerequisite tickets so workers can test against the same examples in parallel. Give cross-feature wiring and end-to-end verification separate tickets. Use “Depends on” for prerequisites that must merge before work starts, and “Merge after” for merge order only. Check for circular dependencies, overlapping paths, and uncovered requirements.
 
+Write a definition of done for each ticket at the boundary it owns. Name who or what consumes its result. For every required behavior, specify an input or precondition, the action or command, and the observable result, including relevant failure cases. After its prerequisites merge, one worker must be able to demonstrate every criterion in this PR. If a check needs another unfinished feature, identify the prerequisite or link the integration ticket that owns that check.
+
 ## Worker playbook
+
+Review each acceptance criterion against the ticket's agreed scope. Record passed, failed, or unverified with the observed result or blocker. Fix and rerun failed checks. Obtain evidence for unverified criteria before merge. Keep unmet requirements on the ticket and record genuinely separate work on its own linked issue. When all ticket criteria pass, report that explicitly even if the broader feature has other open tickets.
 
 1. Read the current issues, comments, branches, and PRs. Choose an open, unassigned ticket labeled `agent-ready` and `status:todo` whose dependencies have merged. Prefer related tickets when several qualify.
 2. Acquire an atomic remote claim keyed by issue number before editing. Use a unique worker/run ID even when computers share one GitHub account. If another worker wins, choose another ticket. If the result is uncertain, verify ownership. Document owner-checked release, explicit handoff, and recovery of abandoned claims.

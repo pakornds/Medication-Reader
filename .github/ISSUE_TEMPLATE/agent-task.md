@@ -7,7 +7,7 @@ assignees: ""
 ---
 
 ## Goal
-<!-- 1-2 sentences: what exists when this is done, and why. -->
+<!-- Name the consumer, the single outcome, and where they can observe it. Link the spec section. -->
 
 ## Context
 - **Owned files/modules:** `path/to/file`
@@ -21,12 +21,12 @@ assignees: ""
 - [ ] <!-- Specific, verifiable behavior 2 -->
 
 ## Out of scope
-- <!-- Things the agent must NOT touch or build -->
+- <!-- List exclusions. Link the issue that owns any later integration or end-to-end check. -->
 
 ## Acceptance criteria
 - [ ] Tests pass: `<test command>`
 - [ ] Lint/type checks pass: `<lint command>`
-- [ ] <!-- Behavior checks -->
+- [ ] <!-- For each requirement give the input or precondition, action, and observable result at this ticket's boundary. Cover relevant failure cases. -->
 - [ ] Docs/README updated if behavior changed
 
 ## Example

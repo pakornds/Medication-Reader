@@ -7,7 +7,9 @@ Closes #<!-- issue number -->
 - 
 
 ## Acceptance criteria (copied from the issue)
-- [ ] 
+
+<!-- Repeat for each ticket criterion. Give the observed result and evidence, or the blocker. -->
+- Criterion | passed / failed / unverified | result and evidence
 
 ## How it was tested
 
@@ -21,6 +23,7 @@ Closes #<!-- issue number -->
 ## Independent agent review
 
 - Reviewed commit SHA:
+- Ticket verdict and any unmet criteria:
 <!-- Before merge, record the reviewer, findings, and how actionable findings were resolved. -->
 
 ## Merge order
