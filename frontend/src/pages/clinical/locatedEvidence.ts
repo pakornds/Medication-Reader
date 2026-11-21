@@ -33,5 +33,5 @@ export function rowRegions(encounter: Encounter, row: AdmissionRow) {
   const item = encounter.capture?.packages
     ?.find((p) => p.id === row.package_id)
     ?.items?.find((i) => i.row_id === row.capture_item_id)
-  return item?.evidence.filter(evidence => !row.superseded.includes(evidence.source_id)) || []
+  return item?.evidence || []
 }

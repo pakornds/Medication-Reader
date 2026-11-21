@@ -30,36 +30,7 @@ export class PackageLayout {
     this.revisions = {front: 0, reverse: 0};
     this.usedAttachments = new Set();
     this.packages = [];
-    this.additionalMatches = [];
     this.sequence = {front: 0, reverse: 0};
-  }
-
-  restore(scene) {
-    if (scene.case_id !== this.caseId) throw new Error("Choose the current encounter.");
-    for (const side of sides) {
-      this.views[side] = structuredClone(scene[side] ?? null);
-      const view = this.views[side];
-      if (!view) continue;
-      this.revisions[side] = view.revision;
-      this.usedAttachments.add(view.attachment_id);
-      this.sequence[side] = Math.max(this.sequence[side], ...(view.regions ?? []).map(region =>
-        Number(region.id.match(new RegExp("^" + side + "-(\\d+)$"))?.[1]) || 0));
-    }
-    this.packages = scene.packages.map(pkg => ({
-      id: pkg.id, frontId: pkg.front_regions[0].region_id,
-      extraFrontIds: pkg.front_regions.slice(1).map(link => link.region_id),
-      reverseId: scene.reverse_matches.find(match => match.package_id === pkg.id && match.status === "confirmed")?.region.region_id ?? null,
-    }));
-    for (const pkg of this.packages) {
-      pkg.status = pkg.reverseId ? "confirmed" : "unmatched";
-      this.sequence.front = Math.max(this.sequence.front, Number(pkg.id.match(/^package-(\d+)$/)?.[1]) || 0);
-    }
-    this.additionalMatches = (scene.reverse_matches || []).filter(match =>
-      match.status !== "confirmed" || this.package(match.package_id).reverseId !== match.region.region_id);
-  }
-
-  frontOwner(id) {
-    return this.packages.find(pkg => pkg.frontId === id || pkg.extraFrontIds?.includes(id));
   }
 
   replaceView(side, photo) {
@@ -74,7 +45,6 @@ export class PackageLayout {
       attachment_id: photo.attachment_id, revision: this.revisions[side],
       exif_orientation: photo.exif_orientation ?? 1, coordinate_space: "exif_transposed_display", regions: [],
     } : null;
-    this.additionalMatches = [];
     if (side === "front") this.packages = [];
     else for (const pkg of this.packages) this.clearMatch(pkg.id);
   }
@@ -112,17 +82,14 @@ export class PackageLayout {
   clearMatch(packageId, status = "unmatched") {
     if (!["unmatched", "hidden"].includes(status)) throw new Error("Unknown match status.");
     Object.assign(this.package(packageId), {reverseId: null, status});
-    this.additionalMatches = this.additionalMatches.filter(m => m.package_id !== packageId);
   }
 
   match(packageId, reverseId) {
     this.region("reverse", reverseId);
     const pkg = this.package(packageId);
-    if (this.packages.some(item => item !== pkg && item.reverseId === reverseId) ||
-        this.additionalMatches.some(m => m.package_id !== packageId && m.status === "confirmed" && m.region.region_id === reverseId)) {
+    if (this.packages.some(item => item !== pkg && item.reverseId === reverseId)) {
       throw new Error("Unmatch the other package before assigning this region.");
     }
-    this.clearMatch(packageId);
     Object.assign(pkg, {reverseId, status: "confirmed"});
   }
 
@@ -144,9 +111,8 @@ export class PackageLayout {
     if (Object.keys(next).every(key => region.bounds[key] === next[key])) return;
     region.bounds = next;
     this.bumpRevision(side);
-    const owner = side === "front" ? this.frontOwner(id) : this.packages.find(pkg => pkg.reverseId === id);
+    const owner = this.packages.find(pkg => (side === "front" ? pkg.frontId : pkg.reverseId) === id);
     if (owner) this.clearMatch(owner.id);
-    if (side === "reverse") this.additionalMatches = this.additionalMatches.filter(m => m.region.region_id !== id);
   }
 
   remove(side, id) {
@@ -154,19 +120,8 @@ export class PackageLayout {
     const view = this.views[side];
     view.regions.splice(view.regions.indexOf(region), 1);
     this.bumpRevision(side);
-    if (side === "front") {
-      const pkg = this.frontOwner(id);
-      if (pkg) {
-        if (pkg.frontId === id) pkg.frontId = pkg.extraFrontIds?.shift();
-        else pkg.extraFrontIds = pkg.extraFrontIds.filter(other => other !== id);
-        this.clearMatch(pkg.id);
-        if (!pkg.frontId) this.packages = this.packages.filter(other => other !== pkg);
-      }
-    }
-    else {
-      for (const pkg of this.packages) if (pkg.reverseId === id) this.clearMatch(pkg.id);
-      this.additionalMatches = this.additionalMatches.filter(m => m.region.region_id !== id);
-    }
+    if (side === "front") this.packages = this.packages.filter(pkg => pkg.frontId !== id);
+    else for (const pkg of this.packages) if (pkg.reverseId === id) this.clearMatch(pkg.id);
   }
 
   alternatives(packageId) {
@@ -201,10 +156,9 @@ export class PackageLayout {
   snapshot() {
     return structuredClone({
       version: "1", case_id: this.caseId, ...this.views,
-      packages: this.packages.map(pkg => ({id: pkg.id, front_regions: [pkg.frontId, ...(pkg.extraFrontIds ?? [])].map(id => this.link("front", id)), items: []})),
-      reverse_matches: [...this.packages.filter(pkg => pkg.reverseId).map(pkg =>
+      packages: this.packages.map(pkg => ({id: pkg.id, front_regions: [this.link("front", pkg.frontId)], items: []})),
+      reverse_matches: this.packages.filter(pkg => pkg.reverseId).map(pkg =>
         ({package_id: pkg.id, region: this.link("reverse", pkg.reverseId), status: "confirmed"})),
-        ...this.additionalMatches.map(m => ({...m, region: this.link("reverse", m.region.region_id)}))],
       sources: [],
     });
   }

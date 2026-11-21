@@ -4,7 +4,6 @@ from pathlib import Path
 
 from app.main import app
 from app.schemas.admission import CaptureCommand
-from app.schemas.admission_intake import IntakeSubmission
 from app.schemas.review import ServiceError
 from app.services.medication_analysis import FormAnalysisInput
 
@@ -49,7 +48,7 @@ def ts(schema):
 def generate():
     schemas = app.openapi()["components"]["schemas"]
     # Multipart JSON parts and error envelopes are validated inside the handlers.
-    for model in (CaptureCommand, FormAnalysisInput, IntakeSubmission, ServiceError):
+    for model in (CaptureCommand, FormAnalysisInput, ServiceError):
         schema = model.model_json_schema(ref_template="#/components/schemas/{model}")
         for name, definition in schema.pop("$defs", {}).items():
             schemas.setdefault(name, definition)

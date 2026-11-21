@@ -3,10 +3,10 @@ from collections.abc import Callable
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.encounter_screening import ScreeningTarget
-from app.schemas.local_screening import LocalScreeningRequest, LocalScreeningResult
+from app.schemas.local_screening import CatalogueScreeningRequest, LocalScreeningRequest, LocalScreeningResult
 from app.schemas.review import ServiceError
 from app.services.encounter_screening import encounter_rows
-from app.services.local_screening import ReferenceUnavailable, screen_local
+from app.services.local_screening import ReferenceUnavailable, screen_catalogue_list, screen_local
 
 
 def create_local_screening_router(authorize: Callable) -> APIRouter:
@@ -25,5 +25,12 @@ def create_local_screening_router(authorize: Callable) -> APIRouter:
             raise HTTPException(503, detail=detail.model_dump(mode="json")) from None
         current(request)
         return result
+
+    @router.post("/checks/local/catalogue", response_model=LocalScreeningResult)
+    def check_catalogue(request: CatalogueScreeningRequest) -> LocalScreeningResult:
+        try:
+            return screen_catalogue_list(request)
+        except ReferenceUnavailable as exc:
+            raise HTTPException(503, str(exc)) from None
 
     return router

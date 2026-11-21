@@ -21,9 +21,6 @@ test("mixed pending appearances keep distinct regions and the same package", () 
   assert.equal(oval.package.sources[0].source.organization, undefined);
   assert.equal(round.verified, undefined);
   assert.equal(oval.verified, undefined);
-  const retaken = admissionReview(encounter, packageRow("package-b", "pending-b-round", { superseded: ["bag-b"] }));
-  assert.deepEqual(retaken.package.views, []);
-  assert.deepEqual(retaken.package.sources, []);
 });
 
 test("confirmed package views and explicitly cited organizations stay with their own rows", () => {

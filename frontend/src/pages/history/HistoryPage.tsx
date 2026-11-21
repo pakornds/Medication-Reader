@@ -40,7 +40,6 @@ const text = {
 }
 
 type Client = ReturnType<typeof createClient>
-type OnReviewRow = (caseId: string, rowId: string) => void
 type Readback = { client: Client; stamp: string; records: HospitalRecord[]; error?: 'denied' | 'failed' }
 
 function loadHistory() {
@@ -54,9 +53,7 @@ function localTime(stamp: string, language: Language) {
   }).format(new Date(stamp))
 }
 
-function ReceiptDetails({ client, stamp, language, onReviewRow }: {
-  client: Client; stamp: string; language: Language; onReviewRow?: OnReviewRow
-}) {
+function ReceiptDetails({ client, stamp, language }: { client: Client; stamp: string; language: Language }) {
   const t = text[language]
   const [data, setData] = useState<Readback | null>(null)
   const [attempt, setAttempt] = useState(0)
@@ -79,10 +76,8 @@ function ReceiptDetails({ client, stamp, language, onReviewRow }: {
   </div>
   if (!data.records.length) return <p role="status">{t.missing}</p>
   return <div className="stack">
-    {data.records.map(record => <section key={JSON.stringify([record.snapshot.evidence.case_id,
-      record.snapshot.rows.map(row => [row.id, row.revision])])}>
+    {data.records.map(record => <section key={record.snapshot.evidence.case_id}>
       <h3>{t.imported} · {record.receipt.imported_row_ids.length}</h3>
-      {data.records.length > 1 && <p>{record.snapshot.evidence.case_id} · {record.receipt.imported_row_ids.join(', ')}</p>}
       <ul className="divide-y divide-line">{record.snapshot.rows.map(row => {
         const v = row.verification
         const fields = Object.entries(row.label_fields ?? {})
@@ -94,9 +89,6 @@ function ReceiptDetails({ client, stamp, language, onReviewRow }: {
         const directions = v?.regimens ?? []
         return <li key={row.id} className="grid gap-2 py-3">
           <strong>{v?.identity?.value || row.observed_names?.[0]?.value || row.unknown_label || t.unknown}</strong>
-          {onReviewRow && record.snapshot.evidence.case_id.startsWith('admission-') &&
-            <Button variant="text" onClick={() => onReviewRow(record.snapshot.evidence.case_id, row.id)}>
-              {t.review} · {v?.identity?.value || row.id}</Button>}
           {product && <small>TPU {product}{v?.tmt_release ? ' · ' + v.tmt_release : ''}</small>}
           {v && <>
             <p>{v.status === 'current' ? t.current : v.status === 'no_longer_current' ? t.stopped : t.uncertain}</p>
@@ -129,7 +121,7 @@ function ReceiptDetails({ client, stamp, language, onReviewRow }: {
   </div>
 }
 
-export function HistoryPage({ language, client, onReviewRow }: { language: Language; client: Client | null; onReviewRow?: OnReviewRow }) {
+export function HistoryPage({ language, client }: { language: Language; client: Client | null }) {
   const t = text[language]
   const [timestamps, setTimestamps] = useState(loadHistory)
   const [open, setOpen] = useState<string | null>(null)
@@ -161,7 +153,7 @@ export function HistoryPage({ language, client, onReviewRow }: { language: Langu
             </Button>
           </div>
           {open === stamp && (client
-            ? <ReceiptDetails key={stamp} client={client} stamp={stamp} language={language} onReviewRow={onReviewRow} />
+            ? <ReceiptDetails key={stamp} client={client} stamp={stamp} language={language} />
             : <div className="stack"><p>{t.signIn}</p><Link className="text-action" to="/new-patient/review">{t.review}</Link></div>)}
         </li>)}
       </ol>}

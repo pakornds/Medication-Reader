@@ -1,6 +1,7 @@
 export type HistoryStorage = Pick<Storage, "length" | "key" | "getItem" | "setItem">;
 
-const keyPrefix = "medication-reader:imported-at:";
+const importPrefix = "medication-reader:imported-at:";
+const analysisPrefix = "medication-reader:analyzed-at:";
 const utcPattern = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?(?:Z|\+00:00)$/;
 
 function utcTimestamp(value: unknown): string | null {
@@ -27,12 +28,21 @@ function importTimestamp(receipt: unknown): string | null {
 
 /** Record the successful import response in the browser. No row IDs are written. */
 export function recordImportReceipt(storage: HistoryStorage, receipt: unknown): "saved" | "ignored" | "unavailable" {
-  const timestamp = importTimestamp(receipt);
+  return recordTimestamp(storage, importPrefix, importTimestamp(receipt));
+}
+
+/** Record a successful analysis time. The result and its inputs are never stored here. */
+export function recordAnalysis(storage: HistoryStorage, date: Date) {
+  const timestamp = Number.isFinite(date.getTime()) ? utcTimestamp(date.toISOString()) : null;
+  return recordTimestamp(storage, analysisPrefix, timestamp);
+}
+
+function recordTimestamp(storage: HistoryStorage, prefix: string, timestamp: string | null) {
   if (!timestamp) return "ignored";
 
   try {
     // Each timestamp has its own key so concurrent tabs cannot overwrite other receipts.
-    storage.setItem(`${keyPrefix}${timestamp}`, timestamp);
+    storage.setItem(`${prefix}${timestamp}`, timestamp);
     return "saved";
   } catch {
     return "unavailable";
@@ -41,12 +51,20 @@ export function recordImportReceipt(storage: HistoryStorage, receipt: unknown): 
 
 /** Read UTC timestamps newest first, or return null if the browser cannot read storage. */
 export function readImportHistory(storage: HistoryStorage): string[] | null {
+  return readTimestamps(storage, importPrefix);
+}
+
+export function readAnalysisHistory(storage: HistoryStorage): string[] | null {
+  return readTimestamps(storage, analysisPrefix);
+}
+
+function readTimestamps(storage: HistoryStorage, prefix: string): string[] | null {
   try {
     const timestamps: string[] = [];
     for (let index = 0; index < storage.length; index += 1) {
       const key = storage.key(index);
-      if (!key?.startsWith(keyPrefix)) continue;
-      const timestamp = key.slice(keyPrefix.length);
+      if (!key?.startsWith(prefix)) continue;
+      const timestamp = key.slice(prefix.length);
       if (utcTimestamp(timestamp) === timestamp && storage.getItem(key) === timestamp) timestamps.push(timestamp);
     }
     return [...new Set(timestamps)].sort().reverse();

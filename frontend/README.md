@@ -1,6 +1,6 @@
-# MedRec TH staff workspace
+# MedRec TH
 
-Use Node.js 22.13 or later in the 22.x series, or Node.js 24. Start FastAPI from the repo root with the [backend setup](../AGENTS.md#commands). Configure distinct synthetic staff tokens before starting FastAPI. The sign-in and role settings are documented under [admission encounters](../docs/specs/reconciliation-contract.md#admission-encounters).
+Use Node.js 22.13 or later in the 22.x series, or Node.js 24. Start FastAPI from the repo root with the [backend setup](../AGENTS.md#commands).
 
 For photo analysis, keep `OPENAI_API_KEY` and `OPENAI_MODEL` in the repository-root `.env` on the server. With uv, load that file explicitly from the repo root:
 
@@ -19,23 +19,20 @@ npm run dev
 
 The development server proxies requests to FastAPI at `http://127.0.0.1:8000`. Set `MEDREC_API_TARGET` when using a different development backend.
 
-| Page | Staff workflow |
+| Page | What staff can do |
 | --- | --- |
-| Home | Sign in to reopen an assigned encounter or start a case. |
-| Input | Select a local catalogue product or enter an evidenced name. Enter the dose, unit, schedule and quantity separately. Upload one label-side photo of all the packages and choose **Analyze evidence**. OpenAI locates the packages and reads each crop. Review the resulting rows and optionally adjust boxes, transcribe unreadable labels or match a reverse view. |
-| Review | Compare each draft row with its sources, save it to the encounter, document the interview, and verify current use. Refer an unidentified item for pharmacist review. Assigned doctors and pharmacists can run the optional checks and inspect coverage. |
-| Output | Inspect eligible and excluded medicines. An assigned pharmacist approves and imports a selection in one action. |
-| History | See successful import timestamps in this browser. Sign in to reopen receipts available to the staff account. |
+| Input | Upload labels, paste a written list or select a local TMT product. Scan results appear as editable rows with their original sources. |
+| Review | Edit the same rows, check interactions and duplicate ingredients, and select the rows for handoff. |
+| Output | Copy a tab-separated list or download structured JSON for entry in the hospital system. |
 
-Staff tokens and the open draft live in page memory. The synthetic FastAPI service holds encounters, original photos and mock hospital records in server memory. Use synthetic documents. A server restart clears those records. Browser history contains successful timestamps only.
+History shows only the times of successful analyses on this device. The list, pasted text and photos live in tab memory. Use the handoff before closing or refreshing the tab. The analysis and screening services process the submitted evidence and product IDs without creating encounters or hospital records.
 
-The development fixtures at `/tests/home.html`, `/tests/navigation.html` and `/tests/intake.html` report their own results. To test the staff handoff against a running synthetic backend with the local TMT catalogue installed, make Playwright and Chromium available and run from the repo root:
+Run the browser workflow with Playwright, Chromium and a running backend with the local TMT catalogue:
 
 ```sh
-TEST_UI_URL=http://127.0.0.1:5173 TEST_API_URL=http://127.0.0.1:8000 \
-  node frontend/tests/workflow/connected.cjs
+TEST_UI_URL=http://127.0.0.1:5173 node frontend/tests/workflow/medication-list.cjs
 ```
 
-Export the same synthetic nurse and pharmacist token variables in the test shell. Set `CHROME_PATH` to use an existing Chromium executable.
+Set `CHROME_PATH` to use an existing Chromium executable.
 
-For a presenter walkthrough, set `MEDREC_DEMO_PHARMACIST_TOKEN` in the development server environment to the synthetic pharmacist token configured on the local FastAPI server. Open the app on localhost. The development proxy supplies the demo identity and Review opens without a token form. Omit this setting to exercise staff sign-in and role switching.
+The staff reconciliation fixture is available with `VITE_MEDREC_STAFF_WORKSPACE=true`. Its [admission contract](../docs/specs/reconciliation-contract.md#admission-encounters) covers synthetic tokens, encounters and mock-hospital tests. Its development page fixtures and `frontend/tests/workflow/connected.cjs` use the staff workspace.

@@ -15,9 +15,6 @@ import { VerifyForm } from './VerifyForm'
 import { IdentityReview } from './IdentityReview'
 import { IdentityIncident, type Incident } from './IdentityIncident'
 import { ScreeningPanel } from './ScreeningPanel'
-import { CandidateReview } from './CandidateReview'
-import { UnavailableSource } from './UnavailableSource'
-import { SceneCapture } from '../../components/workspace/SceneCapture'
 import {
   active,
   bilingual,
@@ -43,8 +40,6 @@ interface Props {
   actor: ReviewerIdentity
   encounter: Encounter
   onEncounter: (value: Encounter) => void
-  selectedRow: string
-  onSelectRow: (id: string) => void
 }
 function statusName(value: Encounter['status'], t: Say) {
   return value === 'Finished'
@@ -77,11 +72,11 @@ function SourceFields({
     </dl>
   )
 }
-function ReviewSession({ language, client, actor, encounter, onEncounter, selectedRow, onSelectRow }: Props) {
+function ReviewSession({ language, client, actor, encounter, onEncounter }: Props) {
   const t = bilingual(language)
   const rows = Object.values(encounter.rows)
-  const [editCapture, setEditCapture] = useState(false)
-  const row = encounter.rows[selectedRow] || rows[0]
+  const [selected, setSelected] = useState(rows[0]?.id || '')
+  const row = encounter.rows[selected] || rows[0]
   const verified = row && verification(row)
   const corrections = row ? intakeCorrections(row) : []
   const regions = row ? rowRegions(encounter, row) : []
@@ -158,12 +153,6 @@ function ReviewSession({ language, client, actor, encounter, onEncounter, select
         </div>
         <Handoff encounter={encounter} client={client} t={t} />
       </header>
-      {writable && <section className="clinical-card">
-        <button type="button" className="btn" aria-expanded={editCapture} onClick={() => setEditCapture(!editCapture)}>
-          {t('Review package photos and retakes', 'ทบทวนภาพบรรจุภัณฑ์และถ่ายซ้ำ')}
-        </button>
-        {editCapture && <SceneCapture client={client} encounter={encounter} onEncounter={onEncounter} />}
-      </section>}
       {error && (
         <p role="alert" className="clinical-error">
           {error}
@@ -177,7 +166,6 @@ function ReviewSession({ language, client, actor, encounter, onEncounter, select
           )}
         </p>
       )}
-      {writable && <UnavailableSource save={save} t={t} busy={busy} />}
       {unavailable.length > 0 && (
         <details className="clinical-card">
           <summary>
@@ -204,7 +192,7 @@ function ReviewSession({ language, client, actor, encounter, onEncounter, select
                 type="button"
                 key={r.id}
                 aria-current={r.id === row.id ? 'true' : undefined}
-                onClick={() => onSelectRow(r.id)}
+                onClick={() => setSelected(r.id)}
               >
                 <strong>
                   {i + 1}. {rowName(r, t)}
@@ -321,8 +309,6 @@ function ReviewSession({ language, client, actor, encounter, onEncounter, select
                 ))}
               </section>
             )}
-            {row.unknown && !row.confirmed && <CandidateReview key={row.id + '-' + encounter.revision}
-              encounter={encounter} row={row} client={client} t={t} />}
             <fieldset disabled={busy} className="clinical-form">
               {writable && (
                 <>

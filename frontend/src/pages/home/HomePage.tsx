@@ -1,38 +1,30 @@
 import { useEffect } from 'react'
-import { LuCamera, LuClipboardCheck, LuFolderOpen, LuPackageCheck } from 'react-icons/lu'
-import { StartFreshCaseButton } from '../new-patient/StartFreshCaseButton'
+import { LuCamera, LuClipboardCheck, LuPlus, LuPrinter } from 'react-icons/lu'
 import { Link } from 'react-router-dom'
 import { messages, type Language } from '../../i18n/messages'
 
 const instructions = {
   en: {
-    intro: 'Prepare a medication list to review with the patient and hand off to the next care team.',
+    intro: 'Open New Patient to start a medication reconciliation or return to your active case.',
     input: 'Photograph the label sides together. For an optional second photo, flip the same items in place to show the pill sides. Add reports, source notes, or manual entries as needed.',
-    review: 'Open the cited sources and compare label directions with reported use. Verify current use or refer an unresolved medicine to pharmacy. Print a dated handoff with pending medicines.',
-    output: 'An assigned pharmacist can approve and import selected eligible rows into the mock hospital.',
+    review: 'Open the cited sources and compare label directions with reported use. Verify current use or refer an unresolved medicine to pharmacy.',
+    output: 'Print a dated handoff with pending medicines. An assigned pharmacist can approve and import selected eligible rows into the mock hospital.',
   },
   th: {
-    intro: 'จัดทำรายการยาเพื่อทบทวนกับผู้ป่วยและส่งต่อให้ทีมที่ดูแลต่อ',
+    intro: 'เลือกผู้ป่วยใหม่เพื่อเริ่มทบทวนรายการยาหรือกลับไปยังเคสที่กำลังทำอยู่',
     input: 'ถ่ายด้านฉลากของยาทุกรายการในภาพเดียว หากถ่ายภาพที่สอง ให้พลิกยาแต่ละรายการที่ตำแหน่งเดิมเพื่อถ่ายด้านเม็ดยา เพิ่มข้อมูลที่ผู้ป่วยแจ้ง บันทึกจากแหล่งอื่น หรือกรอกรายการยาเองตามต้องการ',
-    review: 'เปิดดูแหล่งข้อมูลและเปรียบเทียบวิธีใช้บนฉลากกับวิธีใช้ที่ผู้ป่วยแจ้ง ยืนยันการใช้ยาปัจจุบันหรือส่งรายการยาที่ยังไม่ทราบชนิดให้เภสัชกร แล้วพิมพ์เอกสารส่งต่อที่ระบุวันที่และแสดงรายการที่ยังรอทบทวน',
-    output: 'เภสัชกรที่ได้รับมอบหมายสามารถอนุมัติและนำเข้ารายการที่เลือกและผ่านเกณฑ์ไปยังระบบโรงพยาบาลจำลอง',
+    review: 'เปิดดูแหล่งข้อมูลและเปรียบเทียบวิธีใช้บนฉลากกับวิธีใช้ที่ผู้ป่วยแจ้ง ยืนยันการใช้ยาปัจจุบันหรือส่งรายการยาที่ยังไม่ทราบชนิดให้เภสัชกร',
+    output: 'พิมพ์เอกสารส่งต่อที่ระบุวันที่และแสดงรายการที่ยังรอทบทวน รวมถึงให้เภสัชกรอนุมัติและนำเข้ารายการที่เลือกและผ่านเกณฑ์ไปยังระบบโรงพยาบาลจำลอง',
   },
 }
 
 const steps = [
   { stage: 'input', Icon: LuCamera },
   { stage: 'review', Icon: LuClipboardCheck },
-  { stage: 'output', Icon: LuPackageCheck },
+  { stage: 'output', Icon: LuPrinter },
 ] as const
 
-type Props = {
-  language: Language
-  hasWork: boolean
-  canResume: boolean
-  onStartFresh: () => void
-}
-
-export function HomePage({ language, hasWork, canResume, onStartFresh }: Props) {
+export function HomePage({ language }: { language: Language }) {
   const t = messages[language]
   const text = instructions[language]
 
@@ -46,16 +38,10 @@ export function HomePage({ language, hasWork, canResume, onStartFresh }: Props) 
         <div className="border-b border-line px-5 py-6 sm:px-8 sm:py-8">
           <h1 id="home-heading" className="text-2xl leading-normal font-semibold">{t.home}</h1>
           <p className="mt-2 leading-relaxed text-2">{text.intro}</p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            {canResume && (
-              <Link className="primary-btn" to="/new-patient">
-                <LuFolderOpen aria-hidden="true" />
-                {t.resumeCase}
-              </Link>
-            )}
-            <StartFreshCaseButton language={language} hasWork={hasWork}
-              onStartFresh={onStartFresh} variant={canResume ? 'secondary' : 'primary'} />
-          </div>
+          <Link className="primary-btn mt-4" to="/new-patient">
+            <LuPlus aria-hidden="true" />
+            {t.patient}
+          </Link>
         </div>
         <ol className="divide-y divide-line px-5 sm:px-8" role="list">
           {steps.map(({ stage, Icon }) => (

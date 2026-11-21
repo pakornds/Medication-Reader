@@ -162,11 +162,18 @@ def supported_intake_identity(identity, row, items, sources):
         not ids or len(ids) != len(identity.candidate_tpus) or not ids.issubset(c["tpu"] for c in candidates)
     ):
         return None
-    return identity
+    return identity.model_copy(update={"compatible_tpus": [item["tpu"] for item in candidates]})
 
 
 def resolve_scan_identities(preview, form, get_provider):
     label_items = _label_items(form.evidence.items, form.evidence.sources)
+    note_ids = {note.evidence.source_id for note in form.other_source_notes}
+    documented_text = {source.id for source in form.evidence.sources
+                       if source.id in note_ids and source.availability == "available"
+                       and source.kind in {"other_record", "prescription", "transfer_record"}}
+    label_items.update((row.id, fact.evidence.source_id, None) for row in preview.rows
+                       for fact in row.observed_names if fact.evidence.item_id is None
+                       and fact.evidence.source_id in documented_text)
     front_attachments = {s.attachment_id or s.id for s in form.evidence.sources
                          if s.kind in {"label_photo", "additional_photo"}}
     label_items.update((r.row_id, r.source_id, r.item_id) for r in preview.located_regions
@@ -200,7 +207,8 @@ def resolve_scan_identities(preview, form, get_provider):
         if not proposed or not set(proposed).issubset(available):
             return None
         return row_id, CatalogueIdentity(ingredient=ingredient, trade_name=trade, release=release[0],
-                                          candidate_tpus=list(dict.fromkeys(proposed)), evidence=[ref])
+                                          candidate_tpus=list(dict.fromkeys(proposed)),
+                                          compatible_tpus=[candidate["tpu"] for candidate in candidates], evidence=[ref])
 
     with ThreadPoolExecutor(max_workers=3) as workers:
         return dict(result for result in workers.map(adjudicate, jobs) if result is not None)

@@ -54,6 +54,8 @@ export function createClient(baseUrl = '', reviewerToken?: string) {
 
   return {
     products,
+    checkCatalogueList: (request: C.CatalogueScreeningRequest) =>
+      json<C.LocalScreeningResult>('/checks/local/catalogue', body(request)),
     parseRegimen: (request: C.RegimenParseRequest, signal?: AbortSignal) =>
       json<C.RegimenParseResult>('/regimens/parse', { ...body(request), signal }),
     async intakeProducts(query: string, signal?: AbortSignal) {

@@ -66,7 +66,7 @@ def test_model_adjudicates_scanned_brand_generic_and_variant_against_actual_cand
     model = Reviewer()
     result = resolve_scan_identities(preview, form, lambda: model)["row"]
     assert result.model_dump() == {"ingredient":"doxycycline", "trade_name":"SIADOCIN",
-        "release":"fixture-snapshot", "candidate_tpus":["1"], "evidence":[{"source_id":"scan","item_id":"box"}]}
+        "release":"fixture-snapshot", "candidate_tpus":["1"], "compatible_tpus":["1"], "evidence":[{"source_id":"scan","item_id":"box"}]}
     assert model.calls[0]["printed_names"] == names
     assert [f.value for f in preview.rows[0].observed_names] == names
 
@@ -175,3 +175,39 @@ def test_analysis_endpoint_adjudicates_each_grounded_label_once(catalogue, marke
     identity = data["catalogue_identities"][row["id"]]
     assert (identity["ingredient"], identity["trade_name"], identity["candidate_tpus"]) == ("doxycycline","SIADOCIN",["1"])
     assert identity["evidence"] == row["sources"]
+
+
+def test_pasted_text_matches_catalogue_without_photos(catalogue):
+    from app.services.medication_analysis import analyze_medication_form
+
+    source = {"source_id": "written-list"}
+    wording = "SIADOCIN 100 mg: 1 capsule each morning"
+    form = FormAnalysisInput.model_validate({
+        "evidence": {"case_id": "case", "sources": [{"id": "written-list", "kind": "other_record"}]},
+        "other_source_notes": [{"value": wording, "evidence": source}],
+    })
+
+    class TextReviewer(Reviewer):
+        def generate(self, *, output_type, **kwargs):
+            if output_type.__name__ == "FormProposal":
+                return output_type.model_validate({
+                    "case_id": "case",
+                    "rows": [{
+                        "id": "row", "identity_status": "named", "sources": [source],
+                        "observed_names": [{"value": "SIADOCIN", "evidence": source}],
+                        "label_fields": {
+                            "strength": {"status": "readable", "value": "100 mg", "evidence": source},
+                            "directions": {"status": "readable", "value": "1 capsule each morning", "evidence": source},
+                        },
+                    }],
+                })
+            return super().generate(output_type=output_type, **kwargs)
+
+    provider = TextReviewer()
+    preview = analyze_medication_form(form, [], lambda: provider)
+    identity = preview.catalogue_identities["row"]
+    assert identity.trade_name == "SIADOCIN" and identity.ingredient == "doxycycline"
+    assert identity.compatible_tpus == ["1", "2"]
+    assert identity.evidence[0].source_id == "written-list"
+    assert preview.rows[0].regimens[0].time_of_day == ["morning"]
+    assert len(provider.calls) == 1

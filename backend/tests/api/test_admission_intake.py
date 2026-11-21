@@ -236,7 +236,7 @@ def test_supported_scan_heading_survives_reopen_without_verifying_product(client
     case = submit(client, payload)
     url = "/admissions/" + case["id"]
     row = client.get(url, headers=headers("pharmacist")).json()["rows"]["medicine"]
-    assert row["intake_catalogue_identity"] == hint
+    assert row["intake_catalogue_identity"] == {**hint, "compatible_tpus": ["71"]}
     assert row["unknown"] and row["verified"] is None and row["confirmed"] is None
     assert row["intake_catalogue"] is None
     result = client.post(url + "/actions", headers=headers("pharmacist"), json=dict(

@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom'
 import { renderMedicationHandoff } from '../../../../src/components/print/medication-handoff.mjs'
 import '../../../../src/components/print/medication-handoff.css'
 import { entryCrop, rowRegions } from './locatedEvidence'
-import { handoffFields } from './handoffFields'
 import type { Encounter } from '../../api/admission'
 import type { EvidenceItem, EvidenceRef, RegimenComponent } from '../../api/contracts'
 import {
@@ -44,7 +43,6 @@ export function Handoff({ encounter, client, t }: { encounter: Encounter; client
   const [error, setError] = useState(false)
   const dialog = useRef<HTMLDialogElement>(null)
   const host = useRef<HTMLDivElement>(null)
-  const unavailable = Object.values(encounter.unavailable_sources || {})
   useEffect(() => {
     if (!open || !dialog.current || !host.current) return
     const modal = dialog.current,
@@ -92,7 +90,13 @@ export function Handoff({ encounter, client, t }: { encounter: Encounter; client
             if (!refs.has(source.id)) refs.set(source.id, { source_id: source.id, item_id: link.item_id })
           }
           const fact = (value: string, source: string) => ({ value, evidence: refs.get(source) })
-          const fields = handoffFields(row, entries, refs, items)
+          const fields = { ...row.intake?.label_fields }
+          for (const e of entries) {
+            for (const k of ['strength', 'form', 'dose', 'directions', 'indication'] as const) {
+              if (e[k] && !fields[k])
+                fields[k] = { value: e[k], status: 'readable', evidence: refs.get(e.source.id) }
+            }
+          }
           const v = row.verified as (typeof row.verified & { regimens?: RegimenComponent[] }) | null
           const verified = v && {
             reviewer: v.actor,
@@ -163,45 +167,6 @@ export function Handoff({ encounter, client, t }: { encounter: Encounter; client
         decisions,
         cropUrl: (ref) => crops.get(JSON.stringify([ref.source_id, ref.item_id])) || null,
       })
-      const reverse = encounter.capture?.reverse
-      const packageFigures = await Promise.all((encounter.capture?.reverse_matches || []).map(async match => {
-        const region = reverse?.regions?.find(region => region.id === match.region.region_id)
-        if (match.status !== 'confirmed' || !region || !reverse || match.region.case_id !== encounter.id ||
-          match.region.side !== 'reverse' || match.region.attachment_id !== reverse.attachment_id ||
-          match.region.revision !== reverse.revision) return null
-        const members = Object.values(encounter.rows).filter(row => row.package_id === match.package_id)
-        if (!members.length || members.every(row => rowRegions(encounter, row).some(e =>
-          e.kind === 'appearance' && e.region.side === 'reverse' && e.region.region_id === region.id &&
-          !row.superseded.includes(e.source_id)))) return null
-        const figure = document.createElement('figure')
-        const label = [t('Confirmed reverse package region', 'บริเวณด้านหลังบรรจุภัณฑ์ที่ยืนยันแล้ว'),
-          match.package_id, region.id].join(' · ')
-        const caption = document.createElement('figcaption')
-        caption.textContent = label + ' · ' + members.map(row => row.id).join(', ')
-        figure.append(caption)
-        if (reverse.visibility === 'opaque' || region.visibility === 'opaque') {
-          caption.append(' · ' + t('Opaque', 'ทึบแสง'))
-        } else {
-          const blob = await client.region(encounter.id, match.region).catch(() => null)
-          if (blob && live) {
-            const image = document.createElement('img')
-            image.alt = label
-            image.src = URL.createObjectURL(blob)
-            objectUrls.push(image.src)
-            figure.append(image)
-            await image.decode().catch(() => image.remove())
-          }
-          if (!figure.querySelector('img')) caption.append(' · ' + t('Crop unavailable', 'ไม่มีภาพเฉพาะบริเวณ'))
-        }
-        return figure
-      }))
-      if (!live) return
-      const figures = packageFigures.filter(figure => figure !== null)
-      if (figures.length) {
-        const heading = document.createElement('h2')
-        heading.textContent = t('Package reference photos', 'ภาพอ้างอิงบรรจุภัณฑ์')
-        target.querySelector('.medication-handoff')?.append(heading, ...figures)
-      }
       setReady(true)
     }
     void render().catch(() => {
@@ -252,13 +217,6 @@ export function Handoff({ encounter, client, t }: { encounter: Encounter; client
               </p>
             )}
             <div ref={host} />
-            {!!unavailable.length && <section>
-              <h2>{t('Unavailable sources', 'แหล่งข้อมูลที่ยังไม่ได้รับ')}</h2>
-              {unavailable.map(({source, follow_up}) => <p key={source.id}>
-                <strong>{[source.organization, source.department_or_ward, source.reporter, source.id].filter(Boolean).join(' · ')}</strong>
-                {' · '}{[source.unavailable_reason, source.contact, follow_up].filter(Boolean).join(' · ')}
-              </p>)}
-            </section>}
             {Object.values(encounter.rows).some(
               (r) => r.interview?.note || r.interview?.ownership === 'other',
             ) && (
