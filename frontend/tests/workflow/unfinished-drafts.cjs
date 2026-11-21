@@ -106,6 +106,33 @@ async function checkDrafts(page) {
   assert.equal(rows.filter(row => row.interview).length, 1)
   assert.deepEqual(await page.evaluate(() => Object.keys(localStorage).filter(key => !key.startsWith('medrec.'))), [])
   assert.equal(await page.evaluate(() => sessionStorage.length), 0)
+
+  await page.locator('header a[href="/"]').click()
+  const savedCase = page.getByRole('listitem').filter({ hasText: encounter.patient_alias })
+  let releaseOpen
+  const allowOpen = new Promise(resolve => { releaseOpen = resolve })
+  let observeOpen
+  const opening = new Promise(resolve => { observeOpen = resolve })
+  const encounterPath = '**/admissions/' + encounter.id
+  await page.route(encounterPath, async route => {
+    observeOpen()
+    await allowOpen
+    await route.continue()
+  })
+  await savedCase.getByRole('button', { name: 'Open review' }).click()
+  await opening
+  await page.locator('header a[href="/new-patient"]').click()
+  await button(page, 'Enter medicine manually').click()
+  await name.fill('Synthetic draft typed during open')
+  const confirm = page.waitForEvent('dialog').then(async dialog => {
+    assert.equal(dialog.type(), 'confirm')
+    await dialog.dismiss()
+  })
+  releaseOpen()
+  await confirm
+  await page.unroute(encounterPath)
+  assert.equal(await name.inputValue(), 'Synthetic draft typed during open')
+
 }
 
 async function run() {

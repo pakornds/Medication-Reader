@@ -1,5 +1,5 @@
 import MedicationListApp from './pages/medication-list/MedicationListApp'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, Navigate, Route, Routes, useMatch, useNavigate } from 'react-router-dom'
 import { HomePage } from './pages/home/HomePage'
 import { NewPatientLayout } from './pages/new-patient/NewPatientLayout'
@@ -37,6 +37,10 @@ function StaffApp() {
   const [draft,setDraft] = useState(createDraft)
   const [manualEntry, setManualEntry] = useState(createManualEntryDraft)
   const [interviewDrafts, setInterviewDrafts] = useState<Record<string, InterviewDraft>>({})
+  const latestDraft = useRef({ draft, manualEntry, interviewDrafts })
+  useLayoutEffect(() => {
+    latestDraft.current = { draft, manualEntry, interviewDrafts }
+  }, [draft, manualEntry, interviewDrafts])
   const hasUnfinishedEntry = hasManualEntryWork(manualEntry) || Object.keys(interviewDrafts).length > 0
   const [session,setSession] = useState<StaffSession | null>(null)
   const [demoFailed, setDemoFailed] = useState(false)
@@ -117,14 +121,18 @@ function StaffApp() {
       (draft.medicines.length || draft.evidence.photos.length || draft.evidence.notes.some(n=>n.text.trim())))
     if (reloadSaved && !window.confirm(w.discardLocal)) return
     if (!reloadSaved && replacing && unsaved && !window.confirm(w.changeCase)) return
+    const requestedDraft = latestDraft.current
     const token=++openRequest.current, before=generation.current
     setRequestError(false)
     try {
       const encounter=await session.client.encounter(id)
       if (token!==openRequest.current || before!==generation.current) return
       const remoteIntake = record && encounter.events.some(event => event.revision > record.encounter.revision && event.action === 'intake')
-      if (!replacing && !reloadSaved && remoteIntake && unsaved && !window.confirm(w.discardLocal)) return
       if(replacing || reloadSaved || remoteIntake) {
+        const draftChanged = requestedDraft !== latestDraft.current
+        const refreshedWithUnsavedWork = !replacing && !reloadSaved && unsaved
+        if ((draftChanged || refreshedWithUnsavedWork)
+            && !window.confirm(replacing && !reloadSaved ? w.changeCase : w.discardLocal)) return
         generation.current++
         resetDraft();setRecord({encounter,synced:null})
       } else setRecord(prev => prev && encounter.revision>=prev.encounter.revision ? {...prev,encounter} : prev)

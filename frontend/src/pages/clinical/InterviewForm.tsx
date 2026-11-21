@@ -66,7 +66,18 @@ export function InterviewForm({
       )
       if (!linked) return
       caseState = linked
-      replaceSubmitted({ ...current, source: sourceId, wording: '', newId: undefined })
+      const linkedSource = sourceId
+      const expected = submitted
+      const next = { ...current, source: linkedSource, wording: '', newId: undefined }
+      onDraft((latest) => {
+        if (latest === expected) return next
+        if (!latest || latest.newId !== linkedSource) return latest
+        if (latest.source || latest.kind !== kind || latest.wording.trim() !== wording.trim()) {
+          return { ...latest, newId: undefined }
+        }
+        return { ...latest, source: linkedSource, wording: '', newId: undefined }
+      })
+      submitted = next
     }
     const result = await save(
       {
