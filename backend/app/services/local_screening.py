@@ -7,12 +7,13 @@ import sqlite3
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from itertools import combinations
+from itertools import combinations, product as cartesian_product
 
 from app.schemas.analysis import AnalysisResult, validate_analysis_result
 from app.schemas.evidence import CaseEvidence, EvidenceRef, EvidenceValidationError
 from app.schemas.local_screening import (
-    CatalogueScreeningRequest, DDILookup, DuplicateLookup, Ingredient, IngredientRouteMatch, LocalScreeningRequest, LocalScreeningResult,
+    CatalogueScreeningRequest, ClassificationSupport, DDILookup, DuplicateLookup, Ingredient, IngredientRouteMatch,
+    LocalScreeningRequest, LocalScreeningResult,
     Reference, RuleMatch, ScreenedPair, ScreenedRow,
 )
 from app.schemas.regimen import validate_regimen_evidence
@@ -302,19 +303,29 @@ def _ddi(fest: sqlite3.Connection, left: Membership, right: Membership, mapping_
     uncertain = bool(left.alternative_sides or right.alternative_sides)
     if ingredient_sources and mapping_version:
         interactions = [rule for rule in interactions if rule.relevance != "Ingen tiltak nødvendig"]
-        if uncertain:
-            actionable = {rule.rule_id for rule in interactions}
-            if not all(actionable.intersection(_opposing_matches(a, b))
-                       for a in (left.alternative_sides.values() or [left.sides])
-                       for b in (right.alternative_sides.values() or [right.sides])):
-                interactions = []
-                reasons.insert(0, "An actionable rule could not be established for every supported product classification.")
+        support = {}
+        if uncertain and interactions:
+            alternatives_left = left.alternative_sides or {None: left.sides}
+            alternatives_right = right.alternative_sides or {None: right.sides}
+            total = len(alternatives_left) * len(alternatives_right)
+            support = {rule.rule_id: ClassificationSupport(total=total, matches=[]) for rule in interactions}
+            covered = 0
+            for (left_code, left_sides), (right_code, right_sides) in cartesian_product(
+                alternatives_left.items(), alternatives_right.items(),
+            ):
+                applicable = support.keys() & _opposing_matches(left_sides, right_sides).keys()
+                covered += bool(applicable)
+                for rule_id in applicable:
+                    support[rule_id].matches.append((left_code, right_code))
+            if covered < total:
+                reasons.insert(0, "An actionable rule applies to only some supported classifications. Confirm the product indication.")
         references = list({(ref.title, ref.url): ref for ref in ingredient_sources}.values())
         for rule in interactions:
             en, th = ingredient_reference.RULE_SUMMARIES.get(rule.rule_id, ("", ""))
             rule.ingredient_route_match = IngredientRouteMatch(
                 route="oral", mapping_version=mapping_version, summary_en=en, summary_th=th,
                 references=references, classification_uncertain=uncertain,
+                classification_support=support.get(rule.rule_id),
             )
     if reasons:
         status = "partial" if interactions else "unassessed"

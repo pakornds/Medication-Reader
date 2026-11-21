@@ -149,9 +149,10 @@ export function ManualMedicineEntry({
         <Button
           variant="primary"
           type="submit"
+          className={handoff ? 'list-manual-submit' : undefined}
           disabled={!name.trim() || (!handoff && !source.trim()) || pendingParses > 0}
         >
-          <LuPlus />
+          <LuPlus aria-hidden="true" />
           {t.addMedicine}
         </Button>
       </form>

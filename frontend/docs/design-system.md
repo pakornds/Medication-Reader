@@ -1,6 +1,6 @@
 # Med Reader design system
 
-This guide defines the target styles for the Vite frontend. The current stylesheet still contains the starter screen styles. Use this guide as the screens are built. For page ownership, stage transitions and draft lifetime, see the [frontend architecture](../FRONTEND.md).
+This guide defines the shared styles for the Vite frontend. For page ownership, stage transitions and draft lifetime, see the [frontend architecture](../FRONTEND.md).
 
 ## Tailwind and units
 
@@ -21,14 +21,14 @@ Use numbered background and text tokens, with named tokens for interaction state
 
 | Utility | Light | Dark | Where it belongs |
 | --- | --- | --- | --- |
-| `bg-1` | `#f5f6f8` | `#121a20` | Page canvas |
-| `bg-2` | `#ffffff` | `#1c282f` | Top bar, workflow bar, panels and history list |
+| `bg-1` | `#f2f6f5` | `#10201f` | Page canvas |
+| `bg-2` | `#ffffff` | `#172b29` | Top bar, panels and history list |
 | `bg-3` | `#eaf0f2` | `#293840` | Inset evidence, quoted text and the area around a photo |
-| `text-1` | `#17212e` | `#f1f5f6` | Headings, names, strengths and field values |
-| `text-2` | `#526174` | `#cfdee4` | Field labels, supporting descriptions and navigation |
+| `text-1` | `#172c2c` | `#eef7f3` | Headings, names, strengths and field values |
+| `text-2` | `#506766` | `#b4ccc5` | Field labels, supporting descriptions and navigation |
 | `text-3` | `#475d68` | `#b4c5cc` | Captions, hints and timestamps |
-| `border-line` | `#d9e1eb` | `#869aa4` | Dividers and control boundaries |
-| `text-accent`, `outline-accent` | `#0c5096` | `#a5ceff` | Evidence links, selection markers and keyboard focus |
+| `border-line` | `#ccd9d6` | `#3b5450` | Dividers and panel boundaries |
+| `text-accent`, `outline-accent` | `#00695b` | `#8ce1c8` | Evidence links, selection markers and keyboard focus |
 
 ### Actions and feedback
 
@@ -50,14 +50,14 @@ For each new color, define a light value on `:root`, a dark value on `:root[data
 @source not "../docs";
 
 :root {
-  --bg-1: #f5f6f8;
-  --text-1: #17212e;
-  --accent: #0c5096;
+  --bg-1: #f2f6f5;
+  --text-1: #172c2c;
+  --accent: #00695b;
 }
 :root[data-theme="dark"] {
-  --bg-1: #121a20;
-  --text-1: #f1f5f6;
-  --accent: #a5ceff;
+  --bg-1: #10201f;
+  --text-1: #eef7f3;
+  --accent: #8ce1c8;
 }
 @theme inline {
   --background-color-1: var(--bg-1);
@@ -107,7 +107,7 @@ Use native links for destinations and buttons for actions. Give enabled buttons 
 
 ## Layout and spacing
 
-Use a shared `PageContainer` for horizontal gutters and content width. The top-bar background spans the viewport. Its inner content aligns with the workspace. After the logo, show **Home | + New Patient | History** in that order, with the language and theme controls at the far end. All three links use the same padding, hover, focus and current-page underline. Treat the plus as a decorative leading icon and give the link the accessible name “New Patient” in the active language. On small screens let the links wrap below the controls in a predictable keyboard order. The second navigation bar appears on New Patient and contains Input, Review and Output. Give the navigation landmarks distinct accessible names. Underline the current destination and set `aria-current="page"` or `aria-current="step"` as appropriate.
+Use a shared `PageContainer` for horizontal gutters and content width. The project name **MedRec TH** in the header links to the home page. The main navigation contains **Medication list** and **History**, with language and theme controls at the far end. The staff workspace uses **New Patient** for its workspace link. On small screens the navigation can wrap under the header controls. The workspace steps show Input, Review and Output, with the active step marked by `aria-current="step"`. Use `aria-current="page"` for the current main destination. Use a separate control to start a fresh case.
 
 | Layout choice | Starting value |
 | --- | --- |

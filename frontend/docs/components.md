@@ -4,15 +4,15 @@ Use this catalog when planning a screen. The shared controls below are available
 
 ## First example: the top bar
 
-`App` renders one `TopBar` above the active page. [TopBar](../src/components/layout/TopBar.tsx) renders a [TopBarLink](../src/components/layout/TopBarLink.tsx) for each destination. React Router updates the selected background and current-page state on navigation, including browser Back.
+`App` renders one [TopBar](../src/components/layout/TopBar.tsx) above the active page. The project name links to the home page, and [TopBarLink](../src/components/layout/TopBarLink.tsx) renders the workspace and history links. React Router updates the current-page state on navigation, including browser Back.
 
 | Label | Destination | Behavior |
 | --- | --- | --- |
-| Home | `/` | Open the instruction page. |
-| + New Patient | `/new-patient` | Open the workspace at Input for an empty case, or resume the active draft. |
-| History | `/history` | Open the successful import list. |
+| MedRec TH | `/` | Return to the home page. |
+| Medication list | `/new-patient` | Open Input with the current draft. The staff workspace labels this link New Patient. |
+| History | `/history` | Open saved handoffs and analysis history. |
 
-Each link receives its address, translated label and optional leading icon. It renders a native anchor and owns the shared hover, keyboard focus and current-page treatment. Only the current link gets `aria-current="page"`. The plus is decorative. Starting a fresh case is a separate workspace action. Keep language and theme controls at the far end of the bar.
+Each destination is a native anchor with a visible keyboard focus state. The current link gets `aria-current="page"`. Navigation icons are decorative. Starting a fresh case is a separate workspace action. Keep language and theme controls at the far end of the bar.
 
 ## Choosing a component boundary
 
@@ -50,4 +50,4 @@ Use PascalCase for component names and files, named exports for new reusable com
 
 Keep interface strings, including accessible labels, in the paired Thai and English messages. Preserve the original wording of medication evidence when the interface language changes. Keep receipt storage in the History module. If browser storage is unavailable after a successful import, show the server receipt and explain that local history could not be saved.
 
-Test a shared component through its callers with synthetic data. For the top bar, navigate Home → New Patient → History and use Back. Confirm the correct link is current, keyboard focus is visible, and the draft resumes. For a shared evidence field, compare the source wording in Review and print, including a missing or unreadable value.
+Test a shared component through its callers with synthetic data. For the top bar, return to the home page through MedRec TH, open the draft, visit History and use Back. Confirm the correct link is current, keyboard focus is visible, and the draft resumes. For a shared evidence field, compare the source wording in Review and print, including a missing or unreadable value.

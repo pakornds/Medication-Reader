@@ -184,6 +184,10 @@ def test_catalogue_fallback_cannot_clear_a_pair_from_a_no_action_rule(ingredient
 @pytest.mark.parametrize("reverse", [False, True])
 def test_aspirin_brings_up_fest_when_both_classifications_flag_the_pair(ingredient_route_refs, reverse):
     ids = ("108354", "250763")
+    _, fest = ingredient_route_refs
+    with closing(sqlite3.connect(fest)) as db:
+        db.execute("UPDATE rule SET relevance_no='Bør unngås' WHERE id='fixture-warfarin-aspirin-platelet'")
+        db.commit()
     ddi = catalogue_pair(ids[::-1] if reverse else ids).ddi
     assert ddi.status == "partial"
     assert {rule.rule_id for rule in ddi.interactions} == {
@@ -192,19 +196,48 @@ def test_aspirin_brings_up_fest_when_both_classifications_flag_the_pair(ingredie
     for rule in ddi.interactions:
         assert rule.ingredient_route_match.classification_uncertain
         assert rule.matched_atcs[1 if reverse else 0] == ["B01AA03"]
+        is_platelet = rule.rule_id.endswith("platelet")
+        classification = "B01AC06" if is_platelet else "N02BA01"
+        assert rule.relevance == ("Bør unngås" if is_platelet else "Forholdsregler bør tas")
+        support = rule.ingredient_route_match.classification_support
+        assert support.total == 2
+        assert support.matches == ([(classification, None)] if reverse else [(None, classification)])
         titles = [ref.title for ref in rule.ingredient_route_match.references]
         assert any("main ingredient warfarin (W-main)" in title for title in titles)
         assert any("FDA UNII · aspirin = acetylsalicylic acid" in title for title in titles)
 
 
-def test_aspirin_does_not_surface_a_finding_from_only_one_classification(ingredient_route_refs):
+@pytest.mark.parametrize("missing_rule", [False, True])
+def test_classification_specific_finding_is_visible_but_conditional(ingredient_route_refs, missing_rule):
     _, fest = ingredient_route_refs
     with closing(sqlite3.connect(fest)) as db:
-        db.execute("UPDATE rule SET relevance_no='Ingen tiltak nødvendig' WHERE id='fixture-warfarin-aspirin-platelet'")
+        if missing_rule:
+            db.execute("DELETE FROM atc_member WHERE rule_id='fixture-warfarin-aspirin-platelet'")
+        else:
+            db.execute("UPDATE rule SET relevance_no='Ingen tiltak nødvendig' WHERE id='fixture-warfarin-aspirin-platelet'")
         db.commit()
     ddi = catalogue_pair(("108354", "250763")).ddi
-    assert ddi.status == "unassessed" and not ddi.interactions
-    assert "every supported product classification" in ddi.reasons[0]
+    assert ddi.status == "partial"
+    rule, = ddi.interactions
+    assert rule.rule_id == "fixture-warfarin-aspirin-analgesic"
+    assert rule.ingredient_route_match.classification_support.model_dump() == {
+        "total": 2, "matches": [(None, "N02BA01")],
+    }
+    assert "only some supported classifications" in ddi.reasons[0]
+
+
+def test_rule_reached_through_both_classifications_is_returned_once(ingredient_route_refs):
+    _, fest = ingredient_route_refs
+    with closing(sqlite3.connect(fest)) as db:
+        db.execute("UPDATE atc_member SET rule_id='fixture-warfarin-aspirin-analgesic' "
+                   "WHERE rule_id='fixture-warfarin-aspirin-platelet' AND side=2")
+        db.execute("DELETE FROM atc_member WHERE rule_id='fixture-warfarin-aspirin-platelet'")
+        db.commit()
+    ddi = catalogue_pair(("108354", "250763")).ddi
+    rule, = ddi.interactions
+    assert rule.ingredient_route_match.classification_support.model_dump() == {
+        "total": 2, "matches": [(None, "B01AC06"), (None, "N02BA01")],
+    }
 
 
 def test_reference_checks_release_and_blocks_conflicted_ingredient(tmp_path):

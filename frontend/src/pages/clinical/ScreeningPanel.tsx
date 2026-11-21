@@ -105,16 +105,22 @@ export function ScreeningPanel({ client, encounter, t }: { client: Client; encou
               {pair.ddi.reasons.map((r) => (
                 <p key={r}>{r}</p>
               ))}
-              {pair.ddi.interactions?.map((rule) => (
-                <details key={rule.rule_id}>
-                  <summary>
-                    {rule.relevance} · {rule.rule_id}
-                  </summary>
+              {pair.ddi.interactions?.map((rule) => {
+                const support = rule.ingredient_route_match?.classification_support
+                const conditional = support && support.matches.length < support.total
+                return <details key={rule.rule_id}>
+                  <summary>{conditional
+                    ? t('Possible interaction · confirm indication', 'อาจเกิดอันตรกิริยา · ตรวจสอบข้อบ่งใช้')
+                    : rule.relevance}</summary>
+                  {conditional && <p>{rule.relevance} · {
+                    support.matches.map(codes => codes.filter(Boolean).join(' + ')).join(' / ')
+                  }</p>}
                   <p>
                     {[rule.condition, rule.consequence, rule.mechanism, rule.source_basis]
                       .filter(Boolean)
                       .join(' · ')}
                   </p>
+                  <p className="hint">FEST · {rule.rule_id}</p>
                   {rule.references.map((ref, i) =>
                     safeLink(ref.url) ? (
                       <p key={i}>
@@ -127,7 +133,7 @@ export function ScreeningPanel({ client, encounter, t }: { client: Client; encou
                     ),
                   )}
                 </details>
-              ))}
+              })}
               <p>
                 {t('Duplicate ingredient', 'ตัวยาซ้ำ')} · {status(pair.duplicate.status)}
               </p>

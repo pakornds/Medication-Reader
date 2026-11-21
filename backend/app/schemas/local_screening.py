@@ -56,6 +56,12 @@ class Reference(ContractModel):
     url: str | None
 
 
+class ClassificationSupport(ContractModel):
+    total: int
+    # Null means the medicine on this side has no alternative classification to choose.
+    matches: list[tuple[str | None, str | None]]
+
+
 class IngredientRouteMatch(ContractModel):
     route: Literal["oral"]
     mapping_version: str
@@ -63,6 +69,7 @@ class IngredientRouteMatch(ContractModel):
     summary_th: str
     references: list[Reference]
     classification_uncertain: bool = False
+    classification_support: ClassificationSupport | None = None
 
 
 class RuleMatch(ContractModel):

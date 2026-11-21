@@ -4,27 +4,31 @@
 /* 1. Light theme values */
 :root {
   color-scheme: light;
-  --bg-1: #f5f6f8;
+  --bg-1: #f2f6f5;
   --bg-2: #fff;
-  --text-1: #17212e;
-  --text-2: #526174;
-  --line: #d9e1eb;
-  --accent: #0c5096;
-  --bg-hover: #eef4fb;
-  --bg-selected: #e2edfc;
+  --text-1: #172c2c;
+  --text-2: #506766;
+  --line: #ccd9d6;
+  --control-line: #708c86;
+  --accent: #00695b;
+  --brand: #086b5d;
+  --brand-hover: #045748;
+  --bg-hover: #edf6f2;
+  --bg-selected: #e5f4ee;
 }
 
 /* 2. Dark theme values, using the same names */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg-1: #121a20;
-  --bg-2: #1c282f;
-  --text-1: #f1f5f6;
-  --text-2: #cfdee4;
-  --line: #555c60;
-  --accent: #a5ceff;
-  --bg-hover: #273647;
-  --bg-selected: #243d59;
+  --bg-1: #10201f;
+  --bg-2: #172b29;
+  --text-1: #eef7f3;
+  --text-2: #b4ccc5;
+  --line: #3b5450;
+  --control-line: #70978c;
+  --accent: #8ce1c8;
+  --bg-hover: #253c37;
+  --bg-selected: #224338;
 }
 
 /* 3. Tailwind utilities: bg-1, bg-2, text-1, text-2, border-line */
@@ -33,7 +37,7 @@
   --background-color-2: var(--bg-2);
   --background-color-hover: var(--bg-hover);
   --background-color-selected: var(--bg-selected);
-  --color-brand: #0c5096;
+  --color-brand: var(--brand);
   --text-color-1: var(--text-1);
   --text-color-2: var(--text-2);
   --border-color-line: var(--line);
@@ -61,7 +65,62 @@
 
 @layer components {
   .preference-button {
-    @apply inline-flex min-h-10 min-w-10 items-center justify-center rounded-lg border border-line px-3 text-sm hover:bg-hover;
+    @apply inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-line px-3 text-sm hover:bg-hover;
+  }
+  .workspace-header { border-bottom: 1px solid var(--line); background: var(--bg-2); }
+  .workspace-header-inner {
+    display: flex; align-items: center; gap: clamp(1rem, 4vw, 3rem);
+    max-width: 74rem; min-height: 4rem; margin-inline: auto; padding: .5rem clamp(1rem, 3vw, 2rem);
+  }
+  .workspace-brand {
+    display: inline-flex; align-items: center; gap: .65rem; min-height: 44px;
+    font-size: 1.05rem; font-weight: 730; white-space: nowrap; color: var(--text-1);
+  }
+  .workspace-brand:hover { color: var(--accent); }
+  .workspace-mark {
+    display: grid; place-items: center; width: 2rem; height: 2rem;
+    border-radius: .55rem; background: var(--brand); color: white;
+  }
+  .workspace-mark svg { width: 1.05rem; height: 1.05rem; }
+  .workspace-navigation, .workspace-preferences { display: flex; gap: .4rem; align-items: center; }
+  .workspace-preferences { margin-inline-start: auto; }
+  .workspace-link {
+    display: inline-flex; align-items: center; gap: .45rem; justify-content: center;
+    min-height: 44px; padding-inline: .85rem; border-radius: .5rem;
+    color: var(--text-2); font-size: .9rem; font-weight: 600;
+  }
+  .workspace-link svg { width: 1rem; height: 1rem; flex-shrink: 0; }
+  .workspace-link:hover { background: var(--bg-hover); }
+  .workspace-link[aria-current=page] { background: var(--bg-selected); color: var(--accent); }
+  .workspace-stages {
+    display: flex; justify-content: space-between; align-items: center; gap: .75rem;
+    margin: 0 auto clamp(1.05rem, 3vw, 2rem); max-width: 70rem;
+    border-bottom: 1px solid var(--line); padding-block-end: .55rem;
+  }
+  .workspace-stages nav { display: grid; grid-template-columns: repeat(3, minmax(6.5rem, 1fr)); gap: .25rem; }
+  .workspace-stages nav a {
+    display: flex; align-items: center; justify-content: center; gap: .5rem;
+    min-height: 44px; border-radius: .5rem; padding-inline: .75rem; color: var(--text-2);
+    font-size: .92rem; font-weight: 620; line-height: 1.3;
+  }
+  .workspace-stages nav a > span {
+    display: grid; place-items: center; flex: none; width: 1.5rem; height: 1.5rem; border-radius: 50%;
+    border: 1px solid var(--line); font-size: .72rem; font-variant-numeric: tabular-nums;
+  }
+  .workspace-stages nav a:hover { background: var(--bg-hover); }
+  .workspace-stages nav a[aria-current=step] { background: var(--bg-selected); color: var(--accent); }
+  .workspace-stages nav a[aria-current=step] > span { background: var(--brand); color: white; border-color: var(--brand); }
+  .workspace-stages .workspace-reset { align-self: center; color: var(--text-2); padding-inline: .5rem; }
+  @media (max-width: 43rem) {
+    .workspace-header-inner { flex-wrap: wrap; gap: .25rem 1rem; }
+    .workspace-navigation { width: 100%; order: 1; }
+    .workspace-link { flex: 1; }
+  }
+  @media (max-width: 34rem) {
+    .workspace-stages { display: grid; grid-template-columns: minmax(0, 1fr); gap: .2rem; padding-block-end: .2rem; }
+    .workspace-stages nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .workspace-stages nav a { padding-inline: .25rem; }
+    .workspace-stages .workspace-reset { justify-self: end; min-height: 44px; }
   }
 }
 
@@ -84,11 +143,11 @@
   .intake .spread { justify-content: space-between; }
   .input-modes { display: flex; flex-wrap: wrap; gap: .5rem; padding-bottom: 1.2rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--line); }
   .input-modes button, .btn, .primary-btn, .text-action { display: inline-flex; align-items: center; justify-content: center; gap: .45rem; min-height: 2.6rem; font-size: .88rem; font-weight: 600; line-height: 1.4; }
-  .input-modes button, .btn { border: 1px solid var(--line); border-radius: .5rem; padding: .55rem .8rem; background: var(--bg-2); }
+  .input-modes button, .btn { border: 1px solid var(--control-line); border-radius: .5rem; padding: .55rem .8rem; background: var(--bg-2); }
   .input-modes button[aria-pressed=true] { border-color: var(--accent); background: var(--bg-selected); color: var(--accent); }
   .btn:hover:enabled, .input-modes button:hover { background: var(--bg-hover); }
-  .primary-btn { border-radius: .5rem; padding: .65rem 1rem; color: white; background: #0c5096; }
-  .primary-btn:hover:enabled { background: #093f77; }
+  .primary-btn { border-radius: .5rem; padding: .65rem 1rem; color: white; background: var(--brand); }
+  .primary-btn:hover:not(:disabled) { background: var(--brand-hover); }
   .text-action { color: var(--accent); align-self: flex-start; }
   .text-action:hover { text-decoration: underline; }
   .btn:disabled, .primary-btn:disabled, .text-action:disabled, .intake button:disabled { opacity: .52; cursor: not-allowed; }
@@ -97,7 +156,7 @@
   .intake label > small { margin-inline-start: .5rem; font-weight: normal; }
   .field-label > input, .medicine-control > input, .intake textarea, .intake select {
     display: block; min-width: 0; width: 100%; margin-top: .35rem; padding: .55rem .7rem;
-    min-height: 2.6rem; border: 1px solid var(--line); border-radius: .45rem; background: var(--bg-2); color: var(--text-1);
+    min-height: 2.6rem; border: 1px solid var(--control-line); border-radius: .45rem; background: var(--bg-2); color: var(--text-1);
     font-size: 1rem; font-weight: normal;
   }
   .intake textarea { resize: vertical; }

@@ -24,26 +24,32 @@ function referenceUrl(value: string | null) {
   }
 }
 
-function SourceRule({ rule, language }: { rule: RuleMatch; language: Language }) {
+function SourceRule({ rule, language, shared }: { rule: RuleMatch; language: Language; shared: boolean }) {
   const t = (en: string, th: string) => say(language, en, th)
   const ingredientMatch = rule.ingredient_route_match
-  const uncertain = ingredientMatch?.classification_uncertain
+  const support = ingredientMatch?.classification_support
+  const conditional = Boolean(support && support.matches.length < support.total)
   const summary = ingredientMatch && t(ingredientMatch.summary_en, ingredientMatch.summary_th)
   const references = [...rule.references, ...(ingredientMatch?.references ?? [])]
   const label = rule.relevance === 'Bør unngås' ? t('FEST flags this combination to avoid', 'FEST ระบุว่าควรหลีกเลี่ยงคู่นี้')
     : rule.relevance === 'Forholdsregler bør tas' ? t('FEST flags this combination for precautions', 'FEST ระบุว่าควรระวังเมื่อใช้คู่นี้')
       : t('Interaction flagged by FEST', 'พบอันตรกิริยาตามข้อมูล FEST')
   return <div className="stack">
-    {!uncertain && <strong>{label}</strong>}
-    {ingredientMatch && !uncertain && <div>
+    {!shared && <strong>{conditional
+      ? t('Possible interaction · confirm indication', 'อาจเกิดอันตรกิริยา · ตรวจสอบข้อบ่งใช้')
+      : label}</strong>}
+    {ingredientMatch && !shared && <div>
       {summary && <p>{summary}</p>}
       <small className="hint">{t('Ingredient-level check', 'ตรวจจากตัวยา')}</small>
     </div>}
     <details>
-      <summary>{uncertain
+      <summary>{shared
         ? t('FEST rule', 'กฎของ FEST') + ' · ' + rule.matched_atcs.flat().join(' + ')
         : t('Source conditions and references', 'เงื่อนไขและเอกสารอ้างอิง')}</summary>
-      {uncertain && <p>{label}</p>}
+      {(shared || conditional) && <p>{label}</p>}
+      {conditional && <p>{t('FEST classifications for this rule', 'การจัดกลุ่มยาที่ตรงกับกฎนี้')} · {
+        support?.matches.map(codes => codes.filter(Boolean).join(' + ')).join(' / ')
+      }</p>}
       {rule.condition && <p>{t('Applies when', 'เงื่อนไขที่เกี่ยวข้อง')} · {rule.condition}</p>}
       {rule.consequence && <p>{t('Possible effect', 'ผลที่อาจเกิดขึ้น')} · {rule.consequence}</p>}
       <p className="hint">FEST · {rule.rule_id}</p>
@@ -61,19 +67,19 @@ function SourceRule({ rule, language }: { rule: RuleMatch; language: Language })
 function InteractionFindings({ pair, language }: { pair: Pair; language: Language }) {
   const t = (en: string, th: string) => say(language, en, th)
   const rules = actionRules(pair)
-  const uncertain = rules.some(rule => rule.ingredient_route_match?.classification_uncertain)
-  const summaries = new Set(rules.flatMap(rule => {
-    const match = rule.ingredient_route_match
-    return match && match.classification_uncertain ? [t(match.summary_en, match.summary_th)] : []
-  }).filter(Boolean))
+  const matches = rules.map(rule => rule.ingredient_route_match)
+  const first = matches[0]
+  const covered = new Set(matches.flatMap(match =>
+    (match?.classification_support?.matches ?? []).map(codes => JSON.stringify(codes))))
+  const shared = Boolean(rules.length > 1 && first?.summary_en && first.classification_support?.total === covered.size &&
+    matches.every(match => match?.summary_en === first.summary_en && match.summary_th === first.summary_th))
   return <>
-    {uncertain && <div className="stack">
+    {shared && first && <div className="stack">
       <strong>{t('FEST flags a potential interaction', 'FEST พบอันตรกิริยาที่อาจเกิดขึ้น')}</strong>
-      {[...summaries].map(summary => <p key={summary}>{summary}</p>)}
-      <small className="hint">{t('The ingredient matches more than one product classification. Check the indication to see which rule applies.',
-        'ตัวยาตรงกับการจัดกลุ่มผลิตภัณฑ์มากกว่าหนึ่งแบบ ตรวจสอบข้อบ่งใช้เพื่อเลือกกฎที่ตรงกับผลิตภัณฑ์')}</small>
+      <p>{t(first.summary_en, first.summary_th)}</p>
+      <small className="hint">{t('Check the indication to see which rule applies.', 'ตรวจสอบข้อบ่งใช้เพื่อเลือกกฎที่ตรงกับผลิตภัณฑ์')}</small>
     </div>}
-    {rules.map(rule => <SourceRule key={rule.rule_id} rule={rule} language={language} />)}
+    {rules.map(rule => <SourceRule key={rule.rule_id} rule={rule} language={language} shared={shared} />)}
   </>
 }
 
