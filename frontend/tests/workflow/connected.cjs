@@ -7,9 +7,10 @@ const { chromium } = require('playwright')
 
 const ui = process.env.TEST_UI_URL
 const api = process.env.TEST_API_URL
+const demo = process.env.TEST_DEMO_URL
 const nurse = process.env.MEDICATION_READER_DEMO_NURSE_TOKEN
 const pharmacy = process.env.MEDICATION_READER_DEMO_REVIEWER_TOKEN
-assert.ok(ui && api && nurse && pharmacy, 'Set TEST_UI_URL, TEST_API_URL and both synthetic staff tokens.')
+assert.ok(demo || (ui && api && nurse && pharmacy), 'Set TEST_DEMO_URL for the local presenter, or configure the UI, API and staff tokens.')
 
 const clinicalToken = token => ({ 'X-Demo-Reviewer-Token': token })
 const assignedEncounter = async id => {
@@ -148,6 +149,7 @@ async function workflow(browser) {
   await addUnreadablePhoto(page)
   await stage(page, 'review')
   const documented = page.locator('article').filter({ hasText: /ZOCOR/i })
+  await documented.locator('.medicine-source > summary').click()
   const schedules = documented.locator('.regimen-readback')
   await schedules.nth(1).waitFor()
   assert.match(await schedules.nth(0).innerText(), /Documented[\s\S]*Morning/)
@@ -327,9 +329,80 @@ async function namedPhoto(browser) {
   await ctx.close()
 }
 
+// Run independently with TEST_DEMO_URL pointing to the loopback presenter proxy.
+async function presenter(browser) {
+  const page = await browser.newPage({ viewport: { width: 1024, height: 820 } })
+  const errors = []
+  page.on('pageerror', error => errors.push(error.message))
+  page.on('request', request => {
+    if (new URL(request.url()).pathname.startsWith('/admissions')) {
+      assert.equal(request.headers()['x-demo-reviewer-token'], undefined, 'The browser must not receive the demo credential.')
+    }
+  })
+  async function noLogin() {
+    assert.equal(await label(page, 'Staff token').count(), 0)
+    assert.equal(await button(page, 'Sign in').count(), 0)
+  }
+  await page.goto(demo)
+  await page.getByRole('heading', { name: 'Assigned encounters' }).waitFor()
+  await noLogin()
+  await routeLink(page, '/new-patient').click()
+  await noLogin()
+  await addDocumentedProduct(page)
+  await button(page, 'Read photos or notes').click()
+  const front = page.getByRole('region', { name: 'Label side', exact: true })
+  await front.locator('input[type=file]').first().setInputFiles(path.resolve(__dirname, '../../../backend/tests/fixtures/package_regions/empty.png'))
+  // Keep model nondeterminism and real images out of this staff navigation regression.
+  await page.route('**/medication-analysis', async route => {
+    const form = await new Response(route.request().postDataBuffer(), {
+      headers: { 'content-type': route.request().headers()['content-type'] },
+    }).formData()
+    const metadata = JSON.parse(form.get('form'))
+    const item = 'fixture-location', ref = { source_id: item, item_id: item }
+    await route.fulfill({ json: { case_id: metadata.evidence.case_id,
+      located_regions: [{ attachment_id: metadata.scene_photo_ids[0], ...ref, row_id: item, bounds: { x: 0, y: 0, width: 1, height: 1 } }],
+      rows: [{ id: item, identity_status: 'unreadable', unknown_label: 'Unreadable fixture label', observed_names: [], sources: [ref] }],
+    } })
+  })
+  await button(page, 'Analyze evidence').click()
+  await page.getByRole('heading', { name: 'Unreadable fixture label' }).waitFor()
+  await stage(page, 'review')
+  await noLogin()
+  await page.getByRole('checkbox', { name: 'Unreadable fixture label' }).check()
+  await button(page, 'Add selected to draft').click()
+  const stored = page.waitForResponse(r => r.url().endsWith('/admissions/intake') && r.request().method() === 'POST')
+  await button(page, 'Save draft and open clinical review').click()
+  const response = await stored
+  assert.equal(response.status(), 200, await response.text())
+  const encounter = await response.json()
+  const [unknown, known] = [true, false].map(value => Object.values(encounter.rows).find(row => row.unknown === value))
+  assert.ok(unknown && known)
+  assert.equal(unknown.verified, null)
+  assert.equal(known.verified, null)
+  await verifyProduct(page, known.id)
+  await stage(page, 'output')
+  await noLogin()
+  const ready = page.getByRole('checkbox', { name: /ZOCOR/i })
+  await ready.check()
+  assert.equal(await page.getByRole('checkbox').count(), 1, 'The unresolved item stays outside the selection.')
+  await button(page, 'Approve and import selected medicines').click()
+  await page.getByRole('heading', { name: 'Import confirmed' }).waitFor()
+  await routeLink(page, '/history').click()
+  await noLogin()
+  await button(page, 'View receipt').click()
+  await page.getByText(/TPU 117365/).waitFor()
+  assert.deepEqual(errors, [])
+  await page.close()
+}
+
 ;(async () => {
   const browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {})
   try {
+    if (demo) {
+      await presenter(browser)
+      console.log('PASS loopback presenter: pending scan in Review, pharmacist verification, final import, and receipt with no staff token in the browser.')
+      return
+    }
     await workflow(browser)
     await mobile(browser)
     await namedPhoto(browser)

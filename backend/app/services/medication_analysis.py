@@ -32,6 +32,7 @@ from app.schemas.evidence import (
     Text,
 )
 from app.schemas.regimen import RegimenComponent, RegimenParseRequest
+from app.services.catalogue_identity import CatalogueIdentity, resolve_scan_identities
 from app.services.labels import LabelPhotoError, _matches_media_type, crop_label, read_label
 from app.services.regimens import parse_directions
 from app.services.scene_analysis import LocatedRegion, PhotoIssue, analyze_scenes
@@ -45,6 +46,7 @@ class FormAnalysisInput(AnalysisRequest):
 
 
 class AnalysisPreview(AnalysisResult):
+    catalogue_identities: dict[Text, CatalogueIdentity] = Field(default_factory=dict)
     located_regions: list[LocatedRegion] = Field(default_factory=list)
     photo_issues: list[PhotoIssue] = Field(default_factory=list)
     remaining_evidence_unassessed: bool = False
@@ -432,7 +434,7 @@ class FormGrounding:
         return facility
 
 
-def analyze_medication_form(
+def transcribe_medication_form(
     form: FormAnalysisInput,
     photos: Sequence[EvidenceImage],
     get_provider: Callable[[], OpenAIClient],
@@ -525,3 +527,10 @@ def analyze_medication_form(
             )
         ],
     )
+
+def analyze_medication_form(
+    form: FormAnalysisInput, photos: Sequence[EvidenceImage], get_provider: Callable[[], OpenAIClient],
+) -> AnalysisPreview:
+    preview = transcribe_medication_form(form, photos, get_provider)
+    preview.catalogue_identities = resolve_scan_identities(preview, form, get_provider)
+    return preview

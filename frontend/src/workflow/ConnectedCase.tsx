@@ -36,7 +36,6 @@ export function CaseHandoff({draft,language,session,record,onSaved,onRefresh}: {
   }
   return <section className="intake-panel stack">
     <h2>{t.heading}</h2>
-    {draft.preview?.rows.length ? <p>{t.pending} <Link className="text-action" to="/new-patient/input">{t.input}</Link></p> : null}
     {!session && <p>{t.needsLogin}</p>}
     {!record && !draft.medicines.length && <p>{t.empty} <Link className="text-action" to="/new-patient/input">{t.input}</Link></p>}
     {dirty && <p>{t.dirty}</p>}
