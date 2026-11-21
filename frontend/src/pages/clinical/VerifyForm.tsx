@@ -17,10 +17,17 @@ import {
   sourceLabel,
   supportsIdentity,
   verification,
+  type Entry,
   type ReviewRow,
   type Save,
   type Say,
 } from './review'
+
+function verificationSource(entry: Entry, t: Say) {
+  return [sourceLabel(entry, t), entry.source.department_or_ward, entry.source.source_date]
+    .filter(Boolean)
+    .join(' · ')
+}
 
 export function VerifyForm({
   row,
@@ -144,7 +151,7 @@ export function VerifyForm({
     <form className="clinical-form" onSubmit={verify}>
       <h4>{t('Clinical verification', 'ยืนยันโดยบุคลากรทางการแพทย์')}</h4>
       <p>
-        {sourceLabel(source, t)} · {source.wording}
+        {verificationSource(source, t)} · {source.wording}
       </p>
       {!row.unknown && (
         <label>
@@ -164,7 +171,7 @@ export function VerifyForm({
             <option value="">{t('Choose an identity source', 'เลือกหลักฐานระบุชนิดยา')}</option>
             {named.map((e) => (
               <option key={e.source.id} value={e.source.id}>
-                {entryName(e)} · {sourceLabel(e, t)} · {e.wording}
+                {entryName(e)} · {verificationSource(e, t)} · {e.wording}
               </option>
             ))}
           </select>
@@ -194,7 +201,7 @@ export function VerifyForm({
           {suggestedSchedules.length > 0 && (
             <section className="clinical-inset clinical-form">
               <h5>{t('Intake schedule suggestion', 'ตารางใช้ยาที่เสนอจากข้อมูลแรกรับ')}</h5>
-              <p>{sourceLabel(source, t)}</p>
+              <p>{verificationSource(source, t)}</p>
               {suggestedSchedules.map((c) => (
                 <RegimenReadback key={c.component_id} component={c} t={regimenText[language]} />
               ))}
@@ -292,7 +299,7 @@ export function VerifyForm({
         <h5>{t('Verification readback', 'ข้อมูลที่จะบันทึกเมื่อยืนยัน')}</h5>
         {identityEntry && (
           <p>
-            {t('Identity source', 'หลักฐานระบุชนิดยา')} · {entryName(identityEntry)} · {sourceLabel(identityEntry, t)}
+            {t('Identity source', 'หลักฐานระบุชนิดยา')} · {entryName(identityEntry)} · {verificationSource(identityEntry, t)}
             {' · '}{identityEntry.wording}
           </p>
         )}
@@ -303,7 +310,7 @@ export function VerifyForm({
               ? t('Select the exact catalogue product to continue.', 'เลือกผลิตภัณฑ์ที่ตรงกับบัญชีเพื่อดำเนินการต่อ')
               : t('Catalogue product will remain unverified.', 'จะยังไม่ยืนยันผลิตภัณฑ์ในบัญชียา')}
         </p>
-        <p>{t('Current-use source', 'แหล่งข้อมูลการใช้ยาจริง')} · {sourceLabel(source, t)} · {source.wording}</p>
+        <p>{t('Current-use source', 'แหล่งข้อมูลการใช้ยาจริง')} · {verificationSource(source, t)} · {source.wording}</p>
         {components.map((c) => (
           <RegimenReadback
             key={c.component_id}
