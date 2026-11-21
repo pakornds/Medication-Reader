@@ -105,6 +105,18 @@ class AddEvidence(ContractModel):
     replaces: Text | None = None
 
 
+class RecordUnavailableSource(ContractModel):
+    action: Literal["record_unavailable_source"]
+    source: EvidenceSource
+    follow_up: Text | None = None
+
+    @model_validator(mode="after")
+    def unavailable(self):
+        if self.source.availability != "unavailable" or self.source.attachment_id is not None:
+            raise ValueError("Record an unavailable source without an attachment")
+        return self
+
+
 class Interview(ContractModel):
     action: Literal["interview"]
     row_id: Text
@@ -184,7 +196,7 @@ class Action(ContractModel):
     revision: int = Field(ge=1)
     request_id: Text
     command: Annotated[
-        AddRow | AddEvidence | Interview | Verify | Proposal | Decision | Refer | Finish
+        AddRow | AddEvidence | RecordUnavailableSource | Interview | Verify | Proposal | Decision | Refer | Finish
         | Import | AttestCurrentUse | AssessIdentityIncident,
         Field(discriminator="action"),
     ]
