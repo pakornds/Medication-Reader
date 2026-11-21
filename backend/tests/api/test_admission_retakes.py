@@ -179,9 +179,10 @@ def test_item_then_whole_view_retake_and_pharmacist_handoff(client):
     current_label = label("current-clinic-c", "Demo Medicine C", attachment="front-retaken", orientation=8,
                           area=(.67, .1, .23, .35))
     case.link(row_c, current_label)
-    wrong_image = label("cross-view", "Demo Medicine C", attachment="front-retaken", orientation=1,
-                        area=(.67, .1, .23, .35))
-    assert "match its original" in case.link(row_c, wrong_image, replaces="current-clinic-c", status=422).text
+    for attachment in ("front-retaken", None, "fresh-reverse-alias"):
+        wrong_image = label("cross-view", "Demo Medicine C", attachment=attachment, orientation=1,
+                            area=(.67, .1, .23, .35))
+        assert "match its original" in case.link(row_c, wrong_image, replaces="current-clinic-c", status=422).text
 
     pending = next(row for row in case.state["rows"] if row not in {row_a, row_c})
     case.send("refer", row_ids=[pending], checked="Reviewed active evidence", reason="Identify appearance")

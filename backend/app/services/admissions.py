@@ -495,8 +495,13 @@ class AdmissionStore:
             require(not targeted_retake, "Capture evidence must match its original and photo view.")
         require(not any(data == originals[old].content for old in case.get("retired_capture_attachments", ())),
                 "Select a current capture original.")
-        return next((attachment for attachment, kind in view_attachments.items()
-                     if source["kind"] == kind and data == originals[attachment].content), None)
+        matching_views = {attachment: kind for attachment, kind in view_attachments.items()
+                          if data == originals[attachment].content}
+        capture_attachment = next((attachment for attachment, kind in matching_views.items()
+                                   if source["kind"] == kind), None)
+        require(not targeted_retake or not matching_views or capture_attachment,
+                "Capture evidence must match its original and photo view.")
+        return capture_attachment
 
     def transition(self, case, actor, cmd, request_id):
         rows = case["rows"]
@@ -513,7 +518,8 @@ class AdmissionStore:
                 entry["product"] = " ".join(parts)
             sid = entry["source"]["id"]
             require(sid not in case.get("retired_capture_sources", ()), "Use a new logical source ID.")
-            capture_attachment = self.photo_origin(case, entry, targeted_retake=isinstance(cmd, AddEvidence) and cmd.replaces)
+            targeted_retake = isinstance(cmd, AddEvidence) and cmd.replaces is not None
+            capture_attachment = self.photo_origin(case, entry, targeted_retake=targeted_retake)
             require(not any(sid == e["source"]["id"] for r in rows.values() for e in r["entries"]),
                     "Use a new logical source ID.")
             if isinstance(cmd, AddRow):
