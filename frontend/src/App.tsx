@@ -4,7 +4,7 @@ import { HomePage } from './pages/home/HomePage'
 import { NewPatientLayout } from './pages/new-patient/NewPatientLayout'
 import { InputPage } from './pages/new-patient/InputPage'
 import { DraftReview } from './pages/new-patient/AnalysisPreview'
-import { createDraft, type Draft } from './pages/new-patient/draft'
+import { createDraft, hasCaseWork, type Draft } from './pages/new-patient/draft'
 import { stages } from './pages/new-patient/stages'
 import { PageContainer } from './components/layout/PageContainer'
 import { TopBar } from './components/layout/TopBar'
@@ -39,6 +39,15 @@ export default function App() {
   function changeLanguage(next:Language) {
     setLanguage(next)
     try {localStorage.setItem('medrec.language',next)} catch { /* In-memory preference remains usable. */ }
+  }
+  function startFreshCase() {
+    generation.current++
+    openRequest.current++
+    setRecord(null)
+    setRequestError(false)
+    setDraft(createDraft())
+    setLastStage('input')
+    navigate('/new-patient/input',{replace:true})
   }
   function changeSession(next:StaffSession | null) {
     if (!next && (record || draft.medicines.length || draft.evidence.photos.length || draft.evidence.notes.some(n=>n.text.trim())) && !window.confirm(w.leave)) return
@@ -93,7 +102,7 @@ export default function App() {
       <Route path="/" element={<><HomePage language={language}/><div className="staff-desk intake stack">
         {access}{error}{session && <EncounterQueue key={session.actor.id} session={session} language={language} onOpen={id=>void openEncounter(id)}/>}
       </div></>}/>
-      <Route path="/new-patient" element={<NewPatientLayout language={language}/>}>
+      <Route path="/new-patient" element={<NewPatientLayout language={language} hasWork={Boolean(record)||hasCaseWork(draft)} onStartFresh={startFreshCase}/>}>
         <Route index element={<Navigate to={lastStage} replace/>}/>
         <Route path="input" element={(record?.synced===null && !record.captureOnly) ?
           <div className="intake stack"><h1>{t.input}</h1><p>{w.syncedInput}</p><Link className="text-action" to="/new-patient/review">{w.goReview}</Link></div> :
