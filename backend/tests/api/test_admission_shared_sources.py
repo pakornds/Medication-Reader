@@ -94,7 +94,11 @@ def test_optional_screening_accepts_both_rows_of_one_document(client, refs):
         row = case.add(excerpt(case, index))
         case.interview(row, "W1")
         timing = ("morning", "evening")[index]
-        case.send("verify", row_id=row, source_id="W1", regimens=[component(row, "W1", index + 1, timing)])
+        regimen = component(row, "W1", index + 1, timing)
+        regimen["evidence"]["dose_amount"] = {"source_id": "W1"}
+        case.send("verify", row_id=row, source_id="W1", regimens=[regimen])
+        saved, = case.state["rows"][row]["verified"]["regimens"]
+        assert saved["evidence"]["dose_amount"] == {"source_id": "W1", "item_id": row}
     case.send("verify", row_id="item-2", source_id="W1", regimens=[component("item-1", "W1", 1, "morning")],
               status=422)
     target = {"case_id": case.state["id"], "admission_revision": case.state["revision"]}

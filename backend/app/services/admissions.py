@@ -848,7 +848,13 @@ class AdmissionStore:
             row["verified"] = dict(actor=actor.model_dump(), at=verified_at, source_id=cmd.source_id,
                                    identity=identity, resolution=cmd.resolution, answer=deepcopy(answer))
             if cmd.regimens:
-                row["verified"]["regimens"] = [component.model_dump(mode="json") for component in cmd.regimens]
+                quoted_items = {item.source_id: item.id for item in evidence.items if isinstance(item, QuotedEvidenceItem)}
+                components = [component.model_dump(mode="json") for component in cmd.regimens]
+                for component in components:
+                    for citation in component["evidence"].values():
+                        if citation["item_id"] is None and citation["source_id"] in quoted_items:
+                            citation["item_id"] = quoted_items[citation["source_id"]]
+                row["verified"]["regimens"] = components
             return dict(**details, verification=row["verified"], sources=[cmd.source_id] +
                         ([identity["source_id"]] if identity else []))
         row["verified"] = None
