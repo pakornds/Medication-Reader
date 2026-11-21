@@ -57,7 +57,7 @@ function sourceNames(row, evidence) {
   return [...new Set(citations.map(ref => ref.source_id))].map(id => names.get(id) ?? id).join(", ");
 }
 
-/** Use the workspace's authenticated API adapter; the server authorizes every approval and import. */
+/** Use the workspace's authenticated API adapter. Server errors may reject with a ServiceError or { detail }. */
 export function mountImportPreview(container, { getDraft, api, onImported = () => {},
   newRetryToken = () => globalThis.crypto.randomUUID() }) {
   const document = container.ownerDocument;
@@ -96,8 +96,9 @@ export function mountImportPreview(container, { getDraft, api, onImported = () =
       details.append(element(document, "h4", "Excluded"), excluded);
     }
     const pharmacist = next.reviewer?.role === "pharmacist";
-    confirm.disabled = disposed || busy || !pharmacist || !next.ready.length || Boolean(attempt?.receipt);
+    confirm.disabled = disposed || busy || !pharmacist || !next.ready.length || Boolean(attempt?.receipt || attempt?.conflict);
     status.textContent = message || (attempt?.receipt ? `Imported at ${attempt.receipt.imported_at}.` : "") ||
+      attempt?.conflict ||
       (!pharmacist ? "A pharmacist can approve the import." : "");
   }
 
@@ -133,12 +134,24 @@ export function mountImportPreview(container, { getDraft, api, onImported = () =
           rows: ready.map(row => ({ ...row, approval: submission.approvals.get(row.id) })),
         });
         submission.receipt = receipt;
-        message = `Imported at ${receipt.imported_at}.`;
+        message = isCurrent() ? `Imported at ${receipt.imported_at}.` : "";
       } else {
         message = changedMessage;
       }
-    } catch {
-      message = isCurrent() ? "Import could not be confirmed. The draft is available to retry." : changedMessage;
+    } catch (failure) {
+      const detail = failure?.detail ?? failure;
+      if (!isCurrent()) {
+        message = changedMessage;
+      } else if (detail?.code === "approval_required") {
+        // Recover with fresh approval and the same retry identity, even after an uncertain earlier write.
+        submission.approvals.clear();
+        message = "The server requires fresh approval. Confirm the current selection again.";
+      } else if (detail?.code === "retry_conflict") {
+        submission.conflict = "The receiving system already recorded this retry. Verify that record before importing again.";
+      } else {
+        message = detail?.recoverable === true && typeof detail.message === "string" ?
+          `${detail.message} The draft is still available.` : "Import could not be confirmed. The draft is available to retry.";
+      }
     } finally {
       busy = false;
       if (!disposed) refresh(message);

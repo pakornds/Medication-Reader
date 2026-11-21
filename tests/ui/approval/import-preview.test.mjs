@@ -134,3 +134,55 @@ test("a stale preview and a non-pharmacist cannot start the approval request", a
   await button.click();
   assert.deepEqual(calls, []);
 });
+
+test("a server-rejected approval can be confirmed again with the existing retry identity", async () => {
+  const { target, draft, calls, imported, button } = scenario((path, _request, calls) => {
+    if (path === "/imports" && calls.length === 2) {
+      throw { detail: { code: "approval_required", recoverable: true, message: "Approve the current reviewed row." } };
+    }
+  });
+  const before = structuredClone(draft);
+  await button.click();
+  assert.deepEqual(draft, before);
+  assert.deepEqual(imported, []);
+  assert.ok(all(target).some(item => item.textContent.includes("requires fresh approval")));
+  await button.click();
+  assert.deepEqual(calls.map(call => call.path), ["/imports/approvals", "/imports", "/imports/approvals", "/imports"]);
+  assert.equal(calls[1].input.retry_token, calls[3].input.retry_token);
+  assert.deepEqual(imported, [receipt]);
+});
+
+test("a late receipt reaches history without showing success for another selection", async () => {
+  const pending = Promise.withResolvers();
+  const started = Promise.withResolvers();
+  const { target, draft, imported, control, button } = scenario(path => {
+    if (path === "/imports") {
+      started.resolve();
+      return pending.promise;
+    }
+  });
+  const first = button.click();
+  await started.promise;
+  draft.selectedRowIds = ["row-c"];
+  control.refresh();
+  pending.resolve();
+  await first;
+  assert.ok(all(target).some(item => item.textContent.startsWith("Unknown medication A")));
+  assert.ok(!all(target).some(item => item.textContent.startsWith("Imported at")));
+  assert.deepEqual(imported, [receipt]);
+});
+
+test("a retry conflict stops this attempt without creating a replacement import token", async () => {
+  const { target, calls, imported, button } = scenario((path, _request, calls) => {
+    if (path === "/imports" && calls.length === 2) throw new Error("Simulated response loss");
+    if (path === "/imports") throw { code: "retry_conflict", recoverable: true };
+  });
+  await button.click();
+  await button.click();
+  assert.deepEqual(calls[1], calls[2]);
+  assert.equal(button.disabled, true);
+  assert.ok(all(target).some(item => item.textContent.includes("already recorded this retry")));
+  await button.click();
+  assert.equal(calls.length, 3);
+  assert.deepEqual(imported, []);
+});
