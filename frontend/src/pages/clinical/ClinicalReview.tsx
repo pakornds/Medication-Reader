@@ -238,8 +238,6 @@ function ReviewSession({ language, client, actor, encounter, onEncounter, interv
                   <SourceFields entry={entry} language={language} />
                   <small>
                     {[
-                      entry.source.source_date,
-                      entry.source.department_or_ward,
                       entry.source.organization_address,
                       entry.source.organization_phone,
                       entry.source.organization_phone_extension &&
@@ -307,6 +305,13 @@ function ReviewSession({ language, client, actor, encounter, onEncounter, interv
                     {verified.identity.tmt_release}
                   </p>
                 )}
+                {verified && !verified.identity?.normalized_medication_id && (
+                  <p>{t('Catalogue product unverified', 'ยังไม่ยืนยันผลิตภัณฑ์ในบัญชียา')}</p>
+                )}
+                {verified && !verified.regimens?.length &&
+                  (verified.answer.dose || verified.answer.route || verified.answer.schedule) && (
+                    <p>{regimenText[language].freeTextOnly}</p>
+                  )}
                 {verified?.regimens?.map((c) => (
                   <RegimenReadback key={c.component_id} component={c} t={regimenText[language]} />
                 ))}
@@ -331,7 +336,11 @@ function ReviewSession({ language, client, actor, encounter, onEncounter, interv
                         .map((e) => entryName(e).toLowerCase()),
                     ).size > 1) && <IdentityReview row={row} pharmacist={pharmacist} save={save} t={t} />}
                   {row.interview && (
-                    <details key={JSON.stringify([row.interview, row.verified?.at])} open={!row.verified}>
+                    <details key={JSON.stringify([
+                      row.id, row.interview, row.verified?.at, row.confirmed,
+                      active(row).map(e => [e.source.id, e.product, e.wording]),
+                      row.intake_catalogue, row.intake?.regimens,
+                    ])} open={!row.verified}>
                       <summary>{t('Verify actual use', 'ยืนยันการใช้จริง')}</summary>
                       <VerifyForm row={row} actor={actor} save={save} t={t} language={language} />
                     </details>

@@ -83,7 +83,13 @@ export function sourceLabel(entry: Entry, t: Say) {
     additional_photo: t('Additional photo', 'ภาพเพิ่มเติม'),
     other_record: t('Written record', 'เอกสารต้นทาง'),
   }
-  return [names[entry.source.kind], entry.source.organization, entry.source.reporter]
+  return [
+    names[entry.source.kind],
+    entry.source.organization,
+    entry.source.department_or_ward,
+    entry.source.reporter,
+    entry.source.source_date,
+  ]
     .filter(Boolean)
     .join(' · ')
 }
