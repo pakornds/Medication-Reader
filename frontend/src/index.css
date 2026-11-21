@@ -144,6 +144,10 @@
   .row-evidence ul { padding-inline-start: 1.25rem; list-style: disc; }
   .citation { margin-top: .2rem; padding-inline-start: .6rem; border-inline-start: 2px solid var(--line); }
   .citation blockquote { white-space: pre-wrap; }
+  .citation-image { cursor: auto; }
+  .citation-image canvas { display: block; max-height: 20rem; max-width: 100%; object-fit: contain; }
+  .med-corrections { border-block-end: 1px solid var(--line); padding-block-end: .75rem; }
+  .med-corrections button { align-self: flex-start; }
   .intake [role=alert] { border-inline-start: 3px solid #bc7420; padding-inline-start: .65rem; }
   @media (min-width: 48rem) {
     .photo-pair, .field-pair { grid-template-columns: repeat(2,minmax(0,1fr)); }
