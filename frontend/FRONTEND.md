@@ -1,6 +1,6 @@
 # Med Reader frontend architecture
 
-The app has one medication reconciliation workflow and two destinations. **New Patient** holds the active case. **History** lists successful imports. Both use the same top bar. The demo opens directly to New Patient, with no sign-in screen or account menu.
+The app has one medication reconciliation workflow and three destinations. **Home** introduces the workflow. **New Patient** holds the active case. **History** lists successful imports. All three use the same top bar. The demo opens on Home, with no sign-in screen or account menu.
 
 This is the proposed structure for the existing Vite, React and TypeScript scaffold. The v1 design and some ticket paths still assume Next.js App Router. Use the Vite entry point and coordinate path changes with the owners of those tickets before implementing them. The backend publishes the FastAPI contract and owns import authorization. [V1 design](../docs/specs/medication-reader-v1.md) · [AI behavior contract](../docs/ai/reconciliation-behavior.md)
 
@@ -8,11 +8,12 @@ This is the proposed structure for the existing Vite, React and TypeScript scaff
 
 | Area | Behavior |
 | --- | --- |
-| Global top bar | Logo, New Patient, History, flexible space, TH/EN switch, light/dark switch. Selecting New Patient returns to the active case. Starting a fresh case is a separate explicit action if a draft exists. |
-| New Patient | A second navigation bar moves between stages of the same draft. The stages are Input, Review and Output. Selecting a stage changes the view of the open case. |
+| Global top bar | Logo, Home, + New Patient, History, flexible space, TH/EN switch, light/dark switch. Selecting New Patient returns to the active case. Starting a fresh case is a separate explicit action if a draft exists. |
+| Home | A short instruction page in the selected language explains how to photograph both sides of the same items, compare sources in Review, and print or submit pharmacist-approved rows in Output. Direct staff to **+ New Patient** to begin or resume. |
+| + New Patient | A second navigation bar moves between stages of the same draft. The stages are Input, Review and Output. Selecting a stage changes the view of the open case. |
 | History | A simple list of successful import timestamps, newest first. Selecting a timestamp looks up matching records on the mock hospital service. If several imports share a timestamp, show all matches for staff to distinguish. |
 
-Give the two destinations linkable addresses. For the hackathon, `#/` and `#/history` are sufficient for browser Back, Forward and static hosting with the installed stack. Keep the selected stage and row in React state above the page switch so returning from History restores the same spot.
+Use `#/` for Home, `#/new-patient` for the workspace and `#/history` for History. Render one `TopBarLink` per destination inside `TopBar.tsx`. Each takes the destination, translated label and active state, plus an optional leading icon for New Patient. Keep the selected stage and row in React state above the page switch so returning from Home or History restores the same spot.
 
 ## New Patient workspace
 
@@ -56,6 +57,7 @@ src/
     layout/TopBar.tsx           # Shared navigation and preference controls
     ui/                         # Shared controls such as Button and StatusLabel
   pages/
+    home/HomePage.tsx           # Bilingual instructions for the reconciliation workflow
     new-patient/
       NewPatientPage.tsx
       WorkflowNav.tsx
@@ -85,4 +87,4 @@ Page ownership gives each component a natural home. A source comparison or print
 
 From `frontend/`, use `npm ci` to install, `npm run dev` to start Vite, `npm run lint` for ESLint and `npm run build` for TypeScript and the production build. Vite writes the deployment bundle to `frontend/dist/`.
 
-For a navigation change, exercise an edited synthetic draft through New Patient → History → New Patient, then reload. Verify that navigation preserves the draft and reload clears it while keeping successful import timestamps. [Design system](docs/design-system.md)
+For a navigation change, exercise an edited synthetic draft through New Patient → Home → History → New Patient, then reload. Verify that navigation preserves the draft and reload clears it while keeping successful import timestamps. [Design system](docs/design-system.md)

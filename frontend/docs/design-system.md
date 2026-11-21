@@ -107,13 +107,13 @@ Use native links for destinations and buttons for actions. Give enabled buttons 
 
 ## Layout and spacing
 
-Use a shared `PageContainer` for horizontal gutters and content width. The top-bar background spans the viewport. Its inner content aligns with the workspace. Place the logo, New Patient and History first, with the language and theme controls at the far end. On small screens let the links wrap below the controls in a predictable keyboard order. The second navigation bar appears on New Patient and contains Input, Review and Output. Give the navigation landmarks distinct accessible names. Underline the current destination and set `aria-current="page"` or `aria-current="step"` as appropriate.
+Use a shared `PageContainer` for horizontal gutters and content width. The top-bar background spans the viewport. Its inner content aligns with the workspace. After the logo, show **Home | + New Patient | History** in that order, with the language and theme controls at the far end. All three links use the same padding, hover, focus and current-page underline. Treat the plus as a decorative leading icon and give the link the accessible name “New Patient” in the active language. On small screens let the links wrap below the controls in a predictable keyboard order. The second navigation bar appears on New Patient and contains Input, Review and Output. Give the navigation landmarks distinct accessible names. Underline the current destination and set `aria-current="page"` or `aria-current="step"` as appropriate.
 
 | Layout choice | Starting value |
 | --- | --- |
 | Side gutters | `px-4 md:px-6 lg:px-8` |
 | Review workspace | `mx-auto w-full max-w-6xl` for the row list and detail together. At phone width give the detail its own full-width view with a return to the list. |
-| History and single-column reading | `mx-auto w-full max-w-3xl` |
+| Home instructions, History and single-column reading | `mx-auto w-full max-w-3xl` |
 | Sections and panels | `gap-8` between major sections, `gap-4` between panels, `p-4 md:p-6` inside panels |
 | Related controls | `gap-2` between an icon and its label, `gap-3` between a heading and its content |
 
