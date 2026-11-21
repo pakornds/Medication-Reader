@@ -12,6 +12,8 @@ Closes #<!-- issue number -->
 ## How it was tested
 <!-- Record test, lint, type-check, and acceptance-check results on the branch updated from main. -->
 
+<!-- For runnable changes, include the reproduction steps and observed result. Show the evidence directly to the user in the final update as well. -->
+
 ## Independent agent review
 <!-- Before merge, record the reviewer, findings, and how actionable findings were resolved. -->
 
