@@ -72,6 +72,11 @@ export function rowName(row: Suggestion, language: Language) {
   )
 }
 
+export function hasCaseWork({ evidence, medicines, preview }: Draft): boolean {
+  return Boolean(medicines.length || preview || evidence.photos.length || evidence.question ||
+    evidence.notes.length !== 2 || evidence.notes.some(note => note.text || note.author || note.date || note.kind === 'caregiver_report'))
+}
+
 // A reverse-side crop is linked only while its matching front-side item exists.
 export function replacePhoto(
   evidence: Evidence,
