@@ -25,7 +25,7 @@ export function PhotoSlot({ kind, photo, photos, t, onReplace, onEdit, proposePh
     if (
       !['image/png', 'image/jpeg', 'image/webp'].includes(file.type) ||
       !file.size ||
-      file.size >= 16_000_000
+      file.size > 4_000_000
     ) {
       setError(true)
       return

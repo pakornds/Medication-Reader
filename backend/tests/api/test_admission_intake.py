@@ -111,3 +111,42 @@ def test_shared_scenes_use_one_original_and_show_assigned_region(client):
     case = submit(client, payload)
     stale = client.post("/admissions/" + case["id"] + "/capture/region", json=link, headers=headers("nurse"))
     assert stale.status_code == 404 and case["capture"]["front"]["revision"] == 2
+
+
+def test_linked_scan_and_draft_corrections_keep_distinct_provenance(client):
+    primary = medicine()
+    ref = {"source_id": "scan-note"}
+    primary.update(linked=[dict(row=dict(id="scan-row", identity_status="named", sources=[ref],
+        observed_names=[dict(value="Synthetic A", evidence=ref)], dispensing_source_id="scan-note",
+        label_fields={"strength": observation("10 mg", ref)}), origin="analysis",
+        sources=[dict(id="scan-note", kind="other_record", organization="Example Clinic",
+                      organization_phone="000000", organization_type="clinic")], items=[],
+        notes={"scan-note": "Synthetic A 10 mg"}, physical_items={}, regions={})],
+        corrections={"strength": "5 mg", "directions": ""})
+    command = submission(primary)
+    case = submit(client, command)
+    row = case["rows"]["row-a"]
+    assert len(row["intake_sources"]) == 2 and row["intake_sources"][1]["dispensing_source_id"] == "scan-note"
+    entries = {e["source"]["id"]: e for e in row["entries"]}
+    assert entries["scan-note"]["strength"] == "10 mg"
+    assert entries["scan-note"]["source"]["organization_phone"] == "000000"
+    assert entries["intake-correction-row-a-strength"]["strength"] == "5 mg"
+    assert entries["intake-correction-row-a-directions"]["source"]["kind"] == "reviewer_record"
+    assert row["intake_corrections"]["directions"] == "" and row["verified"] is None
+    assert submit(client, command)["revision"] == 1
+
+
+def test_admission_source_ids_cannot_be_recycled_by_intake(client):
+    from test_admissions import record
+    command = submission(medicine())
+    case = submit(client, command)
+    for action in [dict(action="add", entry=record("row-b-label", "other_record", "Original wording")),
+                   dict(action="record_unavailable_source", source=dict(id="row-c-label", kind="other_record",
+                        availability="unavailable", unavailable_reason="Clinic unreachable"))]:
+        response = client.post("/admissions/" + case["id"] + "/actions", headers=headers("nurse"), json=dict(
+            revision=case["revision"], request_id=str(uuid4()), command=action))
+        assert response.status_code == 200, response.text
+        case = response.json()
+    for name in ("row-b", "row-c"):
+        submit(client, {**command, "revision": case["revision"], "rows": [*command["rows"], medicine(name)]}, 409)
+    assert len(client.get("/admissions/" + case["id"], headers=headers("nurse")).json()["rows"]) == 2

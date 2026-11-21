@@ -13,6 +13,7 @@ export async function proposePhotoRegions(client: ReturnType<typeof createClient
   const id = 'admission-' + draft.caseId.replaceAll('-', '')
   if (encounter && encounter.id !== id) throw new Error('Start or resume the matching encounter.')
   let record = encounter ? await client.encounter(id) : await admitDraft(client, { ...draft, medicines: [] })
+  if (encounter && record.revision !== encounter.revision) throw new Error('The encounter has changed. Open the latest saved encounter before updating its photos.')
   onEncounter(record)
   const side = photo.kind === 'label_photo' ? 'front' : 'reverse'
   // Save new originals in separate commands because each retake declares the exact view it replaces.

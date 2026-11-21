@@ -1,3 +1,4 @@
+import { FacilityDetails } from './FacilityDetails'
 import type { RegionBounds } from '../../api/contracts'
 import { regimenText } from '../../i18n/regimen'
 import { SectionHeading } from '../../components/ui/SectionHeading'
@@ -264,6 +265,7 @@ export function InputPage({
                             onChange={(e) => patchNote(note.id, { date: e.target.value })}
                           />
                         </div>
+                        {note.kind==='other_record' && <FacilityDetails t={t} value={note.facilityContact} onChange={facilityContact=>patchNote(note.id,{facilityContact})}/>}
                       </details>
                     </section>
                   ))}

@@ -56,18 +56,21 @@ export default function App() {
     setSession(next)
     if (!next) {setRecord(null);setDraft(createDraft());setLastStage('input')}
   }
-  async function openEncounter(id:string) {
+  async function openEncounter(id:string, reloadSaved = false) {
     if(!session) return
     const replacing=record?.encounter.id!==id
     const unsaved=(!record || (record.synced && record.synced!==draft)) &&
       (draft.medicines.length || draft.evidence.photos.length || draft.evidence.notes.some(n=>n.text.trim()))
-    if (replacing && unsaved && !window.confirm(w.changeCase)) return
+    if (reloadSaved && !window.confirm(w.discardLocal)) return
+    if (!reloadSaved && replacing && unsaved && !window.confirm(w.changeCase)) return
     const token=++openRequest.current, before=generation.current
     setRequestError(false)
     try {
       const encounter=await session.client.encounter(id)
       if (token!==openRequest.current || before!==generation.current) return
-      if(replacing) {
+      const remoteIntake = record && encounter.events.some(event => event.revision > record.encounter.revision && event.action === 'intake')
+      if (!replacing && !reloadSaved && remoteIntake && unsaved && !window.confirm(w.discardLocal)) return
+      if(replacing || reloadSaved || remoteIntake) {
         generation.current++
         setDraft(createDraft());setRecord({encounter,synced:null})
       } else setRecord(prev => prev && encounter.revision>=prev.encounter.revision ? {...prev,encounter} : prev)
@@ -81,7 +84,7 @@ export default function App() {
   }
   function onSaved(encounter:Encounter,synced:Draft) {
     if (generation.current!==generationAtRender) return
-    setRecord(prev=>prev && prev.encounter.id===encounter.id && prev.encounter.revision>encounter.revision ? prev : {encounter,synced})
+    setRecord(prev=>prev && prev.encounter.id===encounter.id && prev.encounter.revision>encounter.revision ? prev : {encounter,synced,savedRevision:encounter.revision})
   }
   const current=record && !record.captureOnly && (!record.synced || record.synced.medicines === draft.medicines)
   async function proposePhoto(photo:Photo) {
@@ -110,7 +113,7 @@ export default function App() {
         <Route path="review" element={<div className="connected-workspace stack">
           {current || (record?.synced===null && !record.captureOnly) ? <h1 className="page-heading">{t.review}</h1> : <DraftReview draft={draft} language={language} onCatalogue={(medicine,match)=>setDraft(d=>({...d,medicines:d.medicines.map(m=>m===medicine?{...m,catalogue:match}:m)}))}/>}
           {access}{error}
-          {(!current || draft.preview?.rows.length) ? <CaseHandoff key={draft.caseId} draft={draft} language={language} session={session} record={record} onSaved={onSaved} onRefresh={openEncounter}/> : null}
+          {(!current || draft.preview?.rows.length) ? <CaseHandoff key={draft.caseId} draft={draft} language={language} session={session} record={record} onSaved={onSaved} onRefresh={id => openEncounter(id, true)}/> : null}
           {session && record && current && <ClinicalReview key={record.encounter.id+session.actor.id} language={language} client={session.client} actor={session.actor} encounter={record.encounter} onEncounter={onEncounter}/>}
           {current && record?.synced && <details className="intake intake-panel"><summary>{language==='th'?'ดูฉบับร่างและหลักฐานต้นทาง':'Intake draft and source evidence'}</summary><DraftReview embedded draft={draft} language={language} onCatalogue={(medicine,match)=>setDraft(d=>({...d,medicines:d.medicines.map(m=>m===medicine?{...m,catalogue:match}:m)}))}/></details>}
         </div>}/>

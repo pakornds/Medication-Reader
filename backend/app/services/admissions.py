@@ -15,7 +15,7 @@ from PIL import Image
 
 from app.ai.client import EvidenceImage
 from app.schemas.package_capture import PackageCapture
-from app.services.admission_intake_readback import carry_intake, intake_discrepancies
+from app.services.admission_intake_readback import active_intake_corrections, carry_intake, intake_discrepancies
 from app.services.labels import LabelPhotoError, crop_label
 
 from app.schemas.analysis import Discrepancy
@@ -257,8 +257,9 @@ def hold_report_identity(case, row):
 
     entry = named[0]
     source_id = entry["source"]["id"]
-    added = next(event for event in reversed(case["events"])
-                 if event["action"] in {"add", "link"} and source_id in event["sources"])
+    added = next((event for event in reversed(case["events"]) if event["action"] in {"add", "link", "intake"}
+                  and row["id"] in event["rows"] and source_id in event["sources"]), None)
+    require(added is not None, "The origin of the reported identity is unavailable.")
     row["unknown"] = True
     row["verified"] = None
     row.pop("imported_at", None)
@@ -269,6 +270,16 @@ def hold_report_identity(case, row):
 def new_row(row_id, unknown):
     return dict(id=row_id, unknown=unknown, entries=[], superseded=[], proposal=None,
                 confirmed=None, referred=False, interview=None, verified=None)
+
+
+def next_row_id(case):
+    # Intake may assign its own IDs, including a previously removed item number.
+    occupied = set(case["rows"])
+    occupied.update(rid for event in case["events"] for rid in event["rows"])
+    number = len(case["rows"]) + 1
+    while f"item-{number}" in occupied:
+        number += 1
+    return f"item-{number}"
 
 
 def import_snapshot_key(row):
@@ -502,7 +513,7 @@ class AdmissionStore:
                             "Keep separate capture items on separate rows.")
                 if item_id not in links:
                     if not target:
-                        target = "item-" + str(len(case["rows"]) + 1)
+                        target = next_row_id(case)
                         case["rows"][target] = new_row(target, unknown=True)
                     links[item_id] = target
                 row = case["rows"][links[item_id]]
@@ -560,7 +571,7 @@ class AdmissionStore:
             return None
         source = entry["source"]
         data = b64decode(entry["photo"]["data"], validate=True)
-        capture = case["capture"]
+        capture = case.get("capture", {})
         view_attachments = {
             view["attachment_id"]: kind
             for side, kind in (("front", "label_photo"), ("reverse", "reverse_photo"))
@@ -615,7 +626,7 @@ class AdmissionStore:
             require(not any(sid == e["source"]["id"] for r in rows.values() for e in r["entries"]),
                     "Use a new logical source ID.")
             if isinstance(cmd, AddRow):
-                rid = "item-" + str(len(rows) + 1)
+                rid = next_row_id(case)
                 row = new_row(rid, unknown=not bool(entry["name"]))
                 rows[rid] = row
             else:
@@ -760,7 +771,8 @@ class AdmissionStore:
             require(row["unknown"] or named, "Review the current identity evidence.")
             variants = {e["product"].casefold() for e in named}
             conflicts = conflicting_fields(row)
-            require((len(variants) <= 1 and not conflicts and not intake_discrepancies(row)) or cmd.resolution,
+            require((len(variants) <= 1 and not conflicts and not intake_discrepancies(row)
+                     and not active_intake_corrections(row)) or cmd.resolution,
                     "Document the resolution of conflicting evidence.")
             verified_at = now()
             identity = row["confirmed"]

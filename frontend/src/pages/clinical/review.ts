@@ -1,4 +1,4 @@
-import type { Action, Interview, ReviewerIdentity } from '../../api/contracts'
+import type { Action, Interview, RegimenComponent, ReviewerIdentity } from '../../api/contracts'
 import type { AdmissionRow, Encounter } from '../../api/admission'
 import type { createClient } from '../../api/client'
 import type { Language } from '../../i18n/messages'
@@ -11,11 +11,23 @@ export const bilingual = (language: Language): Say => (en, th) => language === '
 export type Entry = AdmissionRow['entries'][number]
 export type ReviewRow = AdmissionRow & {
   screening_attestation?: { at: string; actor: ReviewerIdentity } | null
+  intake_corrections?: Partial<Record<'name'|'strength'|'form'|'directions',string>>
+}
+export function intakeCorrections(row:ReviewRow) {
+  const cited=new Set(active(row).map(e=>e.source.id))
+  return Object.entries(row.intake_corrections || {}).filter(([key])=>cited.has('intake-correction-'+row.id+'-'+key))
+}
+export function verification(row: AdmissionRow) {
+  return row.verified as (NonNullable<AdmissionRow['verified']> & {
+    identity: {normalized_medication_id?:string;tmt_release?:string} | null
+    regimens?: RegimenComponent[]
+  }) | null
 }
 export const active = (row: AdmissionRow) => row.entries.filter(e => !row.superseded.includes(e.source.id))
 export const reported = (e: Entry) => ['patient_report','caregiver_report'].includes(e.source.kind)
 export const supportsIdentity = (e: Entry) => Boolean(e.name && (!e.photo ||
-  ((e.photo.front_attributed || e.photo.pairing === 'matched') && !e.photo.appearance)))
+  ((e.photo.front_attributed || ('intake_additional_label' in e && e.intake_additional_label === true) ||
+    e.photo.pairing === 'matched') && !e.photo.appearance)))
 export const interviewSource = (e: Entry) => reported(e) || Boolean(e.record_basis)
 export const entryName = (e: Entry) => e.product || [e.name, e.strength, e.form].filter(Boolean).join(' ')
 export function rowName(row: AdmissionRow, t: Say) {

@@ -5,6 +5,8 @@ type InterviewAnswers = Omit<Interview, 'action' | 'row_id'>
 type IdentifiedItem = { name: string; source_id: string }
 
 export interface AdmissionRow {
+  intake_sources?: Suggestion[]
+  intake_corrections?: Partial<Record<'name' | 'strength' | 'form' | 'directions', string>>
   intake?: Suggestion
   intake_catalogue?: CatalogueMatch | null
   id: string
@@ -50,7 +52,7 @@ export type AdmissionEvent = {
   revision: number
   rows: string[]
 } & (
-  | { action: 'capture' | 'finish'; sources: string[] }
+  | { action: 'intake' | 'capture' | 'finish'; sources: string[] }
   | { action: 'add' | 'link'; sources: string[]; replaces: string | null }
   | { action: 'interview'; answer: InterviewAnswers; sources: string[] }
   | { action: 'propose'; proposal: NonNullable<AdmissionRow['proposal']> }

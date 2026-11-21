@@ -26,6 +26,7 @@ const signIn = async (page, token) => {
   await button(page, 'Sign out').waitFor()
 }
 const stage = (page, name) => routeLink(page, '/new-patient/' + name).click()
+const fitsWidth = page => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
 
 async function addDocumentedProduct(page) {
   await button(page, 'Enter medicine manually').click()
@@ -36,6 +37,13 @@ async function addDocumentedProduct(page) {
   await field.press('Enter')
   assert.match(await field.inputValue(), /ZOCOR/i)
   await label(page, 'Source wording or reference').fill('Synthetic transfer note lists ZOCOR; 21 tablets supplied.')
+  const manual = page.locator('form').filter({ has: button(page, 'Add to draft') })
+  await manual.locator('summary').filter({ hasText: 'Organization (if known)' }).click()
+  await label(manual, 'Organization (if known)').fill('Synthetic transfer clinic')
+  await manual.getByText('Facility contact details', { exact: true }).click()
+  await manual.getByRole('combobox', { name: /^Facility type/ }).selectOption('clinic')
+  await label(manual, 'Facility address').fill('100 Fictional Test Road')
+  await label(manual, 'Facility phone').fill('02-000-0000')
   await label(page, 'Quantity prescribed (as written)').fill('21 tablets')
   await label(page, 'Directions as written or reported').fill('1 tablet each morning')
   await button(page, 'Fill fields from wording').click()
@@ -83,17 +91,35 @@ async function verifyProduct(page, rowId) {
   await button(page, 'Save interview').click()
   const verify = page.locator('form').filter({ has: button(page, 'Verify this medicine') })
   await verify.waitFor()
+  await verify.getByLabel('Verify a structured dosing schedule').check()
+  await button(verify, 'Use the schedule recorded from this interview').click()
+  assert.equal(await button(verify, 'Evening').getAttribute('aria-pressed'), 'true')
+  await verify.getByLabel('All directions are represented in these fields').check()
+  await verify.getByLabel('Confirm an exact TMT product').check()
+  await verify.getByRole('button', { name: /Use the intake selection/ }).click()
   const response = page.waitForResponse(r => r.url().endsWith('/actions') && r.request().postDataJSON()?.command.action === 'verify')
   await button(page, 'Verify this medicine').click()
   const saved = await response
-  assert.equal(saved.status(), 200)
-  assert.equal((await saved.json()).rows[rowId].verified.answer.current_use, 'current')
+  assert.equal(saved.status(), 200, await saved.text())
+  const verified = (await saved.json()).rows[rowId].verified
+  assert.equal(verified.answer.current_use, 'current')
+  assert.equal(verified.regimens.length, 1)
+  const [confirmed] = verified.regimens
+  assert.equal(confirmed.basis, 'verified')
+  assert.equal(confirmed.evidence.directions_text.source_id, account)
+  assert.deepEqual(confirmed.time_of_day, ['evening'])
+  assert.equal(verified.identity.normalized_medication_id, '117365')
 }
 
 async function assertReceiptHistory(page, expected, canRead) {
   await page.getByRole('button', { name: 'View receipt', exact: true }).click()
   if (canRead) {
     await page.getByText(expected, { exact: true }).last().waitFor()
+    assert.match(await page.locator('.regimen-readback').innerText(), /Verified[\s\S]*Evening/)
+    await page.getByText(/TPU 117365/).waitFor()
+    await page.getByText('Synthetic transfer clinic', { exact: true }).click()
+    await page.getByText('100 Fictional Test Road', { exact: true }).waitFor()
+    await page.getByText('02-000-0000', { exact: true }).waitFor()
     assert.equal(await page.getByText('Unidentified medicine', { exact: true }).count(), 0)
   } else {
     await page.getByText('Sign in as the assigned pharmacist to open the hospital receipt.').waitFor()
@@ -140,18 +166,23 @@ async function workflow(browser) {
   await verifyProduct(page, known.id)
   await button(page, 'Dated handoff / print').click()
   const preview = page.getByRole('dialog', { name: 'Dated medication handoff' })
-  await preview.getByRole('button', { name: 'Print handoff' }).waitFor()
+  await preview.getByText('Identity unresolved', { exact: true }).waitFor()
+  assert.equal(await preview.getByRole('button', { name: 'Print handoff' }).isEnabled(), true)
   assert.match(await preview.innerText(), /ZOCOR/i)
   await preview.getByRole('button', { name: 'Close' }).click()
   await stage(page, 'output')
   assert.equal(await button(page, 'Approve and import selected medicines').isDisabled(), true)
   await button(page, 'Sign out').click()
   await routeLink(page, '/').click()
-  await signIn(page, pharmacy)
+  await signIn(page.locator('.staff-desk'), pharmacy)
   await page.locator('.staff-queue li').filter({ hasText: initial.patient_alias }).getByRole('button').click()
   await stage(page, 'output')
   const ready = page.getByRole('checkbox', { name: /ZOCOR/i })
   await ready.check()
+  assert.match(await page.locator('.regimen-readback').innerText(), /Verified[\s\S]*Evening/)
+  await page.setViewportSize({ width: 390, height: 844 })
+  assert.ok(await fitsWidth(page), 'The populated import page fits a phone viewport.')
+  await page.setViewportSize({ width: 1280, height: 900 })
   assert.equal(await page.getByRole('checkbox').count(), 1)
   const requests = []
   // Deliver the first write to the real hospital, then lose the response before it reaches React.
@@ -203,11 +234,11 @@ async function mobile(browser) {
   await page.getByRole('option').filter({ hasText: '117365' }).first().tap()
   assert.match(await product.inputValue(), /ZOCOR/i)
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'dark')
-  for (const stagePath of ['/new-patient/review', '/new-patient/output', '/history']) {
+  for (const [stagePath, heading] of [['/new-patient/review','ทบทวน'], ['/new-patient/output','ผลลัพธ์'], ['/history','ประวัติ']]) {
     await routeLink(page, stagePath).tap()
-    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, stagePath)
+    await page.getByRole('heading', { name: heading, exact: true }).waitFor()
+    assert.ok(await fitsWidth(page), stagePath)
   }
-  await page.getByRole('heading', { name: 'ประวัติ', exact: true }).waitFor()
   await ctx.close()
 }
 

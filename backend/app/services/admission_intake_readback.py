@@ -4,6 +4,12 @@ from app.schemas.evidence import Observation, SourcedValue
 from app.schemas.regimen import RegimenComponent
 
 
+def active_intake_corrections(row):
+    active = {e["source"]["id"] for e in row["entries"]} - set(row["superseded"])
+    return {key: value for key, value in row.get("intake_corrections", {}).items()
+            if f"intake-correction-{row['id']}-{key}" in active}
+
+
 def intake_discrepancies(row):
     active = {e["source"]["id"] for e in row["entries"]} - set(row["superseded"])
     return [d for d in (row.get("intake") or {}).get("discrepancies", [])

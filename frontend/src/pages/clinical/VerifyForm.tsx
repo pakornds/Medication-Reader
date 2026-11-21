@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { RegimenComponent, ReviewerIdentity } from '../../api/contracts'
+import type { ReviewerIdentity } from '../../api/contracts'
 import type { Language } from '../../i18n/messages'
 import { regimenText } from '../../i18n/regimen'
 import { intake } from '../../i18n/intake'
@@ -7,7 +7,7 @@ import { ScheduleEditor } from '../new-patient/DirectionsEditor'
 import { MedicinePicker } from '../new-patient/MedicinePicker'
 import type { CatalogueMatch } from '../new-patient/draft'
 import { emptySchedule, fromComponent, toComponents, type Schedule } from '../new-patient/regimen'
-import { active, entryName, needsIdentity, reported, sourceLabel, supportsIdentity, type ReviewRow, type Save, type Say } from './review'
+import { active, entryName, intakeCorrections, needsIdentity, reported, sourceLabel, supportsIdentity, verification, type ReviewRow, type Save, type Say } from './review'
 
 export function VerifyForm({row, actor, save, t, language}:{
   row:ReviewRow;actor:ReviewerIdentity;save:Save;t:Say;language:Language
@@ -20,12 +20,16 @@ export function VerifyForm({row, actor, save, t, language}:{
   const uniqueProduct = new Set(named.map(e=>entryName(e).toLowerCase())).size === 1
   const [identity,setIdentity] = useState(initial || (uniqueProduct ? named.at(-1)?.source.id : '') || '')
   const [resolution,setResolution] = useState(row.verified?.resolution || '')
-  const prior = row.verified as (NonNullable<ReviewRow['verified']> & {regimens?:RegimenComponent[]}) | null
+  const prior = verification(row)
   const [structured,setStructured] = useState(Boolean(prior?.regimens?.length))
   const [schedules,setSchedules] = useState<Schedule[]>(()=>prior?.regimens?.map(fromComponent) || [emptySchedule()])
   const [product,setProduct] = useState<CatalogueMatch>()
   const [query,setQuery] = useState('')
-  const [match,setMatch] = useState(false)
+  const previousMatch = prior?.identity?.normalized_medication_id && prior.identity.tmt_release
+    ? {tpu:prior.identity.normalized_medication_id,tmt_release:prior.identity.tmt_release} : null
+  const [keepPrior,setKeepPrior] = useState(Boolean(previousMatch))
+  const [match,setMatch] = useState(Boolean(previousMatch))
+  const confirmedProduct = product ? {tpu:product.product.tpu,tmt_release:product.release} : keepPrior ? previousMatch : null
   if (!source) return <p role="alert">{t('The interview source has changed. Record a new interview.','แหล่งสัมภาษณ์เปลี่ยนไป กรุณาบันทึกการสัมภาษณ์ใหม่')}</p>
 
   const notPatient = answer.ownership==='other'
@@ -33,7 +37,8 @@ export function VerifyForm({row, actor, save, t, language}:{
   const readySchedules = schedules.length>0 && schedules.every(s=>s.complete && s.amount && s.unit.trim() && s.route.trim() && s.mode &&
     s.period && s.periodUnit && (s.mode==='interval' || s.count))
   const readyUse = answer.current_use!=='current' || (structured ? readySchedules : Boolean(answer.dose && answer.route && answer.schedule))
-  const canVerify = consistent && readyUse && !needsIdentity(row) && (row.unknown || identity) && (!match || product)
+  const corrections=intakeCorrections(row)
+  const canVerify = consistent && readyUse && !needsIdentity(row) && (!corrections.length || resolution.trim()) && (row.unknown || identity) && (!match || confirmedProduct)
   function verify(event:React.FormEvent) {
     event.preventDefault()
     if(!canVerify || !source) return
@@ -44,18 +49,19 @@ export function VerifyForm({row, actor, save, t, language}:{
     const command = {action:'verify' as const,row_id:row.id,source_id:answer.source_id,
       identity_source_id:row.unknown ? null : identity,resolution:resolution.trim()||null,
       ...(components.length ? {regimens:components}:{}),
-      ...(match && product ? {confirmed_product:{tpu:product.product.tpu,tmt_release:product.release}} : {}),
+      ...(match && confirmedProduct ? {confirmed_product:confirmedProduct} : {}),
     }
     void save(command)
   }
   return <form className="clinical-form" onSubmit={verify}>
     <h4>{t('Clinical verification','ยืนยันโดยบุคลากรทางการแพทย์')}</h4>
     <p>{sourceLabel(source,t)} · {source.wording}</p>
-    {!row.unknown && <label>{t('Supported medicine identity','หลักฐานยืนยันตัวยา')}<select aria-label={t('Supported medicine identity','หลักฐานยืนยันตัวยา')} value={identity} required onChange={e=>{setIdentity(e.target.value);setMatch(false);setProduct(undefined);setQuery('')}}>
+    {!row.unknown && <label>{t('Supported medicine identity','หลักฐานยืนยันตัวยา')}<select aria-label={t('Supported medicine identity','หลักฐานยืนยันตัวยา')} value={identity} required onChange={e=>{setIdentity(e.target.value);setMatch(false);setKeepPrior(false);setProduct(undefined);setQuery('')}}>
       <option value="">{t('Choose an identity source','เลือกหลักฐานระบุชนิดยา')}</option>
       {named.map(e=><option key={e.source.id} value={e.source.id}>{entryName(e)} · {sourceLabel(e,t)} · {e.wording}</option>)}</select></label>}
     {row.unknown && <p>{row.confirmed ? row.confirmed.name : t('Identity unresolved','ยังไม่ยืนยันชนิดยา')}</p>}
-    <label>{t('Resolution of conflicting evidence','คำอธิบายการแก้ข้อมูลขัดแย้ง')}<textarea value={resolution} onChange={e=>setResolution(e.target.value)}/></label>
+    <label>{t('Resolution of conflicting evidence','คำอธิบายการแก้ข้อมูลขัดแย้ง')}<textarea required={corrections.length>0} value={resolution} onChange={e=>setResolution(e.target.value)}/></label>
+    {corrections.length>0 && <small>{t('Explain how you reconciled the intake corrections before verifying.','อธิบายการตรวจสอบข้อมูลที่แก้ไขระหว่างรับข้อมูลก่อนยืนยัน')}</small>}
     {answer.current_use==='current' && <>
       <label className="clinical-check"><input type="checkbox" checked={structured} onChange={e=>setStructured(e.target.checked)}/>
         {t('Verify a structured dosing schedule','ยืนยันตารางใช้ยาแบบแยกช่อง')}</label>
@@ -77,8 +83,8 @@ export function VerifyForm({row, actor, save, t, language}:{
       {row.intake_catalogue && <button className="text-action" type="button" onClick={()=>{setProduct(row.intake_catalogue!);setQuery(row.intake_catalogue!.product.label)}}>
         {t('Use the intake selection','ใช้รายการที่เลือกตอนรับข้อมูล')} · {row.intake_catalogue.product.label}</button>}
       <MedicinePicker t={intake[language]} name={query} selected={product}
-        onChange={value=>{setQuery(value);setProduct(undefined)}} onSelect={v=>{setProduct(v);setQuery(v.product.label)}}/>
-      {product && <small>TPU {product.product.tpu} · {product.release}</small>}
+        onChange={value=>{setQuery(value);setProduct(undefined);setKeepPrior(false)}} onSelect={v=>{setProduct(v);setQuery(v.product.label)}}/>
+      {confirmedProduct && <small>{keepPrior && !product ? prior?.identity?.name+' · ' : ''}TPU {confirmedProduct.tpu} · {confirmedProduct.tmt_release}</small>}
     </div>}
     <div className="clinical-actions">
       <button className="primary-btn" disabled={!canVerify}>{t('Verify this medicine','ยืนยันรายการยานี้')}</button>

@@ -23,7 +23,7 @@ class IntakeChoice(ContractModel):
     release: Text
 
 
-class IntakeMedicine(ContractModel):
+class IntakePart(ContractModel):
     row: MedicationSuggestion
     origin: Literal['manual', 'analysis']
     catalogue: IntakeChoice | None = None
@@ -32,6 +32,11 @@ class IntakeMedicine(ContractModel):
     notes: dict[Text, Text]
     regions: dict[Text, RegionBounds]
     physical_items: dict[Text, Text]
+
+
+class IntakeMedicine(IntakePart):
+    linked: list[IntakePart] = Field(default_factory=list)
+    corrections: dict[Literal["name", "strength", "form", "directions"], str] = Field(default_factory=dict)
 
 
 class Original(ContractModel):

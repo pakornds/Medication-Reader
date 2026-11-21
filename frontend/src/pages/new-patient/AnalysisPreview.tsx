@@ -27,7 +27,7 @@ function Citation({ reference, evidence, t }: { reference: Ref; evidence: Eviden
       <details className="citation">
         <summary>{t[note.kind]}</summary>
         <blockquote>{note.text}</blockquote>
-        <small>{[note.author, note.date].filter(Boolean).join(' · ')}</small>
+        <small>{[note.author, note.facilityContact?.department_or_ward, note.facilityContact?.organization_address, note.facilityContact?.organization_phone, note.facilityContact?.organization_phone_extension, note.facilityContact?.organization_email, note.date].filter(Boolean).join(' · ')}</small>
       </details>
     )
   const photo = evidence.photos.find(
@@ -46,7 +46,7 @@ function Citation({ reference, evidence, t }: { reference: Ref; evidence: Eviden
         <EvidenceImage file={photo.file} />
         {region && <RegionOutline box={region.box} />}
       </div>
-      <small>{[photo.file.name, region?.organization, photo.date].filter(Boolean).join(' · ')}</small>
+      <small>{[photo.file.name, region?.organization, region?.facilityContact?.department_or_ward, region?.facilityContact?.organization_address, region?.facilityContact?.organization_phone, region?.facilityContact?.organization_phone_extension, region?.facilityContact?.organization_email, photo.date].filter(Boolean).join(' · ')}</small>
     </details>
   )
 }

@@ -47,6 +47,7 @@ export function ScreeningPanel({ client, encounter, t }: {client:Client;encounte
     {busy && <p role="status">{t('Running check…','กำลังตรวจสอบ…')}</p>}{error && <p role="alert">{error}</p>}
     {local && <section aria-live="polite" className="clinical-form">
       <p>{[local.tmt_release,local.fest_release,local.checked_at].filter(Boolean).join(' · ')}</p>
+      {local.warnings?.map(warning=><p key={warning}>{warning}</p>)}
       {local.ddi_unavailable_reason && <p>{local.ddi_unavailable_reason}</p>}
       {local.rows.map(r=><div key={r.row_id}><strong>{name(r.row_id)}</strong> · {r.tpu ? 'TPU '+r.tpu : t('No confirmed catalogue match','ยังไม่จับคู่กับบัญชียา')}
         {r.reason && <p>{r.reason}</p>}{r.route_note && <p>{r.route_note}</p>}</div>)}

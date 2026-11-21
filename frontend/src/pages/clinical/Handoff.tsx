@@ -66,7 +66,7 @@ export function Handoff({encounter,t}:{encounter:Encounter;t:Say}) {
         const reverse=entries.find(e=>e.photo?.appearance && e.photo.pairing==='matched' && e.source.kind==='reverse_photo')
         if(reverse){const url=await crop(reverse);if(url)crops.set(reverse.source.id,url)}
         return {...row.intake,id:row.id,sources:[...refs.values()],identity_status:row.unknown?'unlabeled':'named',
-          unknown_label:row.unknown?row.id:null,observed_names:entries.filter(supportsIdentity).map(e=>fact(entryName(e),e.source.id)),
+          unknown_label:row.unknown?(row.intake?.unknown_label || t('Unidentified medicine','ยาที่ยังระบุไม่ได้')):null,observed_names:entries.filter(supportsIdentity).map(e=>fact(entryName(e),e.source.id)),
           reported_use:entries.filter(reported).map(e=>fact(e.wording,e.source.id)),label_fields:fields,verification:verified,
           reverse_crop:reverse?refs.get(reverse.source.id):null}
       }))
@@ -79,7 +79,7 @@ export function Handoff({encounter,t}:{encounter:Encounter;t:Say}) {
     }
     void render().catch(()=>{if(live)setError(true)})
     return ()=>{live=false;modal.close()}
-  },[open,encounter])
+  },[open,encounter,t])
   return <>
     <button type="button" className="btn" disabled={!Object.keys(encounter.rows).length} onClick={()=>{setReady(false);setError(false);setOpen(true)}}>{t('Dated handoff / print','ใบส่งต่อพร้อมวันที่ / พิมพ์')}</button>
     {open && createPortal(<dialog className="clinical-print" ref={dialog} aria-label={t('Dated medication handoff','ใบส่งต่อรายการยาพร้อมวันที่')} onCancel={()=>setOpen(false)}>

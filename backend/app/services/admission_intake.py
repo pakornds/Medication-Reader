@@ -7,13 +7,13 @@ from hashlib import sha256
 from app.ai.client import EvidenceImage
 from app.schemas.admission import NewEncounter, Photo, SourceEntry
 from app.schemas.admission_intake import IntakeSubmission
-from app.schemas.analysis import AnalysisResult, validate_analysis_result
-from app.schemas.evidence import CaseEvidence, EvidenceSource, PHOTO_KINDS, REPORT_KINDS
-from app.services.admissions import capture_orientation, new_encounter, new_row, now, require
+from app.schemas.evidence import EvidenceSource, PHOTO_KINDS, REPORT_KINDS
+from app.services.admission_intake_evidence import prepare_sources
+from app.services.admissions import capture_orientation, new_encounter, new_row, now, require, unresolved_photo
 
 
-def _prepare_images(request, existing):
-    attachments = {s.attachment_id for row in request.rows for s in row.sources if s.kind in PHOTO_KINDS}
+def _prepare_images(request, existing, medicines):
+    attachments = {s.attachment_id for row in medicines for s in row.sources if s.kind in PHOTO_KINDS}
     require(None not in attachments and request.originals.keys() <= attachments, "Unexpected attachment.")
     images = dict(existing)
     orientations = {}
@@ -33,7 +33,7 @@ def _prepare_images(request, existing):
     return images, orientations
 
 
-def _entries(medicine, encoded, images):
+def _entries(medicine, encoded, images, by_source, names_by_source):
     """Build ordinary admission source entries. Keep the exact suggestion alongside its citations."""
     result = []
     row = medicine.row
@@ -49,9 +49,9 @@ def _entries(medicine, encoded, images):
     front = {medicine.physical_items[i.id] for i in medicine.items if i.source_id in front_ids}
     for src in medicine.sources:
         reference = refs[src.id]
-        names = {v.value for v in row.observed_names if v.evidence == reference}
+        names = names_by_source.get(src.id, set())
         name = next(iter(names)) if len(names) == 1 else None
-        fields = {key: obs for key, obs in row.label_fields.items() if obs.evidence == reference}
+        fields = by_source.get(src.id, {})
         attrs = {}
         for key in ("strength", "form", "dose", "directions", "indication"):
             if key in fields and fields[key].value:
@@ -95,7 +95,23 @@ def _entries(medicine, encoded, images):
                                     wording=name, name=name).model_dump(mode="json")
             selection["product"] = name
             result.append(selection)
+    ids = [e["source"]["id"] for e in result]
+    require(len(ids) == len(set(ids)), "Use distinct IDs for document evidence and staff selection.")
     return result
+
+
+def _reserved_evidence(case):
+    """Reserve sources owned by clinical activity or retired in an earlier revision."""
+    reserved = set(case.get("retired_capture_sources", ())) | set(case.get("unavailable_sources", ()))
+    current = set()
+    for row in case["rows"].values():
+        intake_ids = set(row.get("intake_entry_ids", ()))
+        reserved.update(row["superseded"])
+        current.update(intake_ids)
+        reserved.update(e["source"]["id"] for e in row["entries"] if e["source"]["id"] not in intake_ids)
+    for event in case["events"]:
+        reserved.update(set(event.get("sources", ())) - current)
+    return reserved
 
 
 def _used(row, intake_entry_ids):
@@ -109,12 +125,11 @@ def save_intake(store, actor, request: IntakeSubmission):
     case_id = "admission-" + request.case_id.hex
     by_id = {medicine.row.id: medicine for medicine in request.rows}
     require(len(by_id) == len(request.rows), "Duplicate medicine row.")
-    for medicine in request.rows:
-        manifest = CaseEvidence(case_id=case_id, sources=medicine.sources, items=medicine.items)
-        validate_analysis_result(AnalysisResult(case_id=case_id, rows=[medicine.row]), manifest)
+    prepared = {rid: prepare_sources(medicine, case_id) for rid, medicine in by_id.items()}
+    medicines = [part for part, _, _ in prepared.values()]
     # Evidence identifiers may be reused only for the same source, including its original wording.
     registry = {}
-    for item in request.rows:
+    for item in medicines:
         for source in item.sources:
             value = (source, item.notes.get(source.id))
             require(source.id not in registry or registry[source.id] == value, "A source was edited after confirmation.")
@@ -124,7 +139,7 @@ def save_intake(store, actor, request: IntakeSubmission):
         previous = store.records.get(case_id)
         if previous:
             store.get(actor, case_id)
-        images, orientations = _prepare_images(request, store.originals.get(case_id, {}))
+        images, orientations = _prepare_images(request, store.originals.get(case_id, {}), medicines)
         if previous and previous.get("intake_digests") == digests:
             return previous
         require(request.revision == (previous["revision"] if previous else 0),
@@ -136,6 +151,8 @@ def save_intake(store, actor, request: IntakeSubmission):
         old = case.get("intake_digests", {})
         changed = {rid for rid in old.keys() | by_id.keys() if old.get(rid) != digests.get(rid)}
         encoded = {aid: b64encode(im.content).decode("ascii") for aid, im in images.items() if aid in orientations}
+        reserved = _reserved_evidence(case)
+        generated = {}
         for rid in sorted(changed):
             row = case["rows"].get(rid)
             if row:
@@ -144,12 +161,21 @@ def save_intake(store, actor, request: IntakeSubmission):
             if rid not in by_id:
                 del case["rows"][rid]
                 continue
-            medicine = by_id[rid]
-            entries = _entries(medicine, encoded, images)
+            medicine, source_fields, source_names = prepared[rid]
+            entries = _entries(medicine, encoded, images, source_fields, source_names)
+            for entry in entries:
+                sid = entry["source"]["id"]
+                require(sid not in reserved, "Use new source IDs for independent, retired or unavailable evidence.", 409)
+                if sid not in {source.id for source in medicine.sources}:
+                    require(sid not in registry and generated.setdefault(sid, rid) == rid,
+                            "Use distinct IDs for staff selection and documentary evidence.")
             unknown = medicine.row.identity_status != "named" or not any(e["name"] for e in entries)
-            if any(e["photo"] and e["photo"]["appearance"] for e in entries):
+            if any(unresolved_photo(e) for e in entries):
                 unknown |= all(e["source"]["kind"] in REPORT_KINDS for e in entries if e["name"])
             prior = row
+            original = by_id[rid]
+            unknown |= (original.corrections.get("name") == "" or
+                        any(scan.row.identity_status != "named" for scan in original.linked))
             row = new_row(rid, unknown=unknown or bool(prior and prior["unknown"]))
             if prior and prior["unknown"]:
                 row["unknown_capture_attachments"] = sorted({
@@ -159,9 +185,12 @@ def save_intake(store, actor, request: IntakeSubmission):
             row.update(entries=entries, intake=medicine.row.model_dump(mode="json"),
                        intake_entry_ids=[e["source"]["id"] for e in entries],
                        intake_catalogue=medicine.catalogue.model_dump(mode="json") if medicine.catalogue else None)
+            if original.linked or original.corrections:
+                row["intake_sources"] = [part.row.model_dump(mode="json") for part in [original, *original.linked]]
+                row["intake_corrections"] = original.corrections.copy()
             case["rows"][rid] = row
         from app.services.admission_intake_capture import sync_capture
-        sync_capture(case, request.rows, orientations)
+        sync_capture(case, medicines, orientations)
         if previous and previous.get("intake_capture_fingerprint"):
             require(sha256(repr(previous.get("capture")).encode()).hexdigest() == previous["intake_capture_fingerprint"]
                     or case.get("capture") == previous.get("capture"), "The package layout changed. Refresh before updating intake.", 409)

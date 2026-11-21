@@ -12,7 +12,7 @@ import { VerifyForm } from './VerifyForm'
 import { IdentityReview } from './IdentityReview'
 import { IdentityIncident, type Incident } from './IdentityIncident'
 import { ScreeningPanel } from './ScreeningPanel'
-import { active, bilingual, entryName, needsIdentity, ownerLabels, rowName, sourceLabel, stateLabel, currentUseLabels, type Client, type Save, type Say } from './review'
+import { active, bilingual, entryName, intakeCorrections, needsIdentity, ownerLabels, rowName, sourceLabel, stateLabel, currentUseLabels, verification, type Client, type Save, type Say } from './review'
 import './clinical.css'
 
 interface Props {
@@ -26,6 +26,8 @@ function ReviewSession({language,client,actor,encounter,onEncounter}:Props) {
   const rows=Object.values(encounter.rows)
   const [selected,setSelected]=useState(rows[0]?.id || '')
   const row=encounter.rows[selected] || rows[0]
+  const verified=row && verification(row)
+  const corrections=row ? intakeCorrections(row) : []
   const [busy,setBusy]=useState(false)
   const locked=useRef(false)
   const [error,setError]=useState('')
@@ -54,7 +56,7 @@ function ReviewSession({language,client,actor,encounter,onEncounter}:Props) {
   const pending=rows.filter(r=>r.unknown && !r.confirmed)
   const referral=pending.filter(r=>needsIdentity(r)||referIds.includes(r.id))
   const incidents=Object.values((encounter as Encounter & {identity_incidents?:Record<string,Incident>}).identity_incidents||{})
-  const unavailable=Object.values((encounter as Encounter & {unavailable_sources?:Record<string,{source:EvidenceSource;reason?:string}>}).unavailable_sources||{})
+  const unavailable=Object.values((encounter as Encounter & {unavailable_sources?:Record<string,{source:EvidenceSource;follow_up:string}>}).unavailable_sources||{})
   return <section className="clinical-workspace" aria-label={t('Clinical review','ทบทวนทางคลินิก')}>
     <header className="clinical-heading"><div><h2>{t('Clinical review','ทบทวนทางคลินิก')}</h2>
       <p>{encounter.patient_alias} · {statusName(encounter.status,t)} · {rows.filter(r=>r.verified).length}/{rows.length} {t('verified','ยืนยันแล้ว')}</p></div>
@@ -62,13 +64,15 @@ function ReviewSession({language,client,actor,encounter,onEncounter}:Props) {
     {error && <p role="alert" className="clinical-error">{error}</p>}
     {!rows.length && <p>{t('Add medicines on Input to begin clinical review.','เพิ่มรายการยาในหน้าป้อนข้อมูลเพื่อเริ่มทบทวน')}</p>}
     {unavailable.length>0 && <details className="clinical-card"><summary>{t('Outstanding source records','เอกสารที่ยังไม่ได้รับ')} ({unavailable.length})</summary>
-      {unavailable.map(v=><p key={v.source?.id}>{v.source?.organization || v.source?.department_or_ward} · {v.source?.unavailable_reason || v.reason}</p>)}</details>}
+      {unavailable.map(v=><p key={v.source.id}>{[v.source.organization || v.source.department_or_ward,v.source.unavailable_reason,v.follow_up].filter(Boolean).join(' · ')}</p>)}</details>}
     {row && <div className="clinical-columns">
       <nav className="clinical-list" aria-label={t('Medicines to review','รายการยาที่ต้องทบทวน')}>
         {rows.map((r,i)=><button type="button" key={r.id} aria-current={r.id===row.id?'true':undefined} onClick={()=>setSelected(r.id)}>
           <strong>{i+1}. {rowName(r,t)}</strong><small>{stateLabel(r,t)}</small></button>)}</nav>
       <article className="clinical-card clinical-form" key={row.id}>
         <div><h3>{rowName(row,t)}</h3><p>{stateLabel(row,t)}</p></div>
+        {corrections.length>0 && <section className="clinical-inset"><h4>{t('Intake corrections','ข้อมูลที่แก้ไขระหว่างรับข้อมูล')}</h4>
+          {corrections.map(([field,value])=><p key={field}>{({name:t('Name','ชื่อยา'),strength:t('Strength','ความแรง'),form:t('Dosage form','รูปแบบยา'),directions:t('Directions','วิธีใช้ยา')} as Record<string,string>)[field]} · {value || t('Cleared by staff','ผู้ทบทวนลบค่าเดิม')}</p>)}</section>}
         <details open className="clinical-evidence"><summary>{t('Source evidence','หลักฐานต้นทาง')}</summary>
           {active(row).map(entry=><section key={entry.source.id}>
             <strong>{sourceLabel(entry,t)}</strong>
@@ -83,13 +87,15 @@ function ReviewSession({language,client,actor,encounter,onEncounter}:Props) {
           <p>{ownerLabels(t)[row.interview.ownership]} · {currentUseLabels(t)[row.interview.current_use]}</p>
           <p>{[row.interview.dose,row.interview.route,row.interview.schedule,row.interview.reason,row.interview.note].filter(Boolean).join(' · ')}</p>
           {row.verified && <p>{t('Verified by','ยืนยันโดย')} {row.verified.actor.name} · <time>{row.verified.at}</time></p>}
+          {verified?.identity?.normalized_medication_id && <p>{verified.identity.name} · TPU {verified.identity.normalized_medication_id} · {verified.identity.tmt_release}</p>}
+          {verified?.regimens?.map(c=><RegimenReadback key={c.component_id} component={c} t={regimenText[language]}/>)}
         </section>}
         <fieldset disabled={busy} className="clinical-form">
           {writable && <><details open={!row.interview}><summary>{row.interview?t('Edit interview','แก้ไขการสัมภาษณ์'):t('Record interview','บันทึกการสัมภาษณ์')}</summary>
             <InterviewForm key={row.id} row={row} encounter={encounter} save={save} t={t}/></details>
             {(row.unknown || new Set(active(row).filter(e=>e.name).map(e=>entryName(e).toLowerCase())).size>1) &&
               <IdentityReview row={row} pharmacist={pharmacist} save={save} t={t}/>}
-            {row.interview && <details key={JSON.stringify(row.interview)} open={!row.verified}><summary>{t('Verify actual use','ยืนยันการใช้จริง')}</summary>
+            {row.interview && <details key={JSON.stringify([row.interview,row.verified?.at])} open={!row.verified}><summary>{t('Verify actual use','ยืนยันการใช้จริง')}</summary>
               <VerifyForm row={row} actor={actor} save={save} t={t} language={language}/></details>}
           </>}
           {incidents.filter(i=>i.row_id===row.id).map(item=><IdentityIncident key={item.id} item={item} entries={row.entries} pharmacist={pharmacist} save={save} t={t}/>)}

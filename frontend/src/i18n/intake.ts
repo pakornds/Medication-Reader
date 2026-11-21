@@ -1,4 +1,6 @@
 const en = {
+  facilityContact:'Facility contact details', facilityType:'Facility type', unspecifiedFacility:'Unspecified', clinic:'Clinic', hospital:'Hospital', community_pharmacy:'Community pharmacy', other:'Other facility',
+  department_or_ward:'Department or ward', organization_address:'Facility address', organization_phone:'Facility phone', organization_phone_extension:'Extension', organization_email:'Facility email',
   earlier: 'The source has changed since this row was added. The original evidence is shown here.',
   title: 'Add medicines',
   intro: 'Document the medication history using one or more available sources, such as medication photos, patient reports, or clinical notes.',
@@ -18,7 +20,7 @@ const en = {
   replace: 'Replace',
   remove: 'Remove',
   formats: 'JPG, PNG or WebP',
-  badPhoto: 'Choose a JPG, PNG or WebP image smaller than 16 MB.',
+  badPhoto: 'Choose a JPG, PNG or WebP image of 4 MB or less.',
   addPhoto: 'Add another photo',
   emptySlot: 'Drop a photo here',
   date: 'Source date',
@@ -98,6 +100,8 @@ const en = {
   unknown: 'Unknown medicine',
 }
 const th: typeof en = {
+  facilityContact:'ข้อมูลติดต่อหน่วยบริการ', facilityType:'ประเภทหน่วยบริการ', unspecifiedFacility:'ไม่ระบุ', clinic:'คลินิก', hospital:'โรงพยาบาล', community_pharmacy:'ร้านยา', other:'หน่วยบริการอื่น',
+  department_or_ward:'แผนกหรือหอผู้ป่วย', organization_address:'ที่อยู่หน่วยบริการ', organization_phone:'โทรศัพท์หน่วยบริการ', organization_phone_extension:'เบอร์ต่อ', organization_email:'อีเมลหน่วยบริการ',
   earlier: 'แหล่งข้อมูลเปลี่ยนหลังจากเพิ่มยารายการนี้ ข้อมูลที่แสดงเป็นหลักฐานเดิม',
   title: 'เพิ่มรายการยา',
   intro: 'บันทึกประวัติการใช้ยาจากแหล่งข้อมูลที่มี โดยใช้ภาพถ่ายยา คำบอกเล่าของผู้ป่วย หรือบันทึกทางคลินิกอย่างน้อยหนึ่งแหล่ง',
@@ -117,7 +121,7 @@ const th: typeof en = {
   replace: 'เปลี่ยนภาพ',
   remove: 'นำออก',
   formats: 'JPG, PNG หรือ WebP',
-  badPhoto: 'เลือกไฟล์ JPG, PNG หรือ WebP ขนาดเล็กกว่า 16 MB',
+  badPhoto: 'เลือกไฟล์ JPG, PNG หรือ WebP ขนาดไม่เกิน 4 MB',
   addPhoto: 'เพิ่มภาพอีกภาพ',
   emptySlot: 'วางภาพที่นี่',
   date: 'วันที่ของแหล่งข้อมูล',

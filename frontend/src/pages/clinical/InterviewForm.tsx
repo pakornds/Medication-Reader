@@ -35,7 +35,11 @@ export function InterviewForm({ row, encounter, save, t }: { row: ReviewRow; enc
   }
   return <form className="clinical-form" onSubmit={submit}>
     <h4>{t('Medication interview','สัมภาษณ์การใช้ยา')}</h4>
-    <label>{t('Interview source','แหล่งข้อมูลการสัมภาษณ์')}<select aria-label={t('Interview source','แหล่งข้อมูลการสัมภาษณ์')} value={source} onChange={e=>{setSource(e.target.value);setSaved(false)}}>
+    <label>{t('Interview source','แหล่งข้อมูลการสัมภาษณ์')}<select aria-label={t('Interview source','แหล่งข้อมูลการสัมภาษณ์')} value={source} onChange={e=>{
+      const selected=e.target.value
+      setSource(selected);setSaved(false)
+      setAnswers(row.interview?.source_id===selected ? row.interview : {ownership:'uncertain',current_use:'uncertain',source_id:selected})
+    }}>
       <option value="">{t('Record a new account','บันทึกคำบอกเล่าใหม่')}</option>
       {sources.map(entry=><option key={entry.source.id} value={entry.source.id}>{sourceLabel(entry,t)} · {entry.wording}</option>)}
     </select></label>

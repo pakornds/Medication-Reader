@@ -81,6 +81,10 @@ function ReceiptDetails({ client, stamp, language }: { client: Client; stamp: st
       <ul className="divide-y divide-line">{record.snapshot.rows.map(row => {
         const v = row.verification
         const fields = Object.entries(row.label_fields ?? {})
+        const facilities = record.snapshot.evidence.sources.filter(source =>
+          (source.organization || source.organization_type || source.organization_address || source.department_or_ward
+            || source.organization_phone || source.organization_phone_extension || source.organization_email)
+          && row.sources.some(ref => ref.source_id === source.id))
         const product = v?.normalized_medication_id
         const directions = v?.regimens ?? []
         return <li key={row.id} className="grid gap-2 py-3">
@@ -102,6 +106,15 @@ function ReceiptDetails({ client, stamp, language }: { client: Client; stamp: st
               <dd>{field.value || (field.status === 'unreadable' ? intake[language].unreadable : intake[language].missing)}</dd>
             </div>)}</dl>
           </details>}
+          {facilities.map(source => <details key={source.id}><summary>{source.organization || intake[language].facilityContact}</summary>
+            <dl className="grid gap-2 pt-2">
+              {source.organization_type && <div><dt className="text-sm text-2">{intake[language].facilityType}</dt>
+                <dd>{intake[language][source.organization_type]}</dd></div>}
+              {(['department_or_ward','organization_address','organization_phone','organization_phone_extension','organization_email','source_date'] as const)
+                .map(key => source[key] && <div key={key}><dt className="text-sm text-2">{intake[language][key === 'source_date' ? 'date' : key]}</dt>
+                  <dd>{source[key]}</dd></div>)}
+            </dl>
+          </details>)}
         </li>
       })}</ul>
     </section>)}

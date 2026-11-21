@@ -1,3 +1,4 @@
+import { FacilityDetails } from './FacilityDetails'
 import type { RegionBounds } from '../../api/contracts'
 import { RegionOutline } from '../../components/ui/RegionOutline'
 import { InputField } from '../../components/ui/InputField'
@@ -155,11 +156,11 @@ export function PhotoItems({ photo, photos, t, onChange, proposePhoto }: Props) 
               </select>
             </label>
           ) : (
-            <InputField
+            <><InputField
               label={t.facility}
               value={r.organization}
               onChange={(e) => update(r.id, { organization: e.target.value })}
-            />
+            /><FacilityDetails t={t} value={r.facilityContact} onChange={facilityContact=>update(r.id,{facilityContact})}/></>
           )}
         </div>
       ))}
