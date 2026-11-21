@@ -138,10 +138,7 @@ def validate_analysis_result(result: AnalysisResult, evidence: CaseEvidence) -> 
             return kind
 
         def check_label_region(reference: EvidenceRef, kind: SourceKind) -> None:
-            if kind in PHOTO_KINDS and (
-                kind == SourceKind.REVERSE_PHOTO
-                or items[(reference.source_id, reference.item_id)].kind != "label_region"
-            ):
+            if kind in PHOTO_KINDS and not items[(reference.source_id, reference.item_id)].supports_label(kind):
                 raise EvidenceValidationError("Documented photo fields require a label region")
 
         if row.dispensing_source_id is not None:
@@ -159,7 +156,7 @@ def validate_analysis_result(result: AnalysisResult, evidence: CaseEvidence) -> 
         for field in row.label_fields.values():
             if field.evidence is not None:
                 kind = check_field(field.evidence)
-                if kind in REPORT_KINDS or kind == SourceKind.REVERSE_PHOTO:
+                if kind in REPORT_KINDS:
                     raise EvidenceValidationError("Documented fields require label or record evidence")
                 check_label_region(field.evidence, kind)
         for component in row.regimens:

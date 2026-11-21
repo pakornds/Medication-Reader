@@ -47,6 +47,11 @@ def _catalog() -> tuple[list[Reference], dict[tuple[str, str, str], frozenset]]:
     return references, crops
 
 
+def catalogue_choices() -> list[dict[str, str]]:
+    references, _ = _catalog()
+    return [{"id": r.id, "name": r.medication} for r in references]
+
+
 def reference_image(reference_id: str) -> Path | None:
     references, _ = _catalog()
     if any(reference.id == reference_id for reference in references):

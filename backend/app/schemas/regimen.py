@@ -87,7 +87,7 @@ def validate_regimen_evidence(component: RegimenComponent, row_id: str, evidence
         if reference.item_id is not None and (item is None or item.row_id != row_id):
             raise EvidenceValidationError('Regimen evidence item must belong to this medication row')
         if source.kind in PHOTO_KINDS and (
-            item is None or item.kind != 'label_region' or source.kind == SourceKind.REVERSE_PHOTO
+            item is None or not item.supports_label(source.kind)
         ):
             raise EvidenceValidationError('Photo directions require a located label region')
         if component.basis != 'verified' and (component.basis == 'reported') != (source.kind in REPORT_KINDS):

@@ -6,7 +6,7 @@
 
 During urgent intake or a transfer, the referring clinic's medication list may be unavailable. The receiving team may have a ward record, only some of the patient's medicines, and a patient or caregiver who is uncertain about what was taken. Staff need to identify the source of each entry and what they still need to confirm.
 
-In the fixture-only, 12-hour Medication Reader demo, community and hospital pharmacists, clinic staff, and nurses gather histories and evidence. A pharmacist or doctor verifies current use for this encounter. The draft keeps printed directions, reported use, and reviewer-verified current use distinct. [WHO technical report on medication safety in transitions of care](https://www.who.int/publications/i/item/WHO-UHC-SDS-2019.9)
+In the fixture-only, 12-hour Medication Reader demo, community and hospital pharmacists, clinic staff, and nurses gather histories and evidence. An assigned nurse, doctor or pharmacist verifies current use for this encounter. The draft keeps printed directions, reported use, and reviewer-verified current use distinct. [WHO technical report on medication safety in transitions of care](https://www.who.int/publications/i/item/WHO-UHC-SDS-2019.9)
 
 ## Workflow
 
@@ -23,6 +23,14 @@ flowchart TD
   review -->|Needs evidence| pending["Keep pending with a follow-up question"]
   pending -.->|New evidence| row
   review -->|Verified| eligible["Select eligible rows for import"]
+  review --> interview["Interview and print a dated worksheet"]
+  interview --> verify["Assigned nurse, doctor or pharmacist verifies routine rows"]
+  verify --> finish["Explicitly finish reconciliation"]
+  verify --> refer["Refer outstanding unknown items and evidence"]
+  refer --> pharmacy["Assigned pharmacist reviews individual items"]
+  pharmacy -->|Resolved| finish
+  pharmacy -->|Insufficient evidence| refer
+  finish --> reviewed["Dated record available across staff sessions"]
   review --> handoff["Print or display dated handoff with row statuses"]
   eligible --> approve["Pharmacist: Approve and import selected rows"]
   approve --> receipt["Server validates selection and writes to mock hospital and returns a UTC receipt"]
@@ -33,7 +41,9 @@ flowchart TD
 1. **Add a medicine manually.** Search and select one catalogue product. The combined name, strength and form appear on one editable row immediately. Keep the product ID, name, strength and form in separate fields internally. Staff enter the patient’s dose, schedule and source on that row. Manual selection bypasses AI extraction. If the catalogue has no match, enter the evidenced name, strength and form in the same row and leave the catalogue ID blank.
 2. **Prefill the same row layout from a scan.** Keep items in their original packaging or separate groups. Photograph the labels first, then optionally flip the same items in place for a reverse photo. If pairing is uncertain, ask staff to match the item or retake the photo. Extract legible label fields, retain the original wording and cite the matching label region. Show catalogue candidates where available. For a loose or unreadable item, create an unknown row and attach a matched crop when supported. Mark scan-prefilled fields as awaiting review. A typed patient account or transfer record can supply additional evidence.
 3. **Review in place.** Staff can correct a prefill, discard an erroneous suggestion or link new evidence to an existing medicine. If a scan might describe a manually entered medicine, ask staff to confirm the association before combining rows. A retry or rescan preserves manual edits, verified values and unrelated rows. Keep conflicting source values visible. Selecting a catalogue product supplies its identity as a candidate and does not verify actual use.
-4. **Verify actual use on the row.** A pharmacist or doctor records the patient’s current-use status and supporting evidence. A disputed identity needs independent, item-specific confirmation. Keep unresolved rows pending with a question and a source to contact. A dated digital or printed handoff can include pending items with their status.
+4. **Interview and finish the clinical review.** The [admission workspace](reconciliation-contract.md#admission-encounters) makes a dated worksheet available with the first row. An assigned clinician can explicitly finish routine review. Refer items in current use with unresolved identity and all pending identity proposals. Only a pharmacist can resolve a previously unknown identity using independently documented, item-specific evidence. Finishing and referring produce dated review events.
+
+   **Verify actual use on the row.** An assigned nurse, doctor or pharmacist records the patient’s current-use status and supporting evidence. A disputed identity needs independent, item-specific confirmation. Keep unresolved rows pending with a question and a source to contact. A dated digital or printed handoff can include pending items with their status.
 5. **Approve once for import.** Show the eligible selected rows and any excluded rows. One explicit pharmacist action, **Approve and import selected rows**, authorizes that selection at its reviewed revisions. The server validates each selected row and rejects the entire write if any is ineligible or stale. A failed write preserves the draft. A successful write returns the imported row IDs and UTC timestamp. Only successful timestamps enter local history.
 
 ### Source fields and attribution
@@ -106,7 +116,7 @@ For different morning and evening amounts, create two components with their resp
 | Extraction | Sourced medication names, labeled strengths and forms, directions records and stable placeholders for unknown items. Each populated value links to the source statement or located image region. |
 | Product lookup | Search Thai Medicines Terminology (TMT) using a product code or observed name with strength and form when available. Display the original evidence beside candidate trade names, ingredients, strengths, forms and manufacturers. Preserve zero, multiple or conflicting results for review. A loose pill alone stays unresolved. Show “No match in the February 2020 catalogue” for an empty result. Independent case evidence can still establish identity. Attach a TPU only to a confirmed trade product. |
 | Draft | Review suggestions inline. Print or display the same dated rows, discrepancies, crops and follow-up questions, with each row’s verification status. |
-| Verification | A pharmacist or doctor records identity, current-use status, actual regimen and supporting evidence. For a confirmed catalogue match, keep the TPU code as a string and the release version. Product strength and dispensing unit describe the reference product. The patient's regimen comes from case evidence. Carry a verified stopped medicine in the history with its status. Exclude it from the active list. |
+| Verification | An assigned nurse, doctor or pharmacist records identity, current-use status, actual regimen and supporting evidence. For a confirmed catalogue match, keep the TPU code as a string and the release version. Product strength and dispensing unit describe the reference product. The patient's regimen comes from case evidence. Carry a verified stopped medicine in the history with its status. Exclude it from the active list. |
 | Mock import | One final pharmacist action approves the selected row revisions and initiates mock import. Successful import returns row IDs and a UTC timestamp. Pending rows stay visible. Only the successful import timestamp enters local history. |
 
 **Implementation status.** The backend parses supported Thai and English transcriptions into fixed regimen components. Unrecognized directions retain their original wording for review. The synthetic review workspace exercises editing, verification, one final pharmacist action and readback from the in-memory mock hospital. The label transcription service uses the same parser to prefill the scanned row from its validated directions. The integrated upload workspace and production connectivity remain open. Legacy imports with sourced dose, route and frequency remain readable. The local TMT lookup uses release TMTRF20200217. [Regimen schema](../../backend/app/schemas/regimen.py) · [Run the review demo](reconciliation-contract.md#try-the-regimen-round-trip) · [Catalogue scope](../data/tmt-2020.md)
@@ -144,7 +154,7 @@ The reviewer can request either a drug–drug interaction (DDI) summary or a dru
 | FastAPI OpenAI adapter | Sends synthetic fixture photos and case evidence for label transcription, appearance description, and medication form analysis. Validates model responses against the shared contract. Keep credentials server-side and use stateless requests with response storage disabled where supported. Review provider data controls before any real-data integration. [OpenAI API data controls](https://developers.openai.com/api/docs/guides/your-data) |
 | Candidate search | Rank a small bundled catalog of fictional reference images using image similarity and observed imprint, shape, form, and color. Use known crops or manual selection for the demo. Return multiple plausible results or an unresolved state. |
 | Import service and mock hospital DB | Validates approved rows and evidence server-side and writes the accepted snapshot to a fixture-only mock receiving system. Retries of the same approved import return the original timestamp without duplicate writes. A failed write leaves the draft available for retry and creates no local history entry. |
-| Browser history | Store only successful UTC timestamps. Keep case UUIDs, filenames, source names, contacts, medication fields, images, and analysis inputs and results out of persistent browser storage, caches, analytics, and app logs. The mock hospital DB is the only demo store for reviewed medication records. |
+| Browser history | Store only successful UTC timestamps. Keep case UUIDs, filenames, source names, contacts, medication fields, images, and analysis inputs and results out of persistent browser storage, caches, analytics, and app logs. Assigned staff can reopen admission review records on the mock server. The mock hospital stores only selected imports. |
 
 ## Demo scope
 
@@ -162,7 +172,7 @@ Roadmap issues: [#18](https://github.com/pakornds/Medication-Reader/issues/18), 
 
 ## Hackathon judging and demo acceptance
 
-Use the working prototype to show how a pharmacist or doctor prepares and verifies a transfer medication list from incomplete evidence. Within the 12-hour demo budget, prioritize the two-photo workflow, medication agent analysis form, and printable handoff. Show the optional DDI/DRP example after the core workflow.
+Use the working prototype to show how an assigned nurse, doctor or pharmacist prepares and verifies a transfer medication list from incomplete evidence. Within the 12-hour demo budget, prioritize the two-photo workflow, medication agent analysis form, and printable handoff. Show the optional DDI/DRP example after the core workflow.
 
 | Judging criterion | Evidence to show |
 | --- | --- |

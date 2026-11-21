@@ -9,6 +9,7 @@ from fastapi import FastAPI, HTTPException, Security
 from fastapi.security import APIKeyHeader
 
 from app.ai.client import OpenAIClient
+from app.api.admissions import register_admissions
 from app.api.checks import router as checks_router
 from app.api.imports import create_import_router
 from app.api.labels import create_labels_router
@@ -28,10 +29,17 @@ DEMO_REVIEWER_HEADER = APIKeyHeader(
 def resolve_demo_reviewer(
     token: Annotated[str | None, Security(DEMO_REVIEWER_HEADER)],
 ) -> ReviewerIdentity:
-    expected = os.environ.get("MEDICATION_READER_DEMO_REVIEWER_TOKEN")
-    if not expected or not token or not compare_digest(token.encode(), expected.encode()):
-        raise HTTPException(status_code=403, detail="A configured demo reviewer token is required.")
-    return ReviewerIdentity(id="demo-pharmacist", name="Demo pharmacist", role="pharmacist")
+    credentials = {
+        "nurse": os.environ.get("MEDICATION_READER_DEMO_NURSE_TOKEN"),
+        "doctor": os.environ.get("MEDICATION_READER_DEMO_DOCTOR_TOKEN"),
+        "pharmacist": os.environ.get("MEDICATION_READER_DEMO_REVIEWER_TOKEN"),
+    }
+    roles = [role for role, expected in credentials.items() if token and expected
+             and compare_digest(token.encode(), expected.encode())]
+    if len(roles) != 1:
+        raise HTTPException(status_code=403, detail="A unique configured demo reviewer token is required.")
+    role = roles[0]
+    return ReviewerIdentity(id=f"demo-{role}", name=f"Demo {role}", role=role)
 
 
 def register_feature_routes(
@@ -41,10 +49,11 @@ def register_feature_routes(
     get_provider: Callable[[], OpenAIClient],
     resolve_reviewer: Callable[..., ReviewerIdentity],
 ) -> None:
+    register_admissions(app, hospital, resolve_reviewer)
     app.include_router(create_labels_router(get_provider))
     app.include_router(create_pills_router(get_provider))
     app.include_router(pill_candidates_router)
     app.include_router(create_medication_analysis_router(get_provider))
     app.include_router(checks_router)
     app.include_router(regimens_router)
-    app.include_router(create_import_router(ApprovalLedger(), hospital, resolve_reviewer))
+    app.include_router(create_import_router(ApprovalLedger(), hospital, resolve_reviewer, app.state.admissions.can_read))

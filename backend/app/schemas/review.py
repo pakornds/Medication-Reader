@@ -13,7 +13,7 @@ Revision = Annotated[int, Field(ge=1)]
 class ReviewerIdentity(ContractModel):
     id: Text
     name: Text
-    role: Literal["pharmacist", "doctor", "staff"]
+    role: Literal["pharmacist", "doctor", "nurse", "staff"]
 
 
 class CurrentUseVerification(ContractModel):

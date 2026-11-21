@@ -1,4 +1,4 @@
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import AwareDatetime
@@ -12,37 +12,12 @@ from app.schemas.review import (
     ReviewRow,
 )
 from app.services.hospital import HospitalError, HospitalRecord, MockHospital
-from app.services.import_eligibility import ApprovalLedger, EligibilityError
+from app.services.import_eligibility import ApprovalLedger, EligibilityError, selected_evidence
 
 
 class ApprovalRequest(ContractModel):
     evidence: CaseEvidence
     row: ReviewRow
-
-
-def _selected_evidence(evidence: CaseEvidence, rows: Sequence[ReviewRow]) -> CaseEvidence:
-    row_ids = {row.id for row in rows}
-    source_ids = {reference.source_id for row in rows for reference in row.sources}
-    for row in rows:
-        verification = row.verification
-        if verification is not None:
-            source_ids.update(reference.source_id for reference in verification.evidence)
-            if verification.identity is not None:
-                source_ids.add(verification.identity.evidence.source_id)
-            source_ids.update(ref.source_id for ref in verification.regimen_references())
-        source_ids.update(
-            follow_up.potential_source_id
-            for follow_up in row.follow_ups
-            if follow_up.potential_source_id is not None
-        )
-    return CaseEvidence(
-        case_id=evidence.case_id,
-        sources=[source for source in evidence.sources if source.id in source_ids],
-        items=[
-            item for item in evidence.items
-            if item.row_id in row_ids and item.source_id in source_ids
-        ],
-    )
 
 
 def _eligibility_response(error: EligibilityError) -> HTTPException:
@@ -59,6 +34,7 @@ def create_import_router(
     ledger: ApprovalLedger,
     hospital: MockHospital,
     resolve_reviewer: Callable[..., ReviewerIdentity],
+    can_read_admission: Callable[[ReviewerIdentity, str], bool] = lambda actor, case_id: False,
 ) -> APIRouter:
     """Bind approval and import to the application's server-side reviewer dependency."""
     router = APIRouter(prefix="/imports", tags=["mock hospital import"])
@@ -67,6 +43,8 @@ def create_import_router(
     def approve(
         request: ApprovalRequest, reviewer: ReviewerIdentity = Depends(resolve_reviewer)
     ) -> PharmacistApproval:
+        if request.evidence.case_id.startswith("admission-"):
+            raise HTTPException(403, "Approve admission rows in their assigned encounter.")
         try:
             return ledger.approve(reviewer, request.row, request.evidence)
         except EligibilityError as exc:
@@ -76,10 +54,12 @@ def create_import_router(
     def import_approved(
         request: ImportRequest, reviewer: ReviewerIdentity = Depends(resolve_reviewer)
     ) -> ImportReceipt:
+        if request.evidence.case_id.startswith("admission-"):
+            raise HTTPException(403, "Import admission rows through the assigned encounter.")
         try:
             rows = ledger.eligible_rows(reviewer, request)
             return hospital.write(
-                evidence=_selected_evidence(request.evidence, rows),
+                evidence=selected_evidence(request.evidence, rows),
                 rows=rows,
                 retry_token=request.retry_token,
             )
@@ -93,7 +73,11 @@ def create_import_router(
         imported_at: AwareDatetime, _reviewer: ReviewerIdentity = Depends(resolve_reviewer)
     ) -> list[HospitalRecord]:
         try:
-            return hospital.lookup(imported_at)
+            if _reviewer.role != "pharmacist":
+                raise HTTPException(403, "Pharmacist required.")
+            return [record for record in hospital.lookup(imported_at)
+                    if not record.snapshot.evidence.case_id.startswith("admission-")
+                    or can_read_admission(_reviewer, record.snapshot.evidence.case_id)]
         except HospitalError as exc:
             raise _hospital_response(exc) from None
 
