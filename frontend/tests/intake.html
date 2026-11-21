@@ -25,6 +25,17 @@
     await expect(() => button(label) && !button(label).disabled, 'enabled button: '+label)
     button(label).click()
   }
+  async function openMarking(slot) {
+    const panel = () => doc().querySelector('section[aria-label="'+slot+'"] .photo-marking')
+    await expect(panel,'photo marking controls: '+slot)
+    panel().open = true
+    await expect(() => panel().querySelector('.region-coordinates'), 'expanded photo controls')
+    return panel()
+  }
+  async function markSingle(slot) {
+    const panel = await openMarking(slot)
+    ;[...panel.querySelectorAll('button')].find(b => b.textContent.trim()==='One package fills this entire photo').click()
+  }
   function type(control,value) {
     assert(control,'missing input')
     Object.getOwnPropertyDescriptor(Object.getPrototypeOf(control),'value').set.call(control,value)
@@ -60,6 +71,69 @@
     }
     return canvas.toDataURL('image/png').split(',')[1]
   }
+  async function wholeTableCase() {
+    localStorage.setItem('medrec.language','en')
+    const loaded = new Promise(resolve => frame.addEventListener('load',resolve,{once:true}))
+    frame.src = '/new-patient/input'
+    await loaded
+    await expect(() => button('Analyze evidence'), 'fresh whole-table case')
+    photo('Label side','two-packages.png',packageLabelPhoto('Synthetic left','Synthetic right'))
+    const slot = () => doc().querySelector('section[aria-label="Label side"]')
+    await expect(() => !button('Analyze evidence').disabled && slot().querySelector('img'), 'whole table ready without marking')
+    assert(!slot().querySelector('.photo-marking').open, 'manual controls are optional')
+    const ids = [crypto.randomUUID(),crypto.randomUUID()]
+    const names = ['Synthetic left','Synthetic right']
+    let call = 0
+    win().fetch = async (_url, init) => {
+      const form = JSON.parse(init.body.get('form')), [attachment] = form.photo_source_ids
+      assert(init.body.getAll('photos').length===1, 'one original for both packages')
+      const boxes = ids.map((id,i)=>({attachment_id:attachment,source_id:id,item_id:id,row_id:id,
+        bounds:{x:i*.5,y:0,width:.5,height:1}}))
+      if (!call++) {
+        assert(form.scene_photo_ids.length===1 && form.scene_photo_ids[0]===attachment, 'unmarked original requested as a scene')
+        assert(!form.evidence.items.length, 'no implicit single medicine for whole photo')
+      } else {
+        assert(!form.scene_photo_ids.length && form.evidence.items.length===2, 'retry reuses both located items')
+        assert(form.region_locations[ids[1]][ids[1]]==='50%,0%,50%,100%', 'retry crops use canonical backend percentages')
+      }
+      return Response.json({case_id:form.evidence.case_id,located_regions:boxes,rows:ids.map((id,i)=>{
+        const ref={source_id:id,item_id:id}
+        return {id,sources:[ref],identity_status:'named',observed_names:[{value:names[i],evidence:ref}]}
+      })})
+    }
+    await click('Analyze evidence')
+    await expect(()=>doc().querySelectorAll('.suggestion').length===2 && slot().querySelectorAll('.region-box').length===2, 'two review rows and two original locations')
+    await click('Analyze evidence')
+    await expect(()=>doc().querySelectorAll('.suggestion').length===2 && call===2, 'both crops retained on retry')
+    const right=doc().querySelectorAll('.suggestion')[1]
+    right.querySelector('.citation summary').click()
+    await expect(()=>right.querySelector('canvas[data-region="'+ids[1]+'"]'), 'second package opens its own crop')
+    doc().querySelectorAll('.suggestion .pick-row input').forEach(input=>input.click())
+    await click('Add selected to draft')
+    await expect(()=>doc().querySelectorAll('aside .draft-line').length===2, 'two separate medicines from one original')
+    photo('Reverse side','reverse.png',packageLabelPhoto('Synthetic left back','Synthetic right back'))
+    const reverse = () => doc().querySelector('section[aria-label="Reverse side"]')
+    await expect(()=>reverse().querySelector('img'), 'reverse image ready')
+    let retry
+    win().fetch = async (_url,init) => {
+      const form=JSON.parse(init.body.get('form'))
+      retry=form
+      const reverseId=form.scene_photo_ids[0]
+      return Response.json({case_id:form.evidence.case_id,rows:[],located_regions:!reverseId?[]:
+        ids.map((_,i)=>{const id=crypto.randomUUID();return {attachment_id:reverseId,source_id:id,item_id:id,row_id:id,bounds:{x:i*.5,y:0,width:.5,height:1}}})})
+    }
+    await click('Analyze evidence')
+    await expect(()=>reverse().querySelectorAll('.region-box').length===2,'reverse packages located')
+    await click('Analyze evidence')
+    await expect(()=>retry.photo_source_ids.length===1,'unpaired reverse crops cannot become extra medicines on retry')
+    const controls=await openMarking('Reverse side')
+    const matching=controls.querySelector('.region-editor select')
+    matching.value=ids[1]
+    matching.dispatchEvent(new Event('change',{bubbles:true}))
+    await click('Analyze evidence')
+    await expect(()=>retry.evidence.items.filter(i=>i.kind==='pill_crop').length===1,'only the manually paired reverse is submitted')
+    assert(retry.evidence.items.find(i=>i.kind==='pill_crop').row_id===ids[1],'reverse attributed to selected front medicine')
+  }
   async function scanPrefillCase() {
     localStorage.setItem('medrec.language','en')
     frame.width = '1100'
@@ -89,7 +163,7 @@
       await expect(() => !row.isConnected, 'confirmed suggestion removed from preview')
     }
     async function markRegion(bounds, clinic, count) {
-      const controls = labelSlot().querySelector('details')
+      const controls = (await openMarking('Label side')).querySelector('details')
       controls.open = true
       for (const [index, label] of ['Left','Top','Width','Height'].entries()) {
         type(field(label, controls), String(bounds[index]))
@@ -176,7 +250,7 @@
     await markRegion([55,0,45,100], 'Demo South Facility', 2)
     photo('Reverse side','separate-appearance.png')
     await expect(() => doc().querySelector('section[aria-label="Reverse side"] .region-image'), 'reverse side ready')
-    ;[...doc().querySelectorAll('section[aria-label="Reverse side"] button')].find(b => b.textContent.trim()==='Use whole image').click()
+    await markSingle('Reverse side')
     await click('Analyze evidence')
     await expect(() => picks().length===3, 'two regional observations and one unmatched appearance')
 
@@ -243,7 +317,7 @@
     await click('Analyze evidence')
     await expect(() => completeOldScan, 'analysis still in flight when retaking the photo')
     photo('Label side','retaken-labels.png',packageLabelPhoto('','Retake reading 9 mg'))
-    await expect(() => button('Analyze evidence')?.disabled && !picks().length, 'retake invalidates outstanding analysis and suggestions')
+    await expect(() => !button('Analyze evidence')?.disabled && !picks().length, 'retake clears suggestions and enables whole-photo analysis')
     assert(oldSignal.aborted, 'retake aborts the obsolete analysis request')
     completeOldScan()
     await new Promise(resolve => setTimeout(resolve,50))
@@ -258,6 +332,9 @@
     review()
     await expect(() => reviewSources('Demo South Facility Retake'), 'linked retake visible in Review')
     const linkedOrder = reviewSources('Demo South Facility Retake')
+    const oldManual = reviewSources('Synthetic manual 5 mg order')
+    assert(oldManual && !oldManual.querySelector('.selected-trade-product') && oldManual.textContent.includes('Demo North Facility'),
+      'retaking the original photo clears its active catalogue selection while preserving manual and earlier scan evidence')
     assert(linkedOrder.textContent.includes('neighboring-labels.png') && linkedOrder.textContent.includes('retaken-labels.png'), 'both original and retaken source remain attributable')
     assert(linkedOrder.textContent.includes(facilityPhones['Demo South Facility']) && linkedOrder.textContent.includes(facilityPhones['Demo South Facility Retake']) && !linkedOrder.textContent.includes(facilityPhones['Demo North Facility']), 'retake preserves both attributed dispensing phones without borrowing the neighboring number')
     assert(linkedOrder.querySelector('h2').textContent==='Demo order' && linkedOrder.textContent.includes('Demo retake reading'), 'retaken identity is preserved as an observation without overwriting the order')
@@ -373,19 +450,19 @@
     assert(field('Patient or caregiver report').value.includes('ตอนเช้า'),'failure preserved text')
 
     photo('Label side','front.png')
-    await click('Use whole image')
+    await markSingle('Label side')
     photo('Reverse side','back.png')
     await expect(() => doc().querySelectorAll('.region-image img').length===2,'separate uploads')
     const reverse = () => doc().querySelector('section[aria-label="Reverse side"]')
-    ;[...reverse().querySelectorAll('button')].find(b => b.textContent==='Use whole image').click()
+    await markSingle('Reverse side')
     await expect(() => reverse().querySelector('select option:nth-child(2)'), 'front item available to match')
     const linked = reverse().querySelector('select')
     linked.selectedIndex=1
     linked.dispatchEvent(new Event('change',{bubbles:true}))
     photo('Label side','front-new.png')
     await expect(() => reverse().querySelector('select').selectedIndex===0 && reverse().querySelectorAll('select option').length===1,'retake invalidated reverse pairing')
-    assert(button('Analyze evidence').disabled,'new front needs its own region')
-    await click('Use whole image')
+    assert(!button('Analyze evidence').disabled,'new front can be analyzed without regions')
+    await markSingle('Label side')
 
     await click('Enter medicine manually')
     assert(!button('Analyze evidence'), 'manual mode only shows its own main action')
@@ -493,6 +570,7 @@
     await reloaded
     await expect(() => doc()?.querySelector('.empty-case'),'reload clears the open case')
     await scanPrefillCase()
+    await wholeTableCase()
     await checkUnspecifiedPresentation({ frame, doc, win, photo, packageLabelPhoto, click, expect, assert, type,
       live: new URLSearchParams(location.search).has('liveCatalogue') })
     result.textContent='PASS'

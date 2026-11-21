@@ -84,19 +84,23 @@ export async function checkScanCatalogue({ frame, manualOrder, scannedOrder, exp
 
 // Add ?liveCatalogue to /tests/intake.html to exercise the installed local catalogue.
 // Only extraction is simulated in that mode, to keep the original label deliberately incomplete.
-export async function checkUnspecifiedPresentation({ frame, doc, win, photo, packageLabelPhoto, click, expect, assert, live }) {
+export async function checkUnspecifiedPresentation({ frame, doc, win, photo, packageLabelPhoto, click, expect, assert, type, live }) {
   const loaded = new Promise(resolve => frame.addEventListener('load', resolve, { once: true }))
   frame.src = '/new-patient/input'
   await loaded
   await expect(() => doc().querySelector('section[aria-label="Label side"]'), 'fresh photo intake')
   const originalFetch = win().fetch.bind(win())
+  const regionId = crypto.randomUUID()
   win().fetch = async (url, init) => {
     if (String(url).endsWith('/medication-analysis')) {
       const form = JSON.parse(init.body.get('form'))
-      const [item] = form.evidence.items
-      const ref = { source_id: item.source_id, item_id: item.id }
-      return Response.json({ case_id: form.evidence.case_id, unassigned_reports: [], rows: [{
-        id: item.row_id, identity_status: 'named', observed_names: [{ value: 'AMLOC', evidence: ref }],
+      const ref = { source_id: regionId, item_id: regionId }
+      const located_regions = form.scene_photo_ids.length ? [{
+        attachment_id: form.scene_photo_ids[0], ...ref, row_id: regionId,
+        bounds: { x: 0, y: 0, width: 0.5, height: 1 },
+      }] : []
+      return Response.json({ case_id: form.evidence.case_id, located_regions, unassigned_reports: [], rows: [{
+        id: regionId, identity_status: 'named', observed_names: [{ value: 'AMLOC', evidence: ref }],
         label_fields: { strength: { status: 'unreadable', evidence: ref }, form: { status: 'missing' } },
         sources: [ref], reported_use: [], discrepancies: [], follow_ups: [],
       }] })
@@ -110,10 +114,6 @@ export async function checkUnspecifiedPresentation({ frame, doc, win, photo, pac
     return originalFetch(url, init)
   }
   photo('Label side', 'synthetic-AMLOC.png', packageLabelPhoto('AMLOC'))
-  const region = () => doc().querySelector('section[aria-label="Label side"] details')
-  await expect(region, 'region editor')
-  region().open = true
-  await click('Save region')
   await click('Analyze evidence')
   await expect(() => doc().querySelector('.pick-row input'), 'analysis returns named scan')
   doc().querySelector('.pick-row input').click()

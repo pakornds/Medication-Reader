@@ -24,6 +24,7 @@ from app.schemas.analysis import (
 from app.schemas.evidence import CaseEvidence, ContractModel, EvidenceItem, EvidenceRef, EvidenceSource, Observation, SourceKind, Text
 from app.schemas.regimen import RegimenParseRequest
 from app.services.regimens import parse_directions
+from app.services.located_label import read_located_label
 
 
 class LabelPhotoRequest(ContractModel):
@@ -91,12 +92,20 @@ def read_label(
     manifest["region_locations"] = {item.id: location} if item and location else {}
     if location:
         manifest["image_view"] = "The supplied image is already cropped to this region."
-    result = provider.generate(
-        instructions=LABEL_EXTRACTION.instructions,
-        evidence_text=json.dumps(manifest, ensure_ascii=False),
-        output_type=LabelAnalysisResult if extract_facility else AnalysisResult,
-        images=[image],
-    )
+    try:
+        result = provider.generate(
+            instructions=LABEL_EXTRACTION.instructions,
+            evidence_text=json.dumps(manifest, ensure_ascii=False),
+            output_type=LabelAnalysisResult if extract_facility else AnalysisResult,
+            images=[image],
+        )
+    except ProviderError as exc:
+        if exc.detail.code != "provider_invalid_output" or not item or not item.supports_label(source.kind):
+            raise
+        # Older clients request full row proposals. Retry a malformed response with the located-facts
+        # contract so the server alone assigns evidence references and clinical regimen fields.
+        row = read_located_label(case_id, source, item, image, provider, repair=False)
+        result = LabelAnalysisResult(case_id=case_id, rows=[row])
     for row in result.rows:
         # A label transcription has no staff question to refer.
         row.follow_ups = [follow_up for follow_up in row.follow_ups if follow_up.field != "treatment_referral"]
