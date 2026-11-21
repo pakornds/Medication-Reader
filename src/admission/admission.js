@@ -310,6 +310,7 @@ function evidenceForm(row, retake) {
         : "") +
       area("Original wording or observation", "wording", "", true) +
       field("Documented medicine name", "name") +
+      '<div id="scan-names"></div>' +
       field("Documented strength", "strength") +
       field("Dosage form", "form") +
       field("Printed dose", "dose") +
@@ -399,6 +400,11 @@ function evidenceForm(row, retake) {
     form.elements.pairing.closest("label").style.display = form.elements.kind.value === "label_photo" ? "none" : "";
   };
   scanDraft = { source: sourceId, fields: {}, filled: {}, revision: 0 };
+  form.elements.name.oninput = () => {
+    delete scanDraft.filled.name;
+    const choice = form.elements.namedItem("scan_name");
+    if (choice) choice.value = "";
+  };
   const resetScan = () => {
     const draft = scanDraft;
     draft.revision++;
@@ -409,6 +415,7 @@ function evidenceForm(row, retake) {
     }
     draft.filled = {};
     draft.fields = {};
+    $("scan-names").replaceChildren();
   };
   for (const key of [
     "image",
@@ -483,32 +490,51 @@ async function scan() {
     cache: "no-store",
   });
   const body = await resp.json();
-  if (!resp.ok)
-    throw new Error(
-      body.detail?.message || "Read the label manually or retry.",
-    );
   if (
     !form.closest("dialog").open ||
     scanDraft !== draft ||
     draft.revision !== revision
   )
     return;
+  if (!resp.ok)
+    throw new Error(
+      body.detail?.message || "Read the label manually or retry.",
+    );
   const row = body.rows.find((r) => r.id === rid);
   if (!row) throw new Error("No supported transcription for this region.");
+  $("formerror").textContent = "";
   draft.fields = row.label_fields;
-  const values = { name: row.observed_names.map((n) => n.value).join(" / ") };
+  const names = [...new Set(
+    row.observed_names
+      .filter(({ evidence }) => evidence.source_id === source && evidence.item_id === region)
+      .map(({ value }) => value),
+  )];
+  const previousSelection = form.elements.namedItem("scan_name")?.value;
+  const selectedName = names.includes(previousSelection) ? previousSelection : "";
+  $("scan-names").innerHTML = names.length > 1
+    ? select("Name observed in this region", "scan_name", [
+        ["", "Choose a name or leave it unresolved"],
+        ...names.map((name) => [name, name]),
+      ], selectedName)
+    : "";
+  const choice = form.elements.namedItem("scan_name");
+  if (choice) {
+    choice.onchange = () => {
+      form.elements.name.value = choice.value;
+      draft.filled.name = choice.value;
+    };
+  }
+  const values = { name: names.length === 1 ? names[0] : selectedName };
   for (const key of ["strength", "form", "dose", "directions", "indication"])
     values[key] = row.label_fields[key]?.value;
   values.wording = [
     ...new Set(
       [
-        ...row.observed_names.map((n) => n.value),
+        ...names,
         ...Object.values(row.label_fields).map((f) => f.value),
       ].filter(Boolean),
     ),
   ].join("\n");
-  if (values.name && !values.wording.includes(values.name))
-    values.wording += "\n" + values.name;
   values.directions_status = row.label_fields.directions?.status === "unreadable" ? "unreadable" : "missing";
   for (const [key, value] of Object.entries(values)) {
     const input = form.elements.namedItem(key);
@@ -722,7 +748,7 @@ function render() {
               ? " · Replaced on retake"
               : "") +
             "<br>" +
-            esc(e.wording) +
+            esc(e.wording).replaceAll("\n", "<br>") +
             "<br><small>Source " +
             esc(sourceName(e.source.id)) +
             "</small>" +

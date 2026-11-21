@@ -10,7 +10,7 @@
   const win = () => frame.contentWindow
   const visible = el => el.getClientRects().length > 0
   const button = label => [...doc().querySelectorAll('button')].find(b => visible(b) && b.textContent.trim() === label)
-  const field = text => [...doc().querySelectorAll('label')].find(l => visible(l) && l.firstChild.textContent.trim() === text)
+  const field = (text, scope = doc()) => [...scope.querySelectorAll('label')].find(l => visible(l) && l.firstChild.textContent.trim() === text)
     ?.control
   function assert(condition, description) { if (!condition) throw new Error(description) }
   async function expect(check, description) {
@@ -29,14 +29,230 @@
     Object.getOwnPropertyDescriptor(Object.getPrototypeOf(control),'value').set.call(control,value)
     control.dispatchEvent(new Event('input',{bubbles:true}))
   }
-  function photo(slot,name) {
+  function photo(slot,name,contents) {
     const input = doc().querySelector('section[aria-label="'+slot+'"] input[type=file]')
     const transfer = new DataTransfer()
     // Each upload contains only a small synthetic PNG.
-    const png = atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5OMAAAAASUVORK5CYII=')
+    const png = atob(contents || 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5OMAAAAASUVORK5CYII=')
     transfer.items.add(new File([Uint8Array.from(png,c=>c.charCodeAt(0))],name,{type:'image/png'}))
     input.files = transfer.files
     input.dispatchEvent(new Event('change',{bubbles:true}))
+  }
+  function packageLabelPhoto(leftText, rightText) {
+    const canvas = document.createElement('canvas')
+    canvas.width = 600
+    canvas.height = 230
+    const graphics = canvas.getContext('2d')
+    graphics.fillStyle = '#dce6ee'
+    graphics.fillRect(0, 0, 600, 230)
+    for (const [left, text] of [[20,leftText],[350,rightText]]) {
+      if (!text) continue
+      graphics.fillStyle = '#ffffff'
+      graphics.fillRect(left, 35, 230, 160)
+      graphics.fillStyle = '#193b5a'
+      graphics.font = '16px sans-serif'
+      graphics.fillText('SYNTHETIC LABEL', left+15, 75)
+      graphics.font = 'bold 22px sans-serif'
+      graphics.fillText(text, left+15, 116)
+      graphics.font = '16px sans-serif'
+      graphics.fillText('1 tablet each morning', left+15, 153)
+    }
+    return canvas.toDataURL('image/png').split(',')[1]
+  }
+  async function scanPrefillCase() {
+    localStorage.setItem('medrec.language','en')
+    frame.width = '1100'
+    const loaded = new Promise(resolve => frame.addEventListener('load',resolve,{once:true}))
+    frame.src = '/new-patient/input'
+    await loaded
+    await expect(() => button('Analyze evidence'), 'fresh scan prefill case')
+
+    const labelSlot = () => doc().querySelector('section[aria-label="Label side"]')
+    const draftRows = () => [...doc().querySelectorAll('.draft-line')]
+    const picks = () => [...doc().querySelectorAll('.pick-row')]
+    const suggestion = text => picks().map(pick => pick.closest('.suggestion')).find(row => (
+      row.querySelector('.pick-row').textContent.includes(text) || row.querySelector('.row-evidence').textContent.includes(text)
+    ))
+    function selectOrder(row, text) {
+      const select = row.querySelector('select')
+      const choice = [...select.options].find(option => option.textContent.includes(text))
+      assert(choice, 'available draft order: '+text)
+      select.value = choice.value
+      select.dispatchEvent(new Event('change',{bubbles:true}))
+    }
+    async function accept(row, existingStrength) {
+      assert(row, 'visible scan suggestion')
+      if (existingStrength) selectOrder(row, existingStrength)
+      row.querySelector('.pick-row input').click()
+      await click('Add selected to draft')
+      await expect(() => !row.isConnected, 'confirmed suggestion removed from preview')
+    }
+    async function markRegion(bounds, clinic, count) {
+      const controls = labelSlot().querySelector('details')
+      controls.open = true
+      for (const [index, label] of ['Left','Top','Width','Height'].entries()) {
+        type(field(label, controls), String(bounds[index]))
+      }
+      await click('Save region')
+      await expect(() => labelSlot().querySelectorAll('.region-editor').length===count, 'new item bounds saved')
+      type(field('Facility on this item (if known)', labelSlot().querySelectorAll('.region-editor')[count-1]), clinic)
+    }
+    async function showCitation(row, description, facility) {
+      const value = [...row.querySelectorAll('.row-evidence > div')].find(el => el.firstElementChild?.textContent==='Strength' && el.textContent.includes(description))
+      const citation = value?.querySelector('details')
+      assert(citation, 'strength has a dedicated citation: '+description)
+      citation.querySelector('summary').click()
+      const image = () => citation.querySelector('.region-image canvas[data-region]')
+      await expect(() => citation.open && image()?.width===270 && image()?.height===230, 'citation displays its cropped region: '+description)
+      assert(citation.querySelector('small')?.textContent.includes(facility), 'crop belongs to '+facility)
+      return image().dataset.region
+    }
+
+    let scanCount = 0
+    let deferScan = false
+    let completeOldScan
+    let oldSignal
+    const facilityPhones = {
+      'Demo North Facility':'000-000-0505',
+      'Demo South Facility':'000-000-1010',
+      'Demo South Facility Retake':'000-000-0909',
+    }
+    win().fetch = async (url, options) => {
+      if (String(url).includes('/checks/local/products')) return Response.json({tmt_release:'demo',products:[]})
+      assert(String(url).endsWith('/medication-analysis'), 'scan prefill uses analysis endpoint')
+      const form = JSON.parse(options.body.get('form'))
+      const request = ++scanCount
+      const dispensingFacilities = {}
+      const rows = form.evidence.items.map(item => {
+        const ref = {source_id:item.source_id,item_id:item.id}
+        const isAppearance = item.kind === 'pill_crop'
+        const facility = form.evidence.sources.find(source => source.id===item.source_id)?.organization ?? ''
+        if (facilityPhones[facility]) {
+          dispensingFacilities[item.row_id] = {evidence:ref,organization:facility,organization_phone:facilityPhones[facility]}
+        }
+        const strength = facility.includes('North') ? '5 mg' : request === 1 ? '10 mg' : '9 mg'
+        const directions = {
+          directions_text:'1 tablet each morning',dose_amount:1,dose_unit:'tablet',
+          schedule_type:'frequency',frequency_count:1,period_value:1,period_unit:'day',time_of_day:['morning'],
+        }
+        return {
+          id:item.row_id,
+          identity_status:isAppearance?'unlabeled':'named',
+          unknown_label:isAppearance?'Unmatched appearance':null,
+          observed_names:isAppearance?[]:[{value:facility.includes('Retake')?'Demo retake reading':'Demo order',evidence:ref}],
+          label_fields:isAppearance?{}:{
+            strength:{value:strength,status:'readable',evidence:ref},
+            directions:{value:directions.directions_text,status:'readable',evidence:ref},
+          },
+          regimens:isAppearance?[]:[{
+            component_id:item.id+'-regimen',basis:'documented',parse_status:'complete',
+            ...directions,route:null,meal_relation:null,
+            evidence:Object.fromEntries(Object.keys(directions).map(key => [key,ref])),
+          }],
+          sources:[ref],reported_use:[],discrepancies:[],follow_ups:[],reverse_crop:isAppearance?ref:null,
+        }
+      })
+      const response = () => Response.json({case_id:form.evidence.case_id,rows,unassigned_reports:[],dispensing_facilities:dispensingFacilities})
+      if (deferScan) return new Promise(resolve => {
+        oldSignal = options.signal
+        completeOldScan = () => resolve(response())
+      })
+      return response()
+    }
+
+    await click('Enter medicine manually')
+    type(field('Product name or code'), 'Demo order')
+    type(field('Strength'), '5 mg')
+    type(field('Form'), 'Tablet')
+    type(field('Source wording or reference'),'Synthetic manual 5 mg order')
+    await click('Add to draft')
+    await expect(() => draftRows().length===1 && draftRows()[0].textContent.includes('5 mg'), '5 mg manual order')
+
+    await click('Read photos or notes')
+    photo('Label side','neighboring-labels.png',packageLabelPhoto('Demo order 5 mg','Demo order 10 mg'))
+    await expect(() => labelSlot().querySelector('details'), 'photo region controls')
+    await markRegion([0,0,45,100], 'Demo North Facility', 1)
+    await markRegion([55,0,45,100], 'Demo South Facility', 2)
+    photo('Reverse side','separate-appearance.png')
+    await expect(() => doc().querySelector('section[aria-label="Reverse side"] .region-image'), 'reverse side ready')
+    ;[...doc().querySelectorAll('section[aria-label="Reverse side"] button')].find(b => b.textContent.trim()==='Use whole image').click()
+    await click('Analyze evidence')
+    await expect(() => picks().length===3, 'two regional observations and one unmatched appearance')
+
+    const northSuggestion = suggestion('5 mg')
+    const southSuggestion = suggestion('10 mg')
+    const north = await showCitation(northSuggestion, '5 mg', 'Demo North Facility')
+    const south = await showCitation(southSuggestion, '10 mg', 'Demo South Facility')
+    assert(north!==south, 'neighboring fields open different crops on the shared attachment')
+    assert(northSuggestion.textContent.includes(facilityPhones['Demo North Facility']) && !northSuggestion.textContent.includes(facilityPhones['Demo South Facility']), 'only the 5 mg dispensing phone is shown for the north label')
+    assert(southSuggestion.textContent.includes(facilityPhones['Demo South Facility']) && !southSuggestion.textContent.includes(facilityPhones['Demo North Facility']), 'only the 10 mg dispensing phone is shown for the south label')
+    const directions = southSuggestion.textContent
+    const directionFields = [...southSuggestion.querySelectorAll('dt')]
+    assert(directions.includes('Structured directions') && directions.includes('1 tablet each morning'), 'verbatim wording and structured directions are visible')
+    for (const [label,value] of [['Dose amount','1'], ['Dose unit','tablet'], ['Frequency count','1'], ['Period length','1'], ['Period unit','day'], ['Time of day','morning']]) {
+      const fieldValue = directionFields.find(term => term.textContent===label)?.nextElementSibling
+      assert(fieldValue?.firstChild?.textContent.trim()===value && fieldValue.querySelector('details'), 'directions retain the sourced '+label.toLowerCase())
+    }
+    assert(!directionFields.some(term => ['Route','Relation to meals'].includes(term.textContent)), 'route and meals remain unspecified')
+    const appearance = suggestion('Unmatched appearance')
+    ;[...appearance.querySelectorAll('button')].find(b => b.textContent.trim()==='Dismiss suggestion').click()
+    await expect(() => !appearance.isConnected && picks().length===2 && draftRows().length===1, 'dismissal preserves the other suggestions and existing order')
+    await accept(suggestion('5 mg'), '5 mg')
+    assert(draftRows().length===1, 'explicit attachment does not duplicate the manual order')
+    await accept(suggestion('10 mg'))
+    await expect(() => draftRows().length===2, '10 mg remains a separate order')
+
+    const review = () => doc().querySelector('a[href="/new-patient/review"]').click()
+    const input = () => doc().querySelector('a[href="/new-patient/input"]').click()
+    const reviewRows = () => [...doc().querySelectorAll('article')]
+    const reviewSources = text => reviewRows().find(row => row.textContent.includes(text))
+    review()
+    await expect(() => reviewRows().length===2, 'review the two distinct orders')
+    const manualOrder = reviewSources('Synthetic manual 5 mg order')
+    assert(manualOrder?.textContent.includes('Demo North Facility') && !manualOrder.textContent.includes('Demo South Facility'), 'manual source and attached crop stay on the 5 mg row')
+    assert(manualOrder.textContent.includes(facilityPhones['Demo North Facility']) && !manualOrder.textContent.includes(facilityPhones['Demo South Facility']), 'the attached manual order retains just its dispensing phone')
+    const scannedOrder = reviewSources('Demo South Facility')
+    assert(scannedOrder && !scannedOrder.textContent.includes('Demo North Facility'), 'neighboring facility stays off the 10 mg order')
+    assert(scannedOrder.textContent.includes(facilityPhones['Demo South Facility']) && !scannedOrder.textContent.includes(facilityPhones['Demo North Facility']), 'the separate scanned order retains just its dispensing phone')
+    const correction = scannedOrder.querySelector('.med-corrections')
+    correction.querySelector('summary').click()
+    type(field('Draft strength', correction), '12 mg')
+    correction.querySelector('button[type="submit"]').click()
+    await expect(() => scannedOrder.textContent.includes('12 mg'), 'staff correction saved to the intended order')
+
+    input()
+    await expect(() => draftRows().some(row => row.textContent.includes('12 mg')), 'correction reflected in the draft')
+    await click('Analyze evidence')
+    await expect(() => suggestion('9 mg'), 'new reading from the original source is available for inspection')
+    const sameRegion = suggestion('9 mg')
+    const orderOptions = [...sameRegion.querySelector('select').options]
+    assert(!orderOptions.some(option => option.textContent.includes('Add as a new medicine')), 'a previously attached region cannot create a duplicate by default')
+    assert(draftRows().some(row => row.textContent.includes('12 mg')), 'reanalysis alone preserves the correction')
+    await accept(sameRegion, '12 mg')
+    assert(draftRows().length===2 && draftRows().some(row => row.textContent.includes('12 mg')), 'confirming repeat analysis preserves the corrected row and count')
+
+    deferScan = true
+    await click('Analyze evidence')
+    await expect(() => completeOldScan, 'analysis still in flight when retaking the photo')
+    photo('Label side','retaken-labels.png',packageLabelPhoto('','Retake reading 9 mg'))
+    await expect(() => button('Analyze evidence')?.disabled && !picks().length, 'retake invalidates outstanding analysis and suggestions')
+    assert(oldSignal.aborted, 'retake aborts the obsolete analysis request')
+    completeOldScan()
+    await new Promise(resolve => setTimeout(resolve,50))
+    assert(!picks().length && draftRows().length===2, 'old response does not restore a stale scan or alter draft rows')
+
+    deferScan = false
+    await markRegion([55,0,45,100], 'Demo South Facility Retake', 1)
+    await click('Analyze evidence')
+    await expect(() => suggestion('Demo South Facility Retake'), 'retaken crop is a separately sourced suggestion')
+    await accept(suggestion('Demo South Facility Retake'), '12 mg')
+    assert(draftRows().length===2 && draftRows().some(row => row.textContent.includes('12 mg')), 'explicit retake link preserves the correction and the separate 5 mg order')
+    review()
+    await expect(() => reviewSources('Demo South Facility Retake'), 'linked retake visible in Review')
+    const linkedOrder = reviewSources('Demo South Facility Retake')
+    assert(linkedOrder.textContent.includes('neighboring-labels.png') && linkedOrder.textContent.includes('retaken-labels.png'), 'both original and retaken source remain attributable')
+    assert(linkedOrder.textContent.includes(facilityPhones['Demo South Facility']) && linkedOrder.textContent.includes(facilityPhones['Demo South Facility Retake']) && !linkedOrder.textContent.includes(facilityPhones['Demo North Facility']), 'retake preserves both attributed dispensing phones without borrowing the neighboring number')
+    assert(linkedOrder.querySelector('h2').textContent==='Demo order' && linkedOrder.textContent.includes('Demo retake reading'), 'retaken identity is preserved as an observation without overwriting the order')
   }
   const previousLanguage = localStorage.getItem('medrec.language')
   try {
@@ -199,6 +415,7 @@
     win().location.reload()
     await reloaded
     await expect(() => doc()?.querySelector('.empty-case'),'reload clears the open case')
+    await scanPrefillCase()
     result.textContent='PASS'
   } catch(error) {
     result.textContent='FAIL '+error.message

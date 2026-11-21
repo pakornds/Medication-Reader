@@ -24,21 +24,25 @@ def png(image):
 
 class AdjacentLabels:
     def __init__(self):
-        self.photo = Image.new("RGB", (600, 100), "white")
+        self.photo = Image.new("RGB", (800, 100), "white")
         self.labels = []
         draw = ImageDraw.Draw(self.photo)
         for index, (name, strength, directions) in enumerate([
             ("Fictional A", "5 mg", "Once each morning"),
-            ("Fictional B", "10 mg", "Twice daily"),
+            ("Fictional B / Fictional C", "10 mg", "Twice daily"),
             (None, None, None),
         ]):
             left = index * 200
+            names = [name] if name else []
+            if index == 0:
+                names.append("Alternate name A")
             if name:
-                draw.multiline_text((left + 10, 10), f"{name}\n{strength}\n{directions}", fill="black")
+                wording = "\n".join([*names, strength, directions])
+                draw.multiline_text((left + 10, 10), wording, fill="black")
             else:
                 draw.rectangle((left, 0, left + 199, 99), fill="gray")
             pixels = self.photo.crop((left, 0, left + 200, 100)).tobytes()
-            self.labels.append((pixels, name, strength, directions))
+            self.labels.append((pixels, names, strength, directions))
         self.seen = []
 
     def generate(self, *, evidence_text, images, output_type, **kwargs):
@@ -49,18 +53,18 @@ class AdjacentLabels:
         image, = images
         received = Image.open(BytesIO(image.content))
         assert received.size == (200, 100)
-        _, name, strength, directions = next(label for label in self.labels if label[0] == received.tobytes())
+        _, names, strength, directions = next(label for label in self.labels if label[0] == received.tobytes())
         item, = manifest["items"]
         ref = {"source_id": item["source_id"], "item_id": item["id"]}
-        self.seen.append((name, item["row_id"], ref))
+        self.seen.append((names, item["row_id"], ref))
         fields = {
             key: {"status": "readable" if value else "unreadable", "value": value, "evidence": ref}
             for key, value in [("strength", strength), ("directions", directions)]
         }
         return AnalysisResult(case_id=manifest["case_id"], rows=[{
-            "id": item["row_id"], "sources": [ref], "identity_status": "named" if name else "unreadable",
-            "unknown_label": None if name else "Unknown medication C",
-            "observed_names": [{"value": name, "evidence": ref}] if name else [], "label_fields": fields,
+            "id": item["row_id"], "sources": [ref], "identity_status": "named" if names else "unreadable",
+            "unknown_label": None if names else "Unknown medication C",
+            "observed_names": [{"value": name, "evidence": ref} for name in names], "label_fields": fields,
         }])
 
 
@@ -72,7 +76,7 @@ def test_shared_attachment_uses_each_isolated_crop():
     form = {
         "evidence": {"case_id": "synthetic", "sources": [{"id": "photo", "kind": "label_photo"}], "items": items},
         "photo_source_ids": ["photo"], "region_locations": {"photo": {
-            name: f"{index * 100 / 3}%,0%,{100 / 3}%,100%" for index, name in enumerate("ABC")
+            name: f"{index * 25}%,0%,25%,100%" for index, name in enumerate("ABC")
         }},
     }
     with TestClient(create_app(get_provider=lambda: oracle)) as client:
@@ -82,6 +86,13 @@ def test_shared_attachment_uses_each_isolated_crop():
         ])
     assert response.status_code == 200, response.text
     first, second, third = response.json()["rows"]
+    assert first["observed_names"] == [
+        {"value": name, "evidence": {"source_id": "photo", "item_id": "A"}}
+        for name in ["Fictional A", "Alternate name A"]
+    ]
+    assert second["observed_names"] == [
+        {"value": "Fictional B / Fictional C", "evidence": {"source_id": "photo", "item_id": "B"}}
+    ]
     for row, (strength, directions) in zip([first, second], [("5 mg", "Once each morning"), ("10 mg", "Twice daily")]):
         for field, expected in [("strength", strength), ("directions", directions)]:
             assert row["label_fields"][field] == {
@@ -109,5 +120,10 @@ def test_admission_scan_action(tmp_path, monkeypatch):
         finally:
             server.should_exit = True
             thread.join(5)
-    assert [name for name, _, _ in oracle.seen] == ["Fictional A", "Fictional B", None]
-    assert len({ref["source_id"] for _, _, ref in oracle.seen}) == 3
+    assert [names for names, _, _ in oracle.seen] == [
+        ["Fictional A", "Alternate name A"],
+        ["Fictional A", "Alternate name A"],
+        ["Fictional B / Fictional C"],
+        [],
+    ]
+    assert len({ref["source_id"] for _, _, ref in oracle.seen}) == 4

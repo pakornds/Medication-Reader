@@ -3,7 +3,7 @@ import { Navigate, Route, Routes, useMatch } from 'react-router-dom'
 import { NewPatientLayout } from './pages/new-patient/NewPatientLayout'
 import { InputPage } from './pages/new-patient/InputPage'
 import { DraftReview } from './pages/new-patient/AnalysisPreview'
-import { createDraft } from './pages/new-patient/draft'
+import { createDraft, type DraftValues } from './pages/new-patient/draft'
 import { stages } from './pages/new-patient/stages'
 import { PageContainer } from './components/layout/PageContainer'
 import { TopBar } from './components/layout/TopBar'
@@ -51,6 +51,15 @@ export default function App() {
     }
   }
 
+  function saveDraftValues(id: string, corrections: DraftValues) {
+    setDraft((current) => ({
+      ...current,
+      medicines: current.medicines.map((medicine) => (
+        medicine.row.id === id ? { ...medicine, corrections } : medicine
+      )),
+    }))
+  }
+
   return (
     <>
       <TopBar language={language} onLanguage={changeLanguage} />
@@ -61,7 +70,7 @@ export default function App() {
             <Route path="/new-patient" element={<NewPatientLayout language={language} />}>
               <Route index element={<Navigate to={lastStage} replace />} />
               <Route path="input" element={<InputPage draft={draft} setDraft={setDraft} language={language} />} />
-              <Route path="review" element={<DraftReview draft={draft} language={language} />} />
+              <Route path="review" element={<DraftReview draft={draft} language={language} onSave={saveDraftValues} />} />
               <Route path="output" element={<MockPage name={t.output} />} />
             </Route>
             <Route path="/history" element={<MockPage name={t.history} />} />

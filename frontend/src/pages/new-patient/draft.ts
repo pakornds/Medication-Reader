@@ -1,3 +1,4 @@
+import type { AnalysisPreview, DispensingFacility, EvidenceRef, RegimenComponent, SourcedValue } from '../../api/contracts'
 import type { PercentBox } from '../../components/ui/RegionOutline'
 import type { Language } from '../../i18n/messages'
 
@@ -13,8 +14,9 @@ export type Photo = {
   date: string
 }
 export type Note = { id: string; kind: NoteKind; text: string; author: string; date: string }
-export type Ref = { source_id: string; item_id?: string | null }
-export type Fact = { value: string; evidence: Ref }
+export type Ref = EvidenceRef
+export type Fact = SourcedValue
+export type RegimenField = Exclude<keyof RegimenComponent['evidence'], 'directions_text'>
 export type Suggestion = {
   id: string
   identity_status: string
@@ -26,8 +28,12 @@ export type Suggestion = {
   discrepancies: { id: string; observed_values: Fact[]; question: string }[]
   follow_ups: { question: string }[]
   reverse_crop?: Ref | null
+  regimens?: RegimenComponent[]
 }
-export type Preview = { case_id: string; rows: Suggestion[]; unassigned_reports: Fact[] }
+export type Preview = Omit<AnalysisPreview, 'rows' | 'unassigned_reports'> & {
+  rows: Suggestion[]
+  unassigned_reports: Fact[]
+}
 export type Product = {
   tpu: string
   label: string
@@ -37,11 +43,17 @@ export type Product = {
 }
 export type CatalogueMatch = { product: Product; release: string }
 export type Evidence = { photos: Photo[]; notes: Note[]; question: string }
-export type Medicine = {
+export type MedicineEvidence = {
   row: Suggestion
   evidence: Evidence
+  facility?: DispensingFacility
+}
+export type DraftValues = { name: string; strength: string; form: string; directions: string }
+export type Medicine = MedicineEvidence & {
   origin: 'analysis' | 'manual'
   catalogue?: CatalogueMatch
+  corrections?: DraftValues
+  linkedScans?: MedicineEvidence[]
 }
 export type Draft = {
   caseId: string
@@ -63,11 +75,68 @@ export function createDraft(): Draft {
 }
 
 export function rowName(row: Suggestion, language: Language) {
+  if (row.observed_names.length > 1) {
+    return language === 'th' ? 'พบหลายชื่อในหลักฐาน' : 'Multiple names in evidence'
+  }
   return (
-    row.observed_names.map((fact) => fact.value).join(' / ') ||
+    row.observed_names[0]?.value ||
     row.unknown_label ||
     (language === 'th' ? 'ยาไม่ทราบชื่อ' : 'Unknown medicine')
   )
+}
+
+export function draftValues(medicine: Medicine): DraftValues {
+  const { row, catalogue } = medicine
+  return medicine.corrections ?? {
+    name: row.observed_names.length === 1 ? row.observed_names[0].value : '',
+    strength: row.label_fields.strength?.value ?? catalogue?.product.strength ?? '',
+    form: row.label_fields.form?.value ?? catalogue?.product.dose_form ?? '',
+    directions: row.label_fields.directions?.value ?? '',
+  }
+}
+
+export function medicineName(medicine: Medicine, language: Language) {
+  return (medicine.row.identity_status === 'named' && draftValues(medicine).name)
+    || rowName(medicine.row, language)
+}
+
+export function scanEvidence(preview: Preview, row: Suggestion, evidence: Evidence): MedicineEvidence {
+  const facility = preview.dispensing_facilities?.[row.id]
+  const ref = facility?.evidence
+  const cited = ref && row.sources.some((source) => (
+    source.source_id === ref.source_id && (source.item_id ?? null) === (ref.item_id ?? null)
+  ))
+  return { row, evidence, facility: cited ? facility : undefined }
+}
+
+export function knownOrder(medicines: Medicine[], scanId: string) {
+  return medicines.find((medicine) => (
+    medicine.row.id === scanId || medicine.linkedScans?.some(({ row }) => row.id === scanId)
+  ))
+}
+
+export function linkScan(medicine: Medicine, scan: MedicineEvidence): Medicine {
+  const scans = medicine.linkedScans ?? []
+  const prior = medicine.origin === 'analysis' ? [medicine, ...scans] : scans
+  if (prior.some((entry) => (
+    !hasEarlierEvidence(entry, scan.evidence)
+    && JSON.stringify(entry.row) === JSON.stringify(scan.row)
+    && JSON.stringify(entry.facility) === JSON.stringify(scan.facility)
+  ))) return medicine
+  return { ...medicine, linkedScans: [...scans, scan] }
+}
+
+export function photoCitation(evidence: Evidence, reference: Ref) {
+  const photo = evidence.photos.find((source) => (
+    source.id === reference.source_id || source.regions.some((region) => region.id === reference.source_id)
+  ))
+  if (!photo) return undefined
+  const sourceRegion = photo.regions.find((region) => region.id === reference.source_id)
+  const region = reference.item_id
+    ? photo.regions.find(({ id }) => id === reference.item_id)
+    : sourceRegion
+  if ((reference.item_id && !region) || (sourceRegion && sourceRegion !== region)) return undefined
+  return { photo, region }
 }
 
 // A reverse-side crop is linked only while its matching front-side item exists.
@@ -105,15 +174,14 @@ export function replacePhoto(
 }
 
 // Confirmed suggestions retain their original evidence even after staff edit intake.
-export function hasEarlierEvidence(medicine: Medicine, current: Evidence): boolean {
-  if (medicine.origin === 'manual') return false
+export function hasEarlierEvidence(medicine: MedicineEvidence, current: Evidence): boolean {
   return medicine.row.sources.some((ref) => {
     const note = medicine.evidence.notes.find((source) => source.id === ref.source_id)
     if (note) return !current.notes.includes(note)
-    const photo = medicine.evidence.photos.find(
-      (source) =>
-        source.id === ref.source_id || source.regions.some((region) => region.id === ref.source_id),
-    )
-    return photo !== undefined && !current.photos.includes(photo)
+    const earlier = photoCitation(medicine.evidence, ref)
+    if (!earlier) return false
+    const latest = photoCitation(current, ref)
+    return !latest || earlier.photo.file !== latest.photo.file || earlier.photo.date !== latest.photo.date
+      || earlier.region !== latest.region
   })
 }
