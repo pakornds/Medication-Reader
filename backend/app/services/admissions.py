@@ -20,7 +20,7 @@ from app.services.labels import LabelPhotoError, crop_label
 from app.schemas.analysis import Discrepancy
 from app.schemas.admission import (
     DOCUMENT_KINDS, Action, AddEvidence, AddRow, AssessIdentityIncident, AttestCurrentUse, Decision, DocumentExcerpt,
-    Finish, Import, Interview, NewEncounter, Proposal, Refer, RegisterDocument, SourceEntry, Verify,
+    Finish, Import, Interview, NewEncounter, Proposal, RecordUnavailableSource, Refer, RegisterDocument, SourceEntry, Verify,
 )
 from app.schemas.evidence import (
     REPORT_KINDS, CaseEvidence, EvidenceItem, EvidenceRef, EvidenceSource, Observation, QuotedEvidenceItem, SourcedValue,
@@ -335,7 +335,7 @@ class AdmissionStore:
         assigned = {actor.id, "demo-pharmacist", *("demo-" + role for role in request.assigned_roles)}
         case = dict(id="admission-" + uuid4().hex, patient_alias=request.patient_alias,
                     assigned=sorted(assigned), revision=1, status="In progress", created_at=now(),
-                    rows={}, events=[], receipts=[], identity_incidents={})
+                    rows={}, events=[], receipts=[], identity_incidents={}, unavailable_sources={})
         with self.lock:
             self.records[case["id"]] = case
         return case
@@ -387,6 +387,14 @@ class AdmissionStore:
                 require(actor.role == "pharmacist", "Pharmacist required.", 403)
             require(original["status"] != "Finished" or isinstance(cmd, (Import, AssessIdentityIncident)),
                     "Review is finished.", 409)
+            unavailable = original.get("unavailable_sources", {})
+            if isinstance(cmd, (AddRow, AddEvidence)):
+                source_id = cmd.entry.source_id if isinstance(cmd.entry, DocumentExcerpt) else cmd.entry.source.id
+                require(source_id not in unavailable, "Use a new logical source ID.")
+            if isinstance(cmd, Proposal):
+                require(cmd.reference not in unavailable, "An unavailable source cannot support identity.")
+            if isinstance(cmd, Verify):
+                require(cmd.identity_source_id not in unavailable, "An unavailable source cannot support identity.")
             case = deepcopy(original)
             details = self.transition(case, actor, cmd, request.request_id)
             for row_id in details["rows"]:
@@ -436,6 +444,8 @@ class AdmissionStore:
                 document = original.get("documents", {}).get(source.id)
                 require(not document or document["source"] == source.model_dump(mode="json"),
                         "The capture source conflicts with a registered document.")
+            require(not any(source.id in original.get("unavailable_sources", {}) for source in manifest.sources),
+                    "Use a new logical source ID.")
 
             for side in ("front", "reverse"):
                 view = getattr(manifest, side)
@@ -584,6 +594,14 @@ class AdmissionStore:
             check_document_id(case, source)
             documents[sid] = {"source": source, "wording": cmd.wording}
             return dict(rows=[], sources=[sid])
+        if isinstance(cmd, RecordUnavailableSource):
+            source_id = cmd.source.id
+            unavailable = case.setdefault("unavailable_sources", {})
+            used_ids = {entry["source"]["id"] for row in rows.values() for entry in row["entries"]}
+            used_ids.update(source_id for event in case["events"] for source_id in event.get("sources", ()))
+            require(source_id not in unavailable and source_id not in used_ids, "Use a new logical source ID.")
+            unavailable[source_id] = {"source": cmd.source.model_dump(mode="json"), "follow_up": cmd.follow_up}
+            return dict(rows=[], sources=[source_id])
         if isinstance(cmd, AttestCurrentUse):
             return attest_current_use(self.row(rows, cmd.row_id), actor, cmd)
         if isinstance(cmd, (AddEvidence, Interview, Proposal, Decision)) and cmd.row_id in rows:

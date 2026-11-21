@@ -239,7 +239,13 @@ class FormGrounding:
     def ground_row(
         self, row: MedicationSuggestion, rows: Sequence[MedicationSuggestion],
     ) -> DispensingFacility | None:
+        refer_question = self.form.question and any(f.field == "treatment_referral" for f in row.follow_ups)
         row.follow_ups = []
+        if refer_question:
+            row.follow_ups.append(FollowUp(
+                field="treatment_referral",
+                question="Please discuss this treatment question with a pharmacist or doctor.",
+            ))
         if not row.observed_names:
             if row.identity_status == "named":
                 row.identity_status = "unreadable"

@@ -97,3 +97,13 @@ def test_optional_screening_accepts_both_rows_of_one_document(client, refs):
     for path, payload in (("/checks", target | {"kind": "DDI"}), ("/checks/local", target)):
         response = client.post(path, headers=headers(case.role), json=payload)
         assert response.status_code == 200, response.text
+
+
+def test_registered_document_and_unavailable_followup_reserve_distinct_ids(client):
+    case = Case(client, "nurse")
+    pending = WARD | {"availability": "unavailable", "unavailable_reason": "Awaiting ward response"}
+    register(case)
+    case.send("record_unavailable_source", source=pending, status=422)
+    case.send("record_unavailable_source", source=pending | {"id": "W2"})
+    case.send("register_document", source=WARD | {"id": "W2"}, wording=LINES[0], status=422)
+    case.send("add", entry=excerpt(case, 0) | {"source_id": "W2"}, status=422)
