@@ -45,6 +45,8 @@ On wide screens, place the medication list on the left and the selected row's de
 
 ## Proposed source layout
 
+The [component guide](docs/components.md) lists planned controls, their owners and when to extract a shared component.
+
 Create files as their screens are built.
 
 ```text
