@@ -247,9 +247,30 @@ def _project_snapshot(
     rows = []
     evidence = []
     exposure_evidence = {}
+    # A capture can locate a row before staff add an interview or other entry.
+    # Cite only that item's assigned regions, including their attachment revisions.
+    capture_evidence = {}
+    entry_ids = {entry["source"]["id"] for row in case["rows"].values() for entry in active(row)}
+    for package in case.get("capture", {}).get("packages", []):
+        for item in package["items"]:
+            row_id = case["capture_rows"][item["row_id"]]
+            links = []
+            for cited in item["evidence"]:
+                region = cited["region"]
+                identifier = "capture:" + dumps([cited["source_id"], cited["item_id"]], separators=(",", ":"))
+                while identifier in entry_ids:
+                    identifier = "capture:" + identifier
+                links.append(identifier)
+                evidence.append(ScreeningEvidence(
+                    id=identifier, revision=region["revision"], description=dumps(region, sort_keys=True),
+                ))
+            capture_evidence[row_id] = links
     for row in case["rows"].values():
         entries = active(row)
-        rows.append(_project_row(row, entries, reference, case["revision"]))
+        projected = _project_row(row, entries, reference, case["revision"])
+        if projected.mapping_status == "unresolved":
+            projected.evidence_ids.extend(capture_evidence.get(row["id"], []))
+        rows.append(projected)
         evidence.extend(
             ScreeningEvidence(id=entry["source"]["id"], revision=case["revision"], description=entry["source"]["kind"])
             for entry in entries

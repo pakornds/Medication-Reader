@@ -42,4 +42,5 @@ class CheckSummary(ContractModel):
     source: ReferenceVersion | None = None
     evaluated: list[CheckedScope] = Field(default_factory=list)
     excluded: list[CheckExclusion] = Field(default_factory=list)
+    warnings: list[Text] = Field(default_factory=list)
     findings: list[CheckFinding] = Field(default_factory=list)
