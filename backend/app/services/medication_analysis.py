@@ -48,6 +48,7 @@ class AnalysisPreview(AnalysisResult):
     located_regions: list[LocatedRegion] = Field(default_factory=list)
     photo_issues: list[PhotoIssue] = Field(default_factory=list)
     remaining_evidence_unassessed: bool = False
+    unassessed_question: bool = False
     dispensing_facilities: dict[Text, DispensingFacility] = Field(default_factory=dict)
     unavailable_sources: list[EvidenceSource] = Field(default_factory=list)
     unassigned_reports: list[SourcedValue] = Field(default_factory=list)
@@ -239,6 +240,8 @@ class FormGrounding:
         return (
             source is not None and source.kind == SourceKind.REVERSE_PHOTO
             and item is not None and item.kind == "pill_crop"
+            and any(other.row_id == row_id and self.sources[other.source_id].kind in {"label_photo", "additional_photo"}
+                    for other in self.form.evidence.items)
         )
 
     def supports_disputed_value(

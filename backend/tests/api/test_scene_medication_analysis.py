@@ -10,15 +10,20 @@ from app.ai.client import OpenAIClient
 from app.main import create_app
 
 
-def upload(client, *, reverse=False, marked=False):
+def upload(client, *, reverse=False, marked=False, reverse_only=False, question=None, with_note=False):
     image = Image.new("RGB", (120, 80), "red")
     image.paste("blue", (60, 0, 120, 80))
     data = BytesIO()
     image.save(data, "PNG")
-    sides = ["front", "reverse"] if reverse else ["front"]
+    sides = ["reverse"] if reverse_only else (["front", "reverse"] if reverse else ["front"])
     form = dict(evidence=dict(case_id="example", sources=[dict(id=s, attachment_id=s,
                      kind="label_photo" if s == "front" else "reverse_photo") for s in sides]),
                 photo_source_ids=sides, scene_photo_ids=sides)
+    if question:
+        form["question"] = question
+    if with_note:
+        form["evidence"]["sources"].append(dict(id="note",kind="patient_report"))
+        form["patient_report"] = [dict(value="I remember a different medicine.", evidence=dict(source_id="note"))]
     if marked:
         form["scene_photo_ids"] = []
         form["evidence"]["sources"].append(dict(id="left", attachment_id="front", kind="label_photo"))
@@ -31,9 +36,10 @@ def upload(client, *, reverse=False, marked=False):
     return result.json()
 
 
-def provider_calls(*, partial=False, empty=False):
+def provider_calls(*, partial=False, empty=False, invalid_blue=0):
     calls = []
     def transport(request, _timeout):
+        nonlocal invalid_blue
         body = json.loads(request.data)
         content = body["input"][0]["content"]
         pixels = Image.open(BytesIO(b64decode(content[-1]["image_url"].split(",")[1])))
@@ -47,6 +53,9 @@ def provider_calls(*, partial=False, empty=False):
                 raise TimeoutError()
             reply = dict(names=[name], directions="1 tablet each morning", amount_prescribed="21 tablets",
                          facility=dict(organization="Synthetic Clinic", organization_phone="000-0000"))
+            if invalid_blue and name == "Synthetic blue label":
+                invalid_blue -= 1
+                reply = {"names": "wrong shape", "directions": ""}
         return json.dumps(dict(status="completed", output=[dict(type="message", content=[
             dict(type="output_text",text=json.dumps(reply))])])).encode()
     return OpenAIClient(api_key="fixture", model="fixture", transport=transport), calls
@@ -104,3 +113,52 @@ def test_bounded_original_client_can_recover_using_the_narrow_crop_contract():
     row, = preview["rows"]
     assert row["id"] == "order-a" and row["observed_names"][0]["value"] == "Synthetic red label"
     assert row["observed_names"][0]["evidence"] == {"source_id":"left", "item_id":"left"}
+
+
+def test_reverse_only_unknown_displays_a_citation_without_claiming_a_match():
+    provider, _ = provider_calls()
+    with TestClient(create_app(get_provider=lambda: provider)) as client:
+        preview = upload(client, reverse_only=True)
+    assert len(preview["rows"]) == 2
+    for row in preview["rows"]:
+        assert row["identity_status"] == "unlabeled" and row["reverse_crop"] is None
+        assert row["sources"] == [{"source_id": row["id"], "item_id": row["id"]}]
+
+
+def test_only_a_front_item_attributed_to_this_row_establishes_a_reverse_match():
+    from app.schemas.evidence import EvidenceItem, EvidenceRef
+    from app.services.medication_analysis import FormAnalysisInput, FormGrounding
+    from test_medication_analysis import synthetic_case
+
+    payload, _, _ = synthetic_case()
+    form = FormAnalysisInput.model_validate(payload)
+    ref = EvidenceRef(source_id="reverse-photo", item_id="pill-c")
+    assert not FormGrounding(form, {}).supports_crop(ref, "row-c")
+    form.evidence.items.append(EvidenceItem(id="front-c", source_id="label-photo", row_id="row-c", kind="label_region"))
+    assert FormGrounding(form, {}).supports_crop(ref, "row-c")
+
+
+def test_question_stays_pending_on_scene_only_or_unassessed_remainder(monkeypatch):
+    question = "Which source confirms this morning dose?"
+    provider, _ = provider_calls()
+    with TestClient(create_app(get_provider=lambda: provider)) as client:
+        preview = upload(client, question=question)
+    assert preview["unassessed_question"] and len(preview["rows"]) == 2
+    assert not preview["remaining_evidence_unassessed"]
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    with TestClient(create_app()) as client:
+        failed = upload(client, question=question, with_note=True)
+    assert failed["unassessed_question"] and failed["remaining_evidence_unassessed"]
+    assert not failed["rows"] and len(failed["unassigned_reports"]) == 1
+
+
+def test_invalid_structured_crop_gets_one_repair_and_keeps_citation():
+    for failures, expected in [(1, "named"), (2, "unreadable")]:
+        provider, calls = provider_calls(invalid_blue=failures)
+        with TestClient(create_app(get_provider=lambda: provider)) as client:
+            preview = upload(client)
+        first, second = preview["rows"]
+        assert first["identity_status"] == "named" and second["identity_status"] == expected
+        assert calls.count(("PrintedLabel", (60, 80))) == 3
+        assert second["sources"] == [{"source_id": second["id"], "item_id": second["id"]}]
+        assert bool(preview["photo_issues"]) == (failures == 2)

@@ -3,6 +3,7 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
+from app.ai.client import ProviderError
 from app.ai.prompts import Prompt
 from app.schemas.analysis import AnalysisResult, DispensingFacility, LabelField, LabelMedicationSuggestion, validate_analysis_result
 from app.schemas.evidence import CaseEvidence, ContractModel, EvidenceRef, Observation, SourcedValue, Text
@@ -56,10 +57,22 @@ class PrintedLabel(ContractModel):
         return self
 
 
-def read_located_label(case_id, source, item, crop, provider):
-    raw = provider.generate(instructions=CROP_TRANSCRIPTION.instructions,
-                            evidence_text="Read only the supplied label crop.", output_type=PrintedLabel,
-                            images=[crop])
+def read_located_label(case_id, source, item, crop, provider, *, repair=True):
+    prompt = CROP_TRANSCRIPTION.instructions
+    request = {"evidence_text": "Read only the supplied label crop.", "output_type": PrintedLabel, "images": [crop]}
+    try:
+        raw = provider.generate(instructions=prompt, **request)
+    except ProviderError as exc:
+        if not repair or exc.detail.code != "provider_invalid_output":
+            raise
+        correction = (
+            " The prior response did not validate. Re-read the same image and emit exactly one JSON object "
+            "matching PrintedLabel. names must be an array of nonempty strings or []. For other uncertain "
+            "text use null, never an empty string, number, nested observation, ID or citation. An unreadable "
+            "field must have a null value. facility is null or an object with a nonempty organization. "
+            "Omit unsupported fields. Do not invent any text to fill a missing field."
+        )
+        raw = provider.generate(instructions=prompt + correction, **request)
     ref = EvidenceRef(source_id=source.id, item_id=item.id)
     fields = {}
     for field in LabelField:

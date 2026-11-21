@@ -25,6 +25,7 @@ export type AnalysisPreview = {
   located_regions?: Array<LocatedRegion>
   photo_issues?: Array<PhotoIssue>
   remaining_evidence_unassessed?: boolean
+  unassessed_question?: boolean
   dispensing_facilities?: Partial<Record<string, DispensingFacility>>
   unavailable_sources?: Array<EvidenceSource>
   unassigned_reports?: Array<SourcedValue>

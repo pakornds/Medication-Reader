@@ -104,7 +104,7 @@ def read_label(
             raise
         # Older clients request full row proposals. Retry a malformed response with the located-facts
         # contract so the server alone assigns evidence references and clinical regimen fields.
-        row = read_located_label(case_id, source, item, image, provider)
+        row = read_located_label(case_id, source, item, image, provider, repair=False)
         result = LabelAnalysisResult(case_id=case_id, rows=[row])
     for row in result.rows:
         # A label transcription has no staff question to refer.

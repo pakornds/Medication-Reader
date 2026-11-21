@@ -44,7 +44,7 @@ import {
 function remainingPreview(preview: Preview, rows: Preview['rows']): Preview | null {
   const issues = preview.photo_issues?.filter(issue => !issue.item_id
     || rows.some(row => row.sources.some(source => source.item_id === issue.item_id)))
-  return rows.length || preview.unassigned_reports.length || issues?.length || preview.remaining_evidence_unassessed
+  return rows.length || preview.unassigned_reports.length || issues?.length || preview.remaining_evidence_unassessed || preview.unassessed_question
     ? { ...preview, rows, photo_issues: issues } : null
 }
 
@@ -347,6 +347,7 @@ export function InputPage({
                 {issue.provider_code && <span> {analysisProviderMessage(issue.provider_code,language)}</span>}
               </p>
             })}
+            {draft.preview?.unassessed_question && <p role="status"><strong>{language === 'th' ? 'คำถามที่รอเจ้าหน้าที่ทบทวน' : 'Question for staff review'}</strong> · {draft.evidence.question}</p>}
             {draft.preview?.remaining_evidence_unassessed && <p role="status">{t.remainingUnassessed}</p>}
             {draft.preview && (
               <AnalysisPreview draft={draft} language={language} onConfirm={confirm} onDismiss={dismiss} />

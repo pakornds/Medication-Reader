@@ -62,9 +62,9 @@ def _locations(form, photo, source, get_provider):
     return list(regions.values()), []
 
 
-def _unknown(reference, title, status, reverse):
+def _unknown(reference, title, status):
     return LabelMedicationSuggestion(id=reference.source_id, identity_status=status, unknown_label=title,
-                                    sources=[reference], reverse_crop=reference if reverse else None)
+                                    sources=[reference])
 
 
 def _extract_region(form, photo, original, located, get_provider):
@@ -78,7 +78,7 @@ def _extract_region(form, photo, original, located, get_provider):
     issue = None
     provider_code = None
     if reverse:
-        row = _unknown(reference, "Unidentified package", "unlabeled", True)
+        row = _unknown(reference, "Unidentified package", "unlabeled")
     else:
         b = located.bounds
         coordinates = ",".join(f"{v*100:.12f}%" for v in (b.x,b.y,b.width,b.height))
@@ -93,7 +93,7 @@ def _extract_region(form, photo, original, located, get_provider):
             provider_code = exc.detail.code
             issue = "unreadable_region"
         if issue:
-            row = _unknown(reference, "Unreadable label", "unreadable", False)
+            row = _unknown(reference, "Unreadable label", "unreadable")
     # The exact single-crop transcript supplies extracted facts. Do not synthesize or merge adjacent rows.
     one = form.model_copy(update={"evidence":form.evidence.model_copy(update={"sources":[source],"items":[item]}),
                                   "patient_report":[], "other_source_notes":[]})
@@ -127,6 +127,9 @@ def analyze_scenes(form, photos, get_provider, linked_sources):
             preview = analyze_medication_form(remaining, retained, get_provider)
         except ProviderError:
             preview.remaining_evidence_unassessed = True
+            preview.unassessed_question = bool(form.question)
+    elif form.question:
+        preview.unassessed_question = True
     has_front = any(by_id[p.evidence_id].kind == "label_photo" for p in photos)
     for photo in photos:
         if photo.evidence_id not in selected:
