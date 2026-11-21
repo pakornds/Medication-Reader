@@ -68,6 +68,21 @@ class FormAnalysisError(ValueError):
     pass
 
 
+def contains_quote(statement: str, value: str, *, ignore_case: bool = False) -> bool:
+    # Keep a strength such as 5 mg distinct from 15 mg or 0.5 mg.
+    start = r"(?<!\w)"
+    if value[0].isdigit():
+        start += r"(?<!\d[.,])"
+    end = r"(?!\w)"
+    if value[-1].isdigit():
+        end += r"(?![.,]\d)"
+    return re.search(start + re.escape(value) + end, statement, re.I if ignore_case else 0) is not None
+
+
+def note_statements(text: str) -> list[str]:
+    return [part.strip() for part in re.split(r"[;；。!?！？\r\n]+|\.(?=\s|$)", text) if part.strip()]
+
+
 def validate_form_input(
     form: FormAnalysisInput, photos: Sequence[EvidenceImage]
 ) -> dict[str, list[str]]:
@@ -115,6 +130,9 @@ class FormGrounding:
         self.texts: dict[str, list[str]] = {}
         for field in [*form.patient_report, *form.other_source_notes]:
             self.texts.setdefault(field.evidence.source_id, []).append(field.value)
+        self.statements: dict[str, list[str]] = {}
+        for note in form.other_source_notes:
+            self.statements.setdefault(note.evidence.source_id, []).extend(note_statements(note.value))
 
     def available_reference(self, ref: EvidenceRef, row_id: str) -> EvidenceSource | None:
         source = self.sources.get(ref.source_id)
@@ -126,7 +144,10 @@ class FormGrounding:
                 return None
         return source
 
-    def supports_fact(self, fact: SourcedValue, row: MedicationSuggestion, field: str = "identity") -> bool:
+    def supports_fact(
+        self, fact: SourcedValue, row: MedicationSuggestion, field: str = "identity",
+        *, rows: Sequence[MedicationSuggestion] | None = None,
+    ) -> bool:
         ref = fact.evidence
         source = self.available_reference(ref, row.id)
         if source is None:
@@ -139,7 +160,30 @@ class FormGrounding:
                 return fact in transcript.observed_names
             observation = transcript.label_fields.get(field)
             return observation is not None and observation.value == fact.value and observation.evidence == ref
-        return any(fact.value in text for text in self.texts.get(source.id, []))
+        texts = self.texts.get(source.id, [])
+        if source.kind in REPORT_KINDS:
+            return any(fact.value in text for text in texts)
+        if rows is None:
+            # First pass grounds candidate names before using them to assign statements.
+            return any(contains_quote(text, fact.value) for text in texts)
+        statements = self.statements.get(source.id, [])
+        for statement in statements:
+            if not contains_quote(statement, fact.value):
+                continue
+            mentioned = {
+                candidate.id for candidate in rows
+                if any(contains_quote(statement, name.value, ignore_case=True)
+                       for name in candidate.observed_names)
+            }
+            if mentioned == {row.id}:
+                return True
+            # A single located excerpt may document a different identity from
+            # the label. Keep that discrepancy with its original physical row.
+            if not mentioned and field == "identity" and len(statements) == 1 and ref.item_id:
+                excerpts = [item for item in self.form.evidence.items if item.source_id == source.id]
+                if len(excerpts) == 1 and ref.item_id == excerpts[0].id:
+                    return True
+        return False
 
     def supports_report(
         self, fact: SourcedValue, row: MedicationSuggestion, rows: Sequence[MedicationSuggestion]
@@ -174,9 +218,9 @@ class FormGrounding:
         )
 
     def supports_disputed_value(
-        self, field: str, fact: SourcedValue, row: MedicationSuggestion
+        self, field: str, fact: SourcedValue, row: MedicationSuggestion, rows: Sequence[MedicationSuggestion]
     ) -> bool:
-        if not self.supports_fact(fact, row, field):
+        if not self.supports_fact(fact, row, field, rows=rows):
             return False
         kind = self.sources[fact.evidence.source_id].kind
         if kind in REPORT_KINDS:
@@ -202,6 +246,16 @@ class FormGrounding:
                 or self.form.patient_report_row_ids[name.evidence.source_id] == row.id
             )
         ]
+        # Co-occurrence in a note cannot establish that two names are aliases.
+        # Reuse corroborated photo names, otherwise ask for row attribution.
+        if len({name.value.casefold() for name in row.observed_names}) > 1:
+            photo_names = {
+                name.value.casefold() for transcript in self.transcripts.values() if transcript.id == row.id
+                for name in transcript.observed_names
+            }
+            for name in row.observed_names:
+                if name.evidence.source_id in self.statements and name.value.casefold() not in photo_names:
+                    raise EvidenceValidationError("The note does not establish these names belong to one item.")
 
     def dispensing_reference(self, row: MedicationSuggestion) -> EvidenceRef | None:
         photo_refs = []
@@ -273,7 +327,7 @@ class FormGrounding:
                 and (
                     observation.value is None
                     or self.supports_fact(
-                        SourcedValue(value=observation.value, evidence=observation.evidence), row, field
+                        SourcedValue(value=observation.value, evidence=observation.evidence), row, field, rows=rows
                     )
                 )
             )
@@ -313,7 +367,7 @@ class FormGrounding:
                     potential_source_id=follow_up_source,
                 )
             )
-            if all(self.supports_disputed_value(dispute.field, fact, row) for fact in dispute.observed_values):
+            if all(self.supports_disputed_value(dispute.field, fact, row, rows) for fact in dispute.observed_values):
                 dispute.question = row.follow_ups[-1].question
                 disputes.append(dispute)
         row.discrepancies = disputes
