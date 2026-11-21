@@ -1,0 +1,39 @@
+{
+  "references": [
+    {
+      "id": "demo-a-blue",
+      "medication": "Demo A",
+      "imprint": "A1",
+      "shape": "oval",
+      "form": "tablet",
+      "color": "pale blue",
+      "silhouette": ["00111100", "01111110", "11111111", "11111111", "01111110", "00111100"]
+    },
+    {
+      "id": "demo-a-pink",
+      "medication": "Demo A",
+      "imprint": "A1",
+      "shape": "oval",
+      "form": "tablet",
+      "color": "pink",
+      "silhouette": ["00111100", "01111110", "11111111", "11111111", "01111110", "00111100"]
+    },
+    {
+      "id": "demo-b-white",
+      "medication": "Demo B",
+      "imprint": "B2",
+      "shape": "oval",
+      "form": "tablet",
+      "color": "white",
+      "silhouette": ["00011000", "00111100", "01111110", "01111110", "00111100", "00011000"]
+    }
+  ],
+  "demo_crops": [
+    {
+      "case_id": "demo-transfer",
+      "source_id": "reverse-photo",
+      "item_id": "pill-c",
+      "silhouette": ["00111100", "01111110", "11111111", "11111111", "01111110", "00111100"]
+    }
+  ]
+}
