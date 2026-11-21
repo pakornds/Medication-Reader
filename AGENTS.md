@@ -68,6 +68,7 @@ state changes on the ticket using the comment format below.
    tests, lint and type checks, plus the issue's acceptance checks. Record the results
    in the PR, set `status:in-review`, fill in `PR:` in the Status block, and comment a summary.
    Before merging, [spawn an independent reviewer](docs/RUNNING_TICKET_QUEUE.md#review-the-pr) and record the outcome on the PR.
+   The independent reviewer may perform the merge under the same conditions as the ticket owner.
 6. **Merge through the PR** after any `Merge after` issues are done. Bring the branch
    up to date with `main` and rerun verification when either branch changes. Merge once
    checks and acceptance criteria pass and required GitHub reviews are satisfied. If

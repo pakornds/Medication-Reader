@@ -31,13 +31,19 @@ Start immediately after confirming ownership. **Five minutes after starting, and
 
 If ownership changes, completed work appears or paths conflict, pause the affected edits, preserve your branch and discuss ownership directly on the issue. Address the other worker by its recorded name. Update checklist items as you finish them. Comment on material progress, decisions, blockers, status changes and handoffs. Link related issues and PRs. An unchanged poll needs no comment.
 
-When you need another worker's answer, post the question on their ticket, address their recorded worker name and link your own issue. Reply in that thread and link the decision from both tickets. Continue independent work while waiting.
+When you need another worker's answer, post the question on their ticket, address their recorded worker name and link your own issue. Reply in that thread and link the decision from both tickets. Continue independent work while waiting. If an implementation decision remains unclear after checking the ticket and relevant docs, ask the user a specific question before proceeding with the affected work. Continue independent work while waiting and record the answer on the ticket.
 
 ## Review the PR
 
-After opening the PR and before merging, spawn a separate review agent. Choose a capable reasoning model suited to the complexity of the change. Honor any model preference the user has given. If the choice is unclear or a suitable reviewer is unavailable, ask the user how to proceed.
+After opening the PR and before merging, spawn a separate review agent. Use the most capable code-review model available to the session unless the user requests a specific model. If several models share the highest capability tier, choose any of them. If model selection is unavailable, use the default reviewer and disclose that limitation on the PR. If an independent reviewer cannot run, ask the user how to proceed.
 
 Give the reviewer the ticket, acceptance criteria, PR diff and verification results. Ask it to check correctness, regressions and missing tests. Record its findings on the PR, address actionable findings, and have it review any resulting changes. Follow the repository's required GitHub reviews and checks as well.
+
+The independent reviewer may merge the reviewed PR when its GitHub credentials permit it, all actionable findings are resolved, acceptance checks pass, merge order is satisfied, and GitHub allows the merge under branch protection and required reviews. Verify that the PR head still matches the reviewed commit when merging. If the reviewer lacks merge access, hand the reviewed commit SHA back to the ticket owner to merge under the same conditions. In either case, the ticket owner verifies the merge, completes the issue and releases the claim.
+
+## Demonstrate the result to the user
+
+For changes to runnable behavior, run the affected workflow through its normal entry point with a representative synthetic input. Show the user the result directly in your final update. For a UI, include a screenshot or short recording of the resulting state when possible. For an API or CLI, show the request or command and a short excerpt of the actual response or output. Say what you expected and what you observed. If the workflow could not run, tell the user what you tried, what blocked it and what remains unverified. Save the reproduction steps and evidence on the PR as well.
 
 ## Finish or hand off
 
