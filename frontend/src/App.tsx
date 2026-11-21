@@ -6,7 +6,7 @@ import { InputPage } from './pages/new-patient/InputPage'
 import { scanActions } from './pages/new-patient/scanActions'
 import { createClient } from './api/client'
 import { AnalysisPreview, DraftReview } from './pages/new-patient/AnalysisPreview'
-import { createDraft, hasCaseWork, withDraftValues, type Draft, type DraftValues } from './pages/new-patient/draft'
+import { createDraft, hasCaseWork, withDraftValues, type CatalogueMatch, type Draft, type DraftValues } from './pages/new-patient/draft'
 import { stages } from './pages/new-patient/stages'
 import { PageContainer } from './components/layout/PageContainer'
 import { TopBar } from './components/layout/TopBar'
@@ -64,6 +64,18 @@ export default function App() {
       medicines: current.medicines.map((medicine) => (
         medicine.row.id === id ? withDraftValues(medicine, values) : medicine
       )),
+    }))
+  }
+
+  function confirmCatalogue(id: string, catalogue?: CatalogueMatch) {
+    setDraft(current => ({
+      ...current,
+      medicines: current.medicines.map(medicine => {
+        if (medicine.row.id !== id) return medicine
+        const originalCatalogue = medicine.originalCatalogue
+          ?? (medicine.origin === 'manual' && !medicine.catalogue?.evidence ? medicine.catalogue : undefined)
+        return { ...medicine, catalogue, originalCatalogue }
+      }),
     }))
   }
 
@@ -150,14 +162,14 @@ export default function App() {
         <Route path="review" element={<div className="connected-workspace stack">
           <h1 className="page-heading">{t.review}</h1>
           {draft.preview?.rows.length ? <AnalysisPreview draft={draft} language={language} {...scanActions(setDraft)}/> : null}
-          {!current && draft.medicines.length > 0 && <DraftReview embedded onSave={saveDraftValues} draft={draft} language={language} onCatalogue={(medicine,match)=>setDraft(d=>({...d,medicines:d.medicines.map(m=>m===medicine?{...m,catalogue:match}:m)}))}/>}
+          {!current && draft.medicines.length > 0 && <DraftReview embedded onSave={saveDraftValues} draft={draft} language={language} onCatalogue={confirmCatalogue}/>}
           {!current && !draft.medicines.length && !draft.preview?.rows.length && <Link className="text-action" to="/new-patient/input">
             {draft.preview ? (language === 'th' ? 'ดูผลการอ่านภาพและบันทึก' : 'View results for your photos and notes') : (language === 'th' ? 'เพิ่มรายการยา' : 'Add medicines')}
           </Link>}
           {(draft.medicines.length > 0 || record || demoFailed) && access}{error}
           {!current && (!localDemo || session) && (draft.medicines.length > 0 || record?.synced) && <CaseHandoff key={draft.caseId} draft={draft} language={language} session={session} record={record} onSaved={onSaved} onRefresh={id => openEncounter(id, true)}/>}
           {session && record && current && <ClinicalReview key={record.encounter.id+session.actor.id} language={language} client={session.client} actor={session.actor} encounter={record.encounter} onEncounter={onEncounter} selectedRow={selectedRow} onSelectRow={setSelectedRow}/>}
-          {current && record?.synced && <details className="intake intake-panel"><summary>{language==='th'?'ดูฉบับร่างและหลักฐานต้นทาง':'Intake draft and source evidence'}</summary><DraftReview onSave={saveDraftValues} embedded draft={draft} language={language} onCatalogue={(medicine,match)=>setDraft(d=>({...d,medicines:d.medicines.map(m=>m===medicine?{...m,catalogue:match}:m)}))}/></details>}
+          {current && record?.synced && <details className="intake intake-panel"><summary>{language==='th'?'ดูฉบับร่างและหลักฐานต้นทาง':'Intake draft and source evidence'}</summary><DraftReview onSave={saveDraftValues} embedded draft={draft} language={language} onCatalogue={confirmCatalogue}/></details>}
         </div>}/>
         <Route path="output" element={<div className="connected-workspace stack">
           {session && record && current ? <OutputPage key={record.encounter.id+session.actor.id} language={language} client={session.client} encounter={record.encounter} actor={session.actor} onEncounter={onEncounter} onReviewRow={reviewRow}/> : placeholderOutput}{access}

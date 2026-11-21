@@ -22,6 +22,7 @@ import {
   type Evidence,
   type Fact,
   type Medicine,
+  type MedicineEvidence,
   type Preview,
   type Ref,
 } from './draft'
@@ -193,7 +194,7 @@ function DraftEditor({ medicine, t, onSave }: { medicine: Medicine; t: IntakeTex
 
 export function DraftReview({ draft, language, onSave, onCatalogue, embedded = false }: {
   embedded?: boolean
-  onCatalogue?: (medicine: Medicine, match: CatalogueMatch | undefined) => void
+  onCatalogue?: (id: string, match?: CatalogueMatch) => void
   draft: Draft
   language: Language
   onSave: (id: string, values: DraftValues) => void
@@ -205,6 +206,15 @@ export function DraftReview({ draft, language, onSave, onCatalogue, embedded = f
       {!draft.medicines.length && <p>{t.noMedicines}</p>}
       {draft.medicines.map((medicine) => {
         const { row, catalogue, corrections, linkedScans } = medicine
+        const compare = (scan: MedicineEvidence) => onCatalogue && (
+          <ScanCatalogue identity={hasEarlierEvidence(scan, draft.evidence) ? undefined
+            : currentCatalogueIdentity({ ...medicine, catalogueIdentity: scan.catalogueIdentity })} scan={scan} currentEvidence={draft.evidence} language={language} current={catalogue}
+            onConfirm={match => onCatalogue(row.id, match)} />
+        )
+        const catalogueEvidence = catalogue?.evidence
+        const confirmationSource = catalogueEvidence && [medicine, ...(linkedScans ?? [])].find(scan =>
+          scan.row.observed_names.some(fact => fact.evidence.source_id === catalogueEvidence.source_id
+            && fact.evidence.item_id === catalogueEvidence.item_id))
         return (
           <article className="intake-panel stack" key={row.id}>
             <div className="spread">
@@ -215,9 +225,19 @@ export function DraftReview({ draft, language, onSave, onCatalogue, embedded = f
               <p role="status">{t.earlier}</p>
             )}
             {catalogue && (
-              <small>
-                TPU {catalogue.product.tpu} · {catalogue.release}
-              </small>
+              <div className="stack">
+                <small className="selected-trade-product">{catalogue.product.label} · TPU {catalogue.product.tpu} · {catalogue.release}</small>
+                {catalogueEvidence && confirmationSource && <Citation reference={catalogueEvidence} evidence={confirmationSource.evidence} t={t} />}
+                {catalogueEvidence && onCatalogue && <Button variant="text" onClick={() => onCatalogue(row.id)}>
+                  {language === 'th' ? 'ยกเลิกผลิตภัณฑ์ที่เลือก' : 'Remove catalogue selection'}
+                </Button>}
+              </div>
+            )}
+            {medicine.originalCatalogue && (medicine.originalCatalogue.product.tpu !== catalogue?.product.tpu
+              || medicine.originalCatalogue.release !== catalogue?.release) && (
+              <small>{language === 'th' ? 'ผลิตภัณฑ์ที่เลือกเมื่อกรอกข้อมูล' : 'Original manual selection'} ·
+                {' '}{medicine.originalCatalogue.product.label} · TPU {medicine.originalCatalogue.product.tpu}
+                {' · '}{medicine.originalCatalogue.release}</small>
             )}
             <DraftEditor medicine={medicine} t={t} onSave={(values) => onSave(row.id, values)} />
             {corrections && (
@@ -234,14 +254,15 @@ export function DraftReview({ draft, language, onSave, onCatalogue, embedded = f
               </details>
             )}
             <MedicineDetails {...medicine} catalogueIdentity={currentCatalogueIdentity(medicine)} language={language} edits={corrections} />
+            {medicine.origin === 'analysis' && compare(medicine)}
             {linkedScans?.map((scan, index) => (
               <section className="suggestion" key={index}>
                 <h3>{t.linkedScan}</h3>
                 {hasEarlierEvidence(scan, draft.evidence) && <p role="status">{t.earlier}</p>}
                 <MedicineDetails {...scan} language={language} />
+                {compare(scan)}
               </section>
             ))}
-            {medicine.origin==='analysis' && row.identity_status==='named' && onCatalogue && <ScanCatalogue medicine={medicine} language={language} onChange={match=>onCatalogue(medicine,match)}/> }
           </article>
         )
       })}

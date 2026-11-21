@@ -43,7 +43,7 @@ export type Product = {
   strength: string
   dose_form: string
 }
-export type CatalogueMatch = { product: Product; release: string }
+export type CatalogueMatch = { product: Product; release: string; evidence?: Ref }
 export type Evidence = { photos: Photo[]; notes: Note[]; question: string }
 export type MedicineEvidence = {
   row: Suggestion
@@ -55,6 +55,7 @@ export type DraftValues = { name: string; strength: string; form: string; direct
 export type Medicine = MedicineEvidence & {
   origin: 'analysis' | 'manual'
   catalogue?: CatalogueMatch
+  originalCatalogue?: CatalogueMatch
   corrections?: Partial<DraftValues>
   linkedScans?: MedicineEvidence[]
 }
@@ -92,7 +93,8 @@ export function rowName(row: Suggestion, language: Language, catalogueIdentity?:
 }
 
 function sourcedValues(medicine: Medicine): DraftValues {
-  const { row, catalogue } = medicine
+  const { row } = medicine
+  const catalogue = medicine.originalCatalogue ?? (medicine.catalogue?.evidence ? undefined : medicine.catalogue)
   return {
     name: row.observed_names.length === 1 ? row.observed_names[0].value : '',
     strength: row.label_fields.strength?.value ?? catalogue?.product.strength ?? '',
@@ -171,6 +173,25 @@ export function photoCitation(evidence: Evidence, reference: Ref) {
     : sourceRegion
   if ((reference.item_id && !region) || (sourceRegion && sourceRegion !== region)) return undefined
   return { photo, region }
+}
+
+export function updateDraftEvidence(draft: Draft, next: Evidence): Draft {
+  const displaced = draft.medicines.filter(medicine => {
+    const ref = medicine.catalogue?.evidence
+    if (!ref) return false
+    return !currentPhotoRegion(draft.evidence, next, ref)
+  })
+  const medicines = displaced.length
+    ? draft.medicines.map(medicine => displaced.includes(medicine) ? { ...medicine, catalogue: undefined } : medicine)
+    : draft.medicines
+  return { ...draft, evidence: next, preview: null, medicines }
+}
+
+export function currentPhotoRegion(original: Evidence, current: Evidence, ref: Ref) {
+  const source = photoCitation(original, ref)
+  const latest = photoCitation(current, ref)
+  return source?.region && latest?.region === source.region && latest.photo.file === source.photo.file
+    && latest.photo.date === source.photo.date ? { photo: source.photo, region: source.region } : undefined
 }
 
 export function hasCaseWork({ evidence, medicines, preview }: Draft): boolean {

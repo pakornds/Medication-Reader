@@ -30,6 +30,7 @@ import {
   draftValues,
   medicineName,
   replacePhoto,
+  updateDraftEvidence,
   type Draft,
   type Evidence,
   type Note,
@@ -66,7 +67,7 @@ export function InputPage({
   function editEvidence(next: Evidence) {
     request.current?.abort()
     setStatus('idle')
-    setDraft((d) => ({ ...d, evidence: next, preview: null }))
+    setDraft(d => updateDraftEvidence(d, next))
   }
   function editPhoto(next: Photo) {
     editEvidence(replacePhoto(evidence, next.id, next))
