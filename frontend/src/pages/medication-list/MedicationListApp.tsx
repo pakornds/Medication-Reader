@@ -291,13 +291,21 @@ export default function MedicationListApp() {
             </section>
             <section aria-labelledby="draft-list-heading" className="list-draft med-list-rows">
               <header className="list-section-heading">
-                <h2 id="draft-list-heading">{t('Draft medicine list', 'ฉบับร่างรายการยา')}</h2>
-                <small>{rows.length}</small>
+                <div>
+                  <h2 id="draft-list-heading">{t('Draft medicine list', 'ฉบับร่างรายการยา')}</h2>
+                  <small>{rows.length} {t(rows.length === 1 ? 'medicine' : 'medicines', 'รายการยา')}</small>
+                </div>
+                {rows.length > 0 && <Link to="/new-patient/review" className="primary-btn">
+                  {t('Continue to Review', 'ไปที่ทบทวน')}
+                </Link>}
               </header>
               {rows.length > 0 ? <>
+                <div className="list-medicine-columns" aria-hidden="true">
+                  <span>{t('Medicine', 'ยา')}</span>
+                  <span>{t('Directions', 'วิธีใช้')}</span>
+                </div>
                 {rows.map(row => <ListMedicine key={row.row.id} row={row} language={language} onChange={changeRow} onRemove={() => removeRow(row.row.id)}/>)}
                 <div className="list-draft-footer">
-                  <Link to="/new-patient/review" className="primary-btn">{t('Continue to Review', 'ไปที่ทบทวน')}</Link>
                   <small>{t('Kept in this tab until you close or reload it', 'เก็บไว้ในแท็บนี้จนกว่าจะปิดหรือโหลดใหม่')}</small>
                 </div>
               </> : <div className="list-empty">
@@ -317,7 +325,7 @@ export default function MedicationListApp() {
               </div>
             </div>
             <section className="med-list-rows">
-              <div className="list-review-columns" aria-hidden="true">
+              <div className="list-medicine-columns list-medicine-columns--review" aria-hidden="true">
                 <span />
                 <span>{t('Medicine', 'ยา')}</span>
                 <span>{t('Directions', 'วิธีใช้')}</span>

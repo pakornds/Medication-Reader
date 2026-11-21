@@ -135,6 +135,6 @@ export function ListMedicine({ row, language, selected, onSelect, onChange, onRe
         {onRemove && <Button variant="text" onClick={onRemove}>{t('Remove row', 'ลบรายการ')}</Button>}
       </div>
     </div>}
-    {row.row.sources.length > 0 && <MedicineDetails {...row} language={language} />}
+    {row.row.sources.length > 0 && <MedicineDetails {...row} language={language} showInlineFacts={false} />}
   </article>
 }
