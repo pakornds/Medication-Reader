@@ -75,3 +75,5 @@ export async function analyze(draft: Draft, signal: AbortSignal): Promise<Previe
 }
 
 export const searchProducts = client.products
+
+export const parseRegimen = client.parseRegimen
