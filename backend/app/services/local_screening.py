@@ -299,16 +299,21 @@ def _ingredient_route_rule(
     if left.catalogue_form_route is None or right.catalogue_form_route is None:
         return None
 
-    doxy, iron = ingredient_reference.DOXYCYCLINE, ingredient_reference.FERROUS_FUMARATE
-    for first, second in ((doxy, iron), (iron, doxy)):
-        if first.matches(left.ingredients, *left.catalogue_form_route) and second.matches(
-            right.ingredients, *right.catalogue_form_route
-        ):
-            break
-    else:
+    mapping = ingredient_reference.RULES.get(frozenset(left.ingredients.keys() | right.ingredients.keys()))
+    if mapping is None:
+        return None
+    first, second = mapping.ingredients
+    if first.substance_id not in left.ingredients:
+        first, second = second, first
+    if not first.matches(left.ingredients, *left.catalogue_form_route) or not second.matches(
+        right.ingredients, *right.catalogue_form_route
+    ):
+        return None
+    if any(product.row.ddi_status == "mapped" and product.atcs != {entry.atc}
+           for product, entry in zip(products, (first, second), strict=True)):
         return None
 
-    rule_id = ingredient_reference.RULE_ID
+    rule_id = mapping.rule_id
     opposite_sides = fest.execute(
         """SELECT 1 FROM atc_member AS a JOIN atc_member AS b
         ON a.rule_id = b.rule_id AND a.side <> b.side
@@ -323,9 +328,9 @@ def _ingredient_route_rule(
 
     rule.ingredient_route_match = IngredientRouteMatch(
         route="oral",
-        mapping_version=ingredient_reference.MAPPING_VERSION,
-        summary_en="Iron can reduce doxycycline absorption when taken together.",
-        summary_th="ธาตุเหล็กอาจลดการดูดซึมด็อกซีไซคลินเมื่อรับประทานพร้อมกัน",
+        mapping_version=mapping.mapping_version,
+        summary_en=mapping.summary_en,
+        summary_th=mapping.summary_th,
         references=[
             Reference(title=f"WHO ATC/DDD Index · {entry.ingredient} ({entry.atc})", url=entry.reference_url)
             for entry in (first, second)
