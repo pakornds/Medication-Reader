@@ -110,8 +110,29 @@ function clearVerification() {
   importPanel.hidden = true;
 }
 
+function supportedTiming(components, reported) {
+  const current = components[0];
+  const ref = current?.evidence.time_of_day;
+  const reportedRef = reported?.evidence.time_of_day;
+  return components.length === 1 && reported?.time_of_day.length > 0 &&
+    current.time_of_day.length === reported.time_of_day.length &&
+    current.time_of_day.every((time, index) => time === reported.time_of_day[index]) &&
+    ref?.source_id === reportedRef?.source_id &&
+    (ref?.item_id ?? null) === (reportedRef?.item_id ?? null);
+}
+
 function saveVerification(components) {
   showError("");
+  const reported = draft.originalRow.regimens.find(component => component.basis === "reported");
+  if (!supportedTiming(components, reported)) {
+    reviewStatus.textContent = "Timing conflict pending";
+    throw new Error("Select the reported evening timing and its patient source, or obtain new evidence before verifying.");
+  }
+  if (draft.verifiedRow) {
+    if (!importButton.disabled) importButton.focus();
+    return;
+  }
+
   receiptPanel.replaceChildren();
   draft.revision += 1;
   draft.approval = null;
@@ -141,9 +162,14 @@ function saveVerification(components) {
 }
 
 async function loadCase() {
+  const previousStatus = status.textContent;
+  const previousEditor = editor;
+  const importWasDisabled = importButton.disabled;
   status.textContent = "Parsing label and patient report…";
   showError("");
   loadButton.disabled = true;
+  importButton.disabled = true;
+  previousEditor?.setDisabled(true);
   try {
     const evidence = fixtureEvidence();
     const [documented, reported] = await Promise.all([
@@ -173,23 +199,34 @@ async function loadCase() {
     document.querySelector("#review-heading").tabIndex = -1;
     document.querySelector("#review-heading").focus();
   } catch (failure) {
-    status.textContent = "";
+    status.textContent = previousStatus;
+    previousEditor?.setDisabled(false);
+    importButton.disabled = importWasDisabled;
     showError(failure.message);
   } finally {
     loadButton.disabled = false;
   }
 }
 
-function renderReceipt(receipt, verified) {
+function renderReceipt(receipt, stored) {
   const heading = document.createElement("strong");
   heading.textContent = "Mock hospital import accepted";
   const timestamp = document.createElement("p");
   timestamp.textContent = `Receipt (UTC) ${receipt.imported_at}`;
   const summary = document.createElement("p");
-  summary.textContent = verified
-    ? `Stored verified regimen: ${verified.regimens.map(summarizeRegimen).join(" · ")}`
+  summary.textContent = stored
+    ? `Stored verified regimen: ${stored.verification.regimens.map(summarizeRegimen).join(" · ")}`
     : "The receiving record has not been retrieved yet.";
   receiptPanel.replaceChildren(heading, timestamp, summary);
+  if (stored) {
+    const originalTiming = document.createElement("p");
+    const timing = basis => stored.regimens
+      .filter(component => component.basis === basis)
+      .flatMap(component => component.time_of_day)
+      .join(", ");
+    originalTiming.textContent = `Stored original timing — Label: ${timing("documented")}. Patient report: ${timing("reported")}.`;
+    receiptPanel.append(originalTiming);
+  }
 }
 
 async function approveImport() {
@@ -220,7 +257,7 @@ async function approveImport() {
     const record = records.find(item => item.snapshot.evidence.case_id === draft.evidence.case_id);
     const stored = record?.snapshot.rows.find(item => item.id === row.id && item.revision === row.revision);
     if (!stored?.verification?.regimens.length) throw new Error("No verified regimen was returned for this revision.");
-    renderReceipt(receipt, stored.verification);
+    renderReceipt(receipt, stored);
     importButton.textContent = "Imported";
     status.textContent = "The receiving record returned the verified regimen.";
   } catch (failure) {
