@@ -58,7 +58,7 @@ state changes on the ticket using the comment format below.
    After ownership is confirmed, assign yourself, switch to `status:in-progress`, and post the
    claim using the update format below. Set State to `todo -> in-progress`, record the
    run ID, claim SHA, worker, branch, and owned paths, and give the next step under Next.
-   Recheck for other work every five minutes while implementing.
+   Recheck for other work every five minutes while implementing. At the same poll, [check published spec changes](docs/RUNNING_TICKET_QUEUE.md#check-published-spec-changes) and plan tickets for uncovered requirements.
 3. **Work** on branch `issue-<N>-<short-slug>` from current `origin/main`. Give each
    concurrently active branch its own Git worktree or checkout. Fill in the issue's `## Status` block
    (State, Owner, Branch, Last update) when starting. On each state change, update

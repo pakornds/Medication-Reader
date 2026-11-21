@@ -6,7 +6,15 @@ On any computer, open a checkout and say **“Work on the project”**. Each ses
 
 Read [AGENTS.md](../AGENTS.md), the [task-writing guide](WRITING_TASKS.md), and the [current spec](specs/medication-reader-v1.md). Verify authenticated access and fetch current main. Inspect open issues, owners, comments, branches and PRs, including work started under earlier instructions. Leave existing claims with their owners. Select an open, unassigned issue with both agent-ready and status:todo whose Depends on issues are done and merged. Prefer related tickets when several qualify. Merge after controls merge order only.
 
-Compare the assigned ticket with the latest spec, code, tests and PRs before editing. If you discover a separate requirement, record the gap and any related issue on the ticket for a planning pass. Reading a requirement during a queue run does not itself trigger issue creation.
+Compare the assigned ticket with the latest spec, code, tests and PRs before editing. Follow the spec check below to plan any newly uncovered work.
+
+## Check published spec changes
+
+On startup, resume and each five-minute check, fetch the default branch and compare the published spec with the last successfully assessed revision. On a first run, assess the current requirements. Skip unchanged content. Use the most capable available reasoning model for changed-requirement analysis when possible. Serialize issue creation across workers with a short, atomic planning claim independent of implementation claims. Under the claim, refresh issues and PRs, reuse matching work and file only independently testable uncovered outcomes as status:todo. Link the spec revision and section, and leave agent-ready to human review. Retry incomplete assessments at the next check.
+
+For this repo, watch all of `docs/specs/` and `docs/ai/reconciliation-behavior.md` on `origin/main`. Use the path-limited Git diff between the last assessed commit and the fetched commit, including new files, renames and removals. Record the assessed SHA in the worker's handoff after successful reconciliation. If the saved revision is missing or inaccessible, reconcile the current spec against GitHub and the implementation. A removed or ambiguous requirement calls for a note on the affected ticket and clarification when necessary.
+
+Use the create-only lease and owner-checked release described below with the fixed ref `refs/heads/codex-planning/spec-updates` and a fresh token. This claim covers only the planning transaction. If another worker holds it, continue implementation and retry next poll. The holder follows the [planning guide](WRITING_TASKS.md#for-planning-agents), checks code and tests plus open and closed issues and PRs, then records links to the issues created or reused. After a partial failure, search for already-filed outcomes before retrying. Keep the scope of in-progress implementation tickets stable and ask their owner about any conflicting change.
 
 ## Claim one issue atomically
 
@@ -44,6 +52,8 @@ Give the reviewer the ticket, acceptance criteria, PR diff and verification resu
 The independent reviewer may merge the reviewed PR when its GitHub credentials permit it, all actionable findings are resolved, acceptance checks pass, merge order is satisfied, and GitHub allows the merge under branch protection and required reviews. Verify that the PR head still matches the reviewed commit when merging. If the reviewer lacks merge access, hand the reviewed commit SHA back to the ticket owner to merge under the same conditions. In either case, the ticket owner verifies the merge, completes the issue and releases the claim.
 
 ## Demonstrate the result to the user
+
+On the PR record the exact commit SHA tested, the SHA used for the runtime demonstration, and the SHA independently reviewed. If the PR head changes, rerun the affected checks and demonstration and review the delta before merging. Update the SHAs to the verified head. For each demonstrated step label its evidence mock, live with synthetic data, or unverified. State which component ran, which dependency was simulated, and any blocker. Carry these labels into the per-ticket chat update.
 
 For changes to runnable behavior, run the affected workflow through its normal entry point with a representative synthetic input. After each ticket is merged and verified, post a completion update directly in the Codex chat before claiming another ticket. Include the issue, PR, and verification result. For runnable changes, show the evidence in that update. For a UI, include a screenshot or short recording of the resulting state when possible. For an API or CLI, show the request or command and a short excerpt of the actual response or output. Say what you expected and what you observed. If the workflow could not run, tell the user what you tried, what blocked it and what remains unverified. Save the reproduction steps and evidence on the PR as well.
 
