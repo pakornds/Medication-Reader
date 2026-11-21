@@ -70,6 +70,7 @@ class EvidenceItem(ContractModel):
     source_id: Text
     row_id: Text
     kind: Literal["label_region", "matched_reverse_label", "pill_crop", "record_excerpt"]
+    excerpt: Text | None = Field(default=None, description="Original wording selected for this row's record excerpt.")
 
     def supports_label(self, source_kind: SourceKind) -> bool:
         if source_kind == SourceKind.REVERSE_PHOTO:
@@ -92,6 +93,8 @@ class CaseEvidence(ContractModel):
         if len(item_keys) != len(self.items):
             raise ValueError("Duplicate item ID within a source")
         for item in self.items:
+            if item.excerpt is not None and item.kind != "record_excerpt":
+                raise ValueError("Only a record excerpt can carry quoted text")
             source = sources.get(item.source_id)
             if source is None or source.availability != "available":
                 raise ValueError(f"Item {item.id} has no available source")

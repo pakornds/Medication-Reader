@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 from PIL import Image
+from pydantic import ValidationError
 
 from app.ai.client import EvidenceImage
 from app.schemas.package_capture import PackageCapture
@@ -18,7 +19,8 @@ from app.services.labels import LabelPhotoError, crop_label
 
 from app.schemas.analysis import Discrepancy
 from app.schemas.admission import (
-    Action, AddEvidence, AddRow, AttestCurrentUse, Decision, Finish, Import, Interview, NewEncounter, Proposal, Refer, Verify,
+    DOCUMENT_KINDS, Action, AddEvidence, AddRow, AttestCurrentUse, Decision, DocumentExcerpt,
+    Finish, Import, Interview, NewEncounter, Proposal, Refer, RegisterDocument, SourceEntry, Verify,
 )
 from app.schemas.evidence import REPORT_KINDS, Observation, CaseEvidence, EvidenceItem, EvidenceRef, EvidenceSource, SourcedValue
 from app.schemas.review import CurrentUseVerification, ImportRequest, ReviewRow
@@ -44,6 +46,36 @@ def active(row):
 def entry_for(row, source_id):
     entry = next((e for e in active(row) if e["source"]["id"] == source_id), None)
     require(entry is not None, "Select an active source linked to this item.")
+    return entry
+
+
+def sources_used_by_rows(case, source_id):
+    return any(e["source"]["id"] == source_id for row in case["rows"].values() for e in row["entries"])
+
+
+def resolve_entry(case, submitted):
+    documents = case.setdefault("documents", {})
+    if isinstance(submitted, DocumentExcerpt):
+        document = documents.get(submitted.source_id)
+        require(submitted.case_id == case["id"] and document, "Select a document from this encounter.")
+        try:
+            entry = SourceEntry(source=document["source"], **submitted.model_dump(exclude={"case_id", "source_id"}))
+        except ValidationError:
+            raise HTTPException(422, "The selected excerpt must support the documented fields.") from None
+    else:
+        entry = submitted
+    source = entry.source.model_dump(mode="json")
+    sid = entry.source.id
+    document = documents.get(sid)
+    if document:
+        require(source == document["source"], "The document source definition conflicts with its registration.")
+        if document["wording"] is not None:
+            require(entry.wording in document["wording"], "Select a verbatim excerpt from the registered document.")
+    else:
+        require(not sources_used_by_rows(case, sid), "Use a new logical source ID.")
+        if entry.source.kind in DOCUMENT_KINDS:
+            # Inline add/link clients supply the current excerpt, rather than the full document.
+            documents[sid] = {"source": source, "wording": None}
     return entry
 
 
@@ -212,7 +244,7 @@ class AdmissionStore:
             key = (case_id, actor.id, request.request_id)
             cmd = request.command
             fingerprint = sha256(request.model_dump_json().encode())
-            if isinstance(cmd, (AddRow, AddEvidence)) and cmd.entry.scan_fields:
+            if isinstance(cmd, (AddRow, AddEvidence)) and isinstance(cmd.entry, SourceEntry) and cmd.entry.scan_fields:
                 fingerprint.update(b"\0" + ",".join(label_overrides(cmd.entry)).encode())
             digest = fingerprint.hexdigest()
             if key in self.retries:
@@ -349,15 +381,22 @@ class AdmissionStore:
 
     def transition(self, case, actor, cmd, request_id):
         rows = case["rows"]
+        if isinstance(cmd, RegisterDocument):
+            documents = case.setdefault("documents", {})
+            sid = cmd.source.id
+            require(sid not in documents and not sources_used_by_rows(case, sid), "Source ID is already registered.")
+            documents[sid] = {"source": cmd.source.model_dump(mode="json"), "wording": cmd.wording}
+            return dict(rows=[], sources=[sid])
         if isinstance(cmd, AttestCurrentUse):
             return attest_current_use(self.row(rows, cmd.row_id), actor, cmd)
         if isinstance(cmd, (AddEvidence, Interview, Proposal, Decision)) and cmd.row_id in rows:
             rows[cmd.row_id].pop("screening_attestation", None)
         if isinstance(cmd, (AddRow, AddEvidence)):
-            entry = cmd.entry.model_dump(mode="json")
-            if cmd.entry.scan_fields:
+            resolved = resolve_entry(case, cmd.entry)
+            entry = resolved.model_dump(mode="json")
+            if resolved.scan_fields:
                 # Keep explicit reviewer overrides separate from omitted defaults and the raw scan.
-                entry["label_overrides"] = label_overrides(cmd.entry)
+                entry["label_overrides"] = label_overrides(resolved)
             if entry["name"]:
                 parts = [entry["name"]]
                 for field in ("strength", "form"):
@@ -365,14 +404,13 @@ class AdmissionStore:
                         parts.append(entry[field])
                 entry["product"] = " ".join(parts)
             sid = entry["source"]["id"]
-            require(not any(sid == e["source"]["id"] for r in rows.values() for e in r["entries"]),
-                    "Use a new logical source ID.")
             if isinstance(cmd, AddRow):
                 rid = "item-" + str(len(rows) + 1)
                 row = new_row(rid, unknown=not bool(entry["name"]))
                 rows[rid] = row
             else:
                 row = self.row(rows, cmd.row_id)
+                require(all(e["source"]["id"] != sid for e in row["entries"]), "Source already linked to this item.")
                 if cmd.replaces:
                     old = entry_for(row, cmd.replaces)
                     require(old["photo"] and entry["photo"] and old["photo"]["bag"] == entry["photo"]["bag"],
@@ -520,7 +558,7 @@ class AdmissionStore:
         return None
 
     def import_rows(self, case, selected, actor, request_id):
-        sources, items, importable = [], [], []
+        sources, items, importable = {}, [], []
         for row in selected:
             verified = row["verified"]
             require(verified and verified["identity"] and not needs_identity(row),
@@ -531,13 +569,14 @@ class AdmissionStore:
             refs = {}
             for entry in active(row):
                 source = EvidenceSource.model_validate(entry["source"])
-                sources.append(source)
+                sources[source.id] = source
                 kind = "record_excerpt"
                 if entry["photo"]:
                     kind = "label_region" if reviewable_entry(entry) else "pill_crop"
                 if kind == "label_region" and source.kind == "reverse_photo":
                     kind = "matched_reverse_label"
-                item = EvidenceItem(id=row["id"], source_id=source.id, row_id=row["id"], kind=kind)
+                item = EvidenceItem(id=row["id"], source_id=source.id, row_id=row["id"], kind=kind,
+                                    excerpt=entry["wording"] if source.kind in DOCUMENT_KINDS else None)
                 items.append(item)
                 refs[source.id] = EvidenceRef(source_id=source.id, item_id=item.id)
             ref = refs[verified["source_id"]]
@@ -555,7 +594,7 @@ class AdmissionStore:
             reports = []
             conflicts = conflicting_fields(row)
             regimens = []
-            manifest = CaseEvidence(case_id=case["id"], sources=sources, items=items)
+            manifest = CaseEvidence(case_id=case["id"], sources=list(sources.values()), items=items)
             observations_by_source = {}
             for entry in active(row):
                 source_id = entry["source"]["id"]
@@ -598,7 +637,7 @@ class AdmissionStore:
                 observed_names=[] if row["unknown"] else [name], reported_use=reports,
                 label_fields=label_fields, regimens=regimens, discrepancies=discrepancies, sources=list(refs.values()),
                 revision=case["revision"], verification=verification))
-        evidence = CaseEvidence(case_id=case["id"], sources=sources, items=items)
+        evidence = CaseEvidence(case_id=case["id"], sources=list(sources.values()), items=items)
         ledger = ApprovalLedger()
         try:
             for row in importable:
