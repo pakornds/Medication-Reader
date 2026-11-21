@@ -25,9 +25,14 @@ def sync_capture(case, medicines, orientations):
             if side == "front":
                 front_by_source[item.source_id] = medicine.row.id
 
-    if "front" not in attachments:
-        return  # Additional and unpaired reverse items still retain their located image in their source entry.
     previous = case.get("capture", {})
+    if "front" not in attachments and not previous:
+        return  # An unpaired additional or reverse item retains its located original on its entry.
+    for side in ("front", "reverse"):
+        old = previous.get(side)
+        if old and side not in attachments:
+            attachments[side] = old["attachment_id"]
+            orientations.setdefault(old["attachment_id"], old["exif_orientation"])
     views = {}
     for side, attachment in attachments.items():
         old = previous.get(side) or {}
@@ -69,6 +74,8 @@ def sync_capture(case, medicines, orientations):
     manifest = PackageCapture(case_id=case["id"], **views, packages=packages, reverse_matches=matches,
                               sources=list(sources.values()))
     result = manifest.model_dump(mode="json")
-    if previous and not case.get("intake_capture") and previous != result:
+    # A newly uploaded, unmarked scene is deliberately reusable for proposal -> confirmation.
+    has_associations = bool(previous.get("packages") or previous.get("reverse_matches") or previous.get("sources"))
+    if has_associations and not case.get("intake_capture") and previous != result:
         require(False, "The encounter already has a separately edited capture. Reconcile its associations first.", 409)
     case.update(capture=result, capture_rows=links, intake_capture=True)

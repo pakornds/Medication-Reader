@@ -53,35 +53,16 @@ async function addDocumentedProduct(page) {
   await page.locator('.draft-line').filter({ hasText: /ZOCOR/i }).waitFor()
 }
 
-// Exercise image selection, physical region and admission storage with a deterministic unreadable
-// transcription. Only this analysis response is substituted; all other network operations stay real.
+// This path records an unreadable original through the staff UI. It works without a live OCR provider.
 async function addUnreadablePhoto(page) {
   await button(page, 'Read photos or notes').click()
   const slot = page.getByRole('region', { name: 'Label side', exact: true })
   await slot.locator('input[type=file]').first().setInputFiles(path.resolve(__dirname, '../../../backend/tests/fixtures/package_regions/empty.png'))
   await slot.getByRole('button', { name: 'Use whole image', exact: true }).click()
-  await page.route('**/medication-analysis', async route => {
-    const request = route.request()
-    const form = await new Response(request.postDataBuffer(), { headers: { 'Content-Type': request.headers()['content-type'] } }).formData()
-    const submitted = JSON.parse(form.get('form'))
-    assert.equal(form.getAll('photos').length, 1)
-    assert.equal(submitted.evidence.items.length, 1)
-    const [area] = submitted.evidence.items
-    assert.equal(area.kind, 'label_region')
-    const ref = { source_id: area.source_id, item_id: area.id }
-    await route.fulfill({ json: {
-      case_id: submitted.evidence.case_id, rows: [{
-        id: area.row_id, identity_status: 'unreadable', unknown_label: 'Unreadable synthetic package',
-        sources: [ref], observed_names: [], label_fields: {}, reported_use: [],
-        discrepancies: [], follow_ups: [], regimens: [],
-      }], unassigned_reports: [],
-    } })
-  })
-  await button(page, 'Analyze evidence').click()
-  await page.locator('.pick-row input').filter({ visible: true }).check()
-  await button(page, 'Add selected to draft').click()
-  await page.locator('.draft-line').filter({ hasText: 'Unreadable synthetic package' }).waitFor()
-  await page.unroute('**/medication-analysis')
+  await page.getByText('Record what I can read', { exact: true }).click()
+  await page.getByLabel('Keep identity unresolved').check()
+  await button(page, 'Use this label in draft').click()
+  await page.locator('.draft-line').filter({ hasText: 'Unidentified medicine' }).waitFor()
 }
 
 async function verifyProduct(page, rowId) {
@@ -113,7 +94,7 @@ async function assertReceiptHistory(page, expected, canRead) {
   await page.getByRole('button', { name: 'View receipt', exact: true }).click()
   if (canRead) {
     await page.getByText(expected, { exact: true }).last().waitFor()
-    assert.equal(await page.getByText('Unreadable synthetic package', { exact: true }).count(), 0)
+    assert.equal(await page.getByText('Unidentified medicine', { exact: true }).count(), 0)
   } else {
     await page.getByText('Sign in as the assigned pharmacist to open the hospital receipt.').waitFor()
     assert.equal(await page.getByText(expected, { exact: true }).count(), 0)
@@ -235,6 +216,6 @@ async function mobile(browser) {
   try {
     await workflow(browser)
     await mobile(browser)
-    console.log('PASS normal React staff routes: real TMT and regimen parser, synthetic unreadable analysis, admission handoff, nurse verification, pharmacist import retry, server receipt, signed-out reload, Thai mobile and dark theme.')
+    console.log('PASS normal React staff routes: real TMT and regimen parser, located unreadable photo, admission handoff, nurse verification, pharmacist import retry, server receipt, signed-out reload, Thai mobile and dark theme.')
   } finally { await browser.close() }
 })().catch(error => { console.error(error); process.exitCode = 1 })

@@ -1,3 +1,4 @@
+import { ScanCatalogue } from './ScanCatalogue'
 import { regimenText, type RegimenText } from '../../i18n/regimen'
 import { RegimenReadback } from './RegimenReadback'
 import { RegionOutline } from '../../components/ui/RegionOutline'
@@ -11,6 +12,8 @@ import {
   hasEarlierEvidence,
   rowName,
   type Draft,
+  type CatalogueMatch,
+  type Medicine,
   type Evidence,
   type Fact,
   type Ref,
@@ -181,11 +184,11 @@ export function AnalysisPreview({
   )
 }
 
-export function DraftReview({ draft, language }: { draft: Draft; language: Language }) {
+export function DraftReview({ draft, language, onCatalogue, embedded=false }: { draft: Draft; language: Language; embedded?: boolean; onCatalogue?: (medicine:Medicine,match:CatalogueMatch|undefined)=>void }) {
   const t = intake[language]
   return (
     <div className="intake stack">
-      <h1>{language === 'th' ? 'ทบทวน' : 'Review'}</h1>
+      {!embedded && <h1>{language === 'th' ? 'ทบทวน' : 'Review'}</h1>}
       {!draft.medicines.length && <p>{t.noMedicines}</p>}
       {draft.medicines.map((medicine) => {
         const { row, evidence, catalogue } = medicine
@@ -202,6 +205,7 @@ export function DraftReview({ draft, language }: { draft: Draft; language: Langu
               </small>
             )}
             <RowEvidence rt={regimenText[language]} row={row} evidence={evidence} t={t} />
+            {medicine.origin==='analysis' && row.identity_status==='named' && onCatalogue && <ScanCatalogue medicine={medicine} language={language} onChange={match=>onCatalogue(medicine,match)}/> }
           </article>
         )
       })}

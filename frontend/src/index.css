@@ -185,3 +185,15 @@
   .label-transcription form { margin-block-start:.75rem; }
   .intake .label-unknown { display:flex; gap:.5rem; align-items:center; }
 }
+@layer components {
+  .scan-catalogue > div { margin-block-start: .8rem; }
+  .catalogue-comparison { border-inline-start: 2px solid var(--accent); padding-inline-start: .9rem; }
+  .catalogue-comparison dl { display:flex; gap:1rem; flex-wrap:wrap; margin-block:.4rem; }
+  .catalogue-comparison dt { font-size:.8rem; color:var(--text-2); }
+  .catalogue-comparison button { display:block; margin-block-start:.5rem; }
+}
+@layer components {
+  .input-access { margin-block-end: .8rem; color: var(--text-2); font-size:.875rem; }
+  .input-access summary { cursor:pointer; width:fit-content; color:var(--accent); }
+  .input-access .staff-access { border:0; }
+}

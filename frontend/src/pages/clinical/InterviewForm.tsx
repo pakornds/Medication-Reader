@@ -35,19 +35,19 @@ export function InterviewForm({ row, encounter, save, t }: { row: ReviewRow; enc
   }
   return <form className="clinical-form" onSubmit={submit}>
     <h4>{t('Medication interview','สัมภาษณ์การใช้ยา')}</h4>
-    <label>{t('Interview source','แหล่งข้อมูลการสัมภาษณ์')}<select value={source} onChange={e=>{setSource(e.target.value);setSaved(false)}}>
+    <label>{t('Interview source','แหล่งข้อมูลการสัมภาษณ์')}<select aria-label={t('Interview source','แหล่งข้อมูลการสัมภาษณ์')} value={source} onChange={e=>{setSource(e.target.value);setSaved(false)}}>
       <option value="">{t('Record a new account','บันทึกคำบอกเล่าใหม่')}</option>
       {sources.map(entry=><option key={entry.source.id} value={entry.source.id}>{sourceLabel(entry,t)} · {entry.wording}</option>)}
     </select></label>
     {source ? <blockquote>{chosen?.wording}</blockquote> : <>
-      <label>{t('Account from','ผู้ให้ข้อมูล')}<select value={kind} onChange={e=>setKind(e.target.value as typeof kind)}>
+      <label>{t('Account from','ผู้ให้ข้อมูล')}<select aria-label={t('Account from','ผู้ให้ข้อมูล')} value={kind} onChange={e=>setKind(e.target.value as typeof kind)}>
         <option value="patient_report">{t('Patient','ผู้ป่วย')}</option><option value="caregiver_report">{t('Caregiver','ผู้ดูแล')}</option></select></label>
       <label>{t('Original interview wording','คำบอกเล่าตามจริง')}<textarea required value={wording} onChange={e=>setWording(e.target.value)}/></label>
     </>}
     <div className="clinical-fields">
-      <label>{t('Whose medicine?','ยาของใคร')}<select value={answers.ownership} onChange={e=>update({ownership:e.target.value as Answers['ownership']})}>
+      <label>{t('Whose medicine?','ยาของใคร')}<select aria-label={t('Whose medicine?','ยาของใคร')} value={answers.ownership} onChange={e=>update({ownership:e.target.value as Answers['ownership']})}>
         {Object.entries(ownerLabels(t)).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
-      <label>{t('Current use','สถานะการใช้ยา')}<select value={answers.current_use} onChange={e=>update({current_use:e.target.value as Answers['current_use']})}>
+      <label>{t('Current use','สถานะการใช้ยา')}<select aria-label={t('Current use','สถานะการใช้ยา')} value={answers.current_use} onChange={e=>update({current_use:e.target.value as Answers['current_use']})}>
         {Object.entries(currentUseLabels(t)).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
       <label>{t('Actual dose','ขนาดยาที่ใช้จริง')}<input value={answers.dose || ''} onChange={e=>update({dose:e.target.value})}/></label>
       <label>{t('Actual route','ทางที่ใช้ยาจริง')}<input value={answers.route || ''} onChange={e=>update({route:e.target.value})}/></label>

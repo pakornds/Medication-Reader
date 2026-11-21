@@ -3,8 +3,10 @@ import { Link } from 'react-router-dom'
 import { LuArrowLeft, LuCheck, LuHistory } from 'react-icons/lu'
 import { ApiError, type createClient } from '../../api/client'
 import type { Encounter } from '../../api/admission'
-import type { ImportReceipt, ReviewerIdentity } from '../../api/contracts'
+import type { ImportReceipt, RegimenComponent, ReviewerIdentity } from '../../api/contracts'
 import { Button } from '../../components/ui/Button'
+import { RegimenReadback } from '../new-patient/RegimenReadback'
+import { regimenText } from '../../i18n/regimen'
 import type { Language } from '../../i18n/messages'
 import { exclusion, importRequestId, medicineName, saveReceipt } from './importSelection'
 
@@ -148,19 +150,21 @@ function Output({ language, client, actor, encounter, onEncounter }: Props) {
         {ready.length > 0 && <fieldset disabled={busy || !pharmacist}>
           <legend className="mb-2 font-semibold">{t.ready} · {ready.length}</legend>
           {ready.map(row => {
-            const v = row.verified!
+            const v = row.verified as NonNullable<typeof row.verified> & { regimens?: RegimenComponent[] }
             const entry = row.entries.find(e => e.source.id === v.source_id)
             const regimen = [v.answer.dose, v.answer.route, v.answer.schedule].filter(Boolean).join(' · ')
-            return <label className="flex gap-3 border-t border-line py-3" key={row.id}>
+            return <div key={row.id} className="border-t border-line py-3"><label className="flex gap-3">
               <input type="checkbox" className="mt-1 size-5 shrink-0 accent-accent" checked={selected.some(item => item.id === row.id)} onChange={() => toggle(row.id)} />
               <span className="min-w-0">
                 <strong className="block">{v.identity!.name}</strong>
                 <span className="block">{v.answer.current_use === 'current' ? t.current : v.answer.current_use === 'discontinued_order' ? t.discontinued : t.stopped}</span>
-                {regimen && <span className="block">{regimen}</span>}
+                {!v.regimens?.length && regimen && <span className="block">{regimen}</span>}
                 <small className="block">{t.verifier} · {v.actor.name}</small>
                 {entry && <small className="block">{t.source} · {entry.source.organization || entry.wording}</small>}
               </span>
             </label>
+              {v.regimens?.map(component => <RegimenReadback key={component.component_id} component={component} t={regimenText[language]} />)}
+            </div>
           })}
         </fieldset>}
         {excluded.length > 0 && <div><h3>{t.excluded} · {excluded.length}</h3>

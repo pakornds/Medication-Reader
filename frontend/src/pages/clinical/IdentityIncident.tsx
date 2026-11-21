@@ -21,7 +21,7 @@ export function IdentityIncident({item,entries,pharmacist,save,t}:{item:Incident
     {pharmacist && <form className="clinical-form" onSubmit={async e=>{
       e.preventDefault(); const result = await save({action:'assess_identity_incident',incident_id:item.id,outcome,assessment:assessment.trim()}); if(result)setAssessment('')
     }}>
-      <label>{t('Pharmacy assessment','ผลประเมินของเภสัชกร')}<select value={outcome} onChange={e=>setOutcome(e.target.value as typeof outcome)}>
+      <label>{t('Pharmacy assessment','ผลประเมินของเภสัชกร')}<select aria-label={t('Pharmacy assessment','ผลประเมินของเภสัชกร')} value={outcome} onChange={e=>setOutcome(e.target.value as typeof outcome)}>
         {Object.entries(options).map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></label>
       <label>{t('Assessment note','บันทึกผลการประเมิน')}<textarea required value={assessment} onChange={e=>setAssessment(e.target.value)}/></label>
       <button className="btn" disabled={!assessment.trim()}>{t('Record pharmacy assessment','บันทึกผลประเมินของเภสัชกร')}</button>

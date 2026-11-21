@@ -51,7 +51,7 @@ export function VerifyForm({row, actor, save, t, language}:{
   return <form className="clinical-form" onSubmit={verify}>
     <h4>{t('Clinical verification','ยืนยันโดยบุคลากรทางการแพทย์')}</h4>
     <p>{sourceLabel(source,t)} · {source.wording}</p>
-    {!row.unknown && <label>{t('Supported medicine identity','หลักฐานยืนยันตัวยา')}<select value={identity} required onChange={e=>{setIdentity(e.target.value);setMatch(false);setProduct(undefined);setQuery('')}}>
+    {!row.unknown && <label>{t('Supported medicine identity','หลักฐานยืนยันตัวยา')}<select aria-label={t('Supported medicine identity','หลักฐานยืนยันตัวยา')} value={identity} required onChange={e=>{setIdentity(e.target.value);setMatch(false);setProduct(undefined);setQuery('')}}>
       <option value="">{t('Choose an identity source','เลือกหลักฐานระบุชนิดยา')}</option>
       {named.map(e=><option key={e.source.id} value={e.source.id}>{entryName(e)} · {sourceLabel(e,t)} · {e.wording}</option>)}</select></label>}
     {row.unknown && <p>{row.confirmed ? row.confirmed.name : t('Identity unresolved','ยังไม่ยืนยันชนิดยา')}</p>}

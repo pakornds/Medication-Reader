@@ -76,6 +76,8 @@ function encode(file: File): Promise<Original> {
 
 export async function admitDraft(client: ReturnType<typeof createClient>, draft: Draft,
   encounter: Encounter | null = null): Promise<Encounter> {
+  if (encounter && encounter.id !== "admission-" + draft.caseId.replaceAll("-", ""))
+    throw new Error("Choose the encounter for this draft.")
   const originals = new Map<string, File>()
   const rows = draft.medicines.map(m => prepareMedicine(m, originals))
   const uploads = await Promise.all([...originals].filter(([id]) => !encounter?.intake_attachments?.includes(id))

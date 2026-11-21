@@ -15,7 +15,7 @@ export function exclusion(row: AdmissionRow) {
 
 export function medicineName(row: AdmissionRow) {
   const entry = row.entries.findLast(entry => !row.superseded.includes(entry.source.id) && entry.name)
-  return row.verified?.identity?.name || row.confirmed?.name || (!row.unknown && entry?.name) || null
+  return row.verified?.identity?.name || row.confirmed?.name || (row.unknown ? row.intake?.unknown_label : entry?.name) || null
 }
 
 export async function importRequestId(caseId: string, actorId: string, revision: number, sortedRows: string[]) {
@@ -26,7 +26,9 @@ export async function importRequestId(caseId: string, actorId: string, revision:
 
 export function saveReceipt(receipt: ImportReceipt) {
   try {
-    return recordImportReceipt(window.localStorage, receipt) === 'saved'
+    const saved = recordImportReceipt(window.localStorage, receipt) === 'saved'
+    if (saved) window.dispatchEvent(new Event('medication-imported'))
+    return saved
   } catch {
     return false
   }

@@ -13,9 +13,10 @@ import { ClinicalReview } from './pages/clinical/ClinicalReview'
 import { OutputPage } from './pages/output/OutputPage'
 import { HistoryPage } from './pages/history/HistoryPage'
 import { StaffAccess, EncounterQueue, type StaffSession } from './workflow/StaffAccess'
-import { CaseHandoff, caseText, type CaseState } from './workflow/ConnectedCase'
+import { CaseHandoff, type CaseState } from './workflow/ConnectedCase'
 import { proposePhotoRegions } from './workflow/proposePhotoRegions'
 import type { Photo } from './pages/new-patient/draft'
+import { caseText } from './workflow/caseText'
 import type { Encounter } from './api/admission'
 
 export default function App() {
@@ -96,12 +97,13 @@ export default function App() {
         <Route index element={<Navigate to={lastStage} replace/>}/>
         <Route path="input" element={(record?.synced===null && !record.captureOnly) ?
           <div className="intake stack"><h1>{t.input}</h1><p>{w.syncedInput}</p><Link className="text-action" to="/new-patient/review">{w.goReview}</Link></div> :
-          <InputPage key={draft.caseId} draft={draft} setDraft={setDraft} language={language} proposePhoto={session?proposePhoto:undefined}/>}/>
+          <><details className="input-access"><summary>{session ? session.actor.name : language==='th'?'สิทธิ์เจ้าหน้าที่':'Staff access'}</summary>{access}</details><InputPage key={draft.caseId} draft={draft} setDraft={setDraft} language={language} proposePhoto={session?proposePhoto:undefined}/></>}/>
         <Route path="review" element={<div className="connected-workspace stack">
-          {(record?.synced===null && !record.captureOnly) ? <h1 className="page-heading">{t.review}</h1> : <DraftReview draft={draft} language={language}/>}
+          {current || (record?.synced===null && !record.captureOnly) ? <h1 className="page-heading">{t.review}</h1> : <DraftReview draft={draft} language={language} onCatalogue={(medicine,match)=>setDraft(d=>({...d,medicines:d.medicines.map(m=>m===medicine?{...m,catalogue:match}:m)}))}/>}
           {access}{error}
           {(!current || draft.preview?.rows.length) ? <CaseHandoff key={draft.caseId} draft={draft} language={language} session={session} record={record} onSaved={onSaved} onRefresh={openEncounter}/> : null}
           {session && record && current && <ClinicalReview key={record.encounter.id+session.actor.id} language={language} client={session.client} actor={session.actor} encounter={record.encounter} onEncounter={onEncounter}/>}
+          {current && record?.synced && <details className="intake intake-panel"><summary>{language==='th'?'ดูฉบับร่างและหลักฐานต้นทาง':'Intake draft and source evidence'}</summary><DraftReview embedded draft={draft} language={language} onCatalogue={(medicine,match)=>setDraft(d=>({...d,medicines:d.medicines.map(m=>m===medicine?{...m,catalogue:match}:m)}))}/></details>}
         </div>}/>
         <Route path="output" element={<div className="connected-workspace stack">
           {session && record && current ? <OutputPage key={record.encounter.id+session.actor.id} language={language} client={session.client} encounter={record.encounter} actor={session.actor} onEncounter={onEncounter}/> : placeholderOutput}{access}

@@ -1,16 +1,46 @@
+import type { RegionBounds } from '../../api/contracts'
 import { RegionOutline } from '../../components/ui/RegionOutline'
 import { InputField } from '../../components/ui/InputField'
 import { Button } from '../../components/ui/Button'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
 import type { IntakeText } from '../../i18n/intake'
 import { EvidenceImage } from './EvidenceImage'
 import type { Box, Photo, Region } from './draft'
 
 const fullImage = { x: 0, y: 0, w: 100, h: 100 }
-type Props = { photo: Photo; photos: Photo[]; t: IntakeText; onChange: (regions: Region[]) => void }
+type Props = { photo: Photo; photos: Photo[]; t: IntakeText; onChange: (regions: Region[]) => void; proposePhoto?: (photo: Photo) => Promise<RegionBounds[]> }
 
-export function PhotoItems({ photo, photos, t, onChange }: Props) {
+export function PhotoItems({ photo, photos, t, onChange, proposePhoto }: Props) {
+  const [suggestions, setSuggestions] = useState<Box[]>([])
+  const [detection, setDetection] = useState<'idle' | 'working' | 'empty' | 'error'>('idle')
+  const request = useRef(0)
+  useEffect(() => () => { request.current += 1 }, [])
+  async function detect() {
+    if (!proposePhoto) return
+    const current = ++request.current
+    setDetection('working')
+    try {
+      const boxes = await proposePhoto(photo)
+      if (current !== request.current) return
+      const proposals = boxes.map(({ x, y, width, height }) => ({ x: x * 100, y: y * 100, w: width * 100, h: height * 100 }))
+      setSuggestions(proposals)
+      setDetection(proposals.length ? 'idle' : 'empty')
+    } catch {
+      if (current === request.current) setDetection('error')
+    }
+  }
+
+  function accept() {
+    const fresh = suggestions.filter(b => !photo.regions.some(r =>
+      Math.abs(r.box.x - b.x) < .1 && Math.abs(r.box.y - b.y) < .1 &&
+      Math.abs(r.box.w - b.w) < .1 && Math.abs(r.box.h - b.h) < .1))
+    onChange([...photo.regions, ...fresh.map(bounds => {
+      const id = crypto.randomUUID()
+      return { id, rowId: id, box: bounds, organization: '' }
+    })])
+    setSuggestions([])
+  }
   const [start, setStart] = useState<{ x: number; y: number } | null>(null)
   const [box, setBox] = useState<Box>(fullImage)
   const frontRows = photos
@@ -43,9 +73,22 @@ export function PhotoItems({ photo, photos, t, onChange }: Props) {
   }
   return (
     <div className="stack">
+      {proposePhoto && photo.kind !== 'additional_photo' && <div className="stack">
+        <div className="actions">
+          <Button disabled={detection === 'working'} aria-busy={detection === 'working'} onClick={() => void detect()}>{t.findRegions}</Button>
+          {suggestions.length > 0 && <>
+            <Button onClick={accept}>{t.acceptRegions} ({suggestions.length})</Button>
+            <Button variant="text" onClick={() => setSuggestions([])}>{t.dismissRegions}</Button>
+          </>}
+        </div>
+        {detection === 'error' && <small role="status">{t.regionServiceFailed}</small>}
+        {detection === 'empty' && <small role="status">{t.noRegions}</small>}
+      </div>}
       <p className="hint">{t.markHint}</p>
       <div className="region-image" onClick={mark}>
         <EvidenceImage file={photo.file} />
+        {suggestions.map((b,i) => <span key={i} aria-hidden="true" className="region-box proposal-box"
+          style={{ left: b.x+'%', top: b.y+'%', width: b.w+'%', height: b.h+'%', borderStyle:'dashed', pointerEvents:'none' }} />)}
         {start && <span className="corner" style={{ left: start.x + '%', top: start.y + '%' }} />}
         {photo.regions.map(({ id, box }, i) => (
           <RegionOutline key={id} box={box} number={i + 1} />

@@ -31,6 +31,7 @@ export type Suggestion = {
 }
 export type Preview = { case_id: string; rows: Suggestion[]; unassigned_reports: Fact[] }
 export type Product = {
+  source_generic?: string
   tpu: string
   label: string
   active_tmt: boolean
