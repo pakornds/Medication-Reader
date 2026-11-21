@@ -9,46 +9,32 @@ Build a 12-hour, fixture-only web demo for hospital and community pharmacists, d
 ## Workflow
 
 ```mermaid
-flowchart TB
-    subgraph intake["1 · Collect evidence with source"]
-        direction LR
-        label["Photo 1: All items with labels facing up"]
-        reverse["Photo 2: Same items flipped to show the pills"]
-        report["Manual report or transfer record"]
-    end
-    subgraph draft["2 · Prepare review"]
-        direction LR
-        ocr["Extract printed details<br/>Thai and English"]
-        flag["Flag unknown items and attach matched pill crops"]
-        manual["Capture reported details<br/>Keep source and date"]
-    end
-
-    label --> ocr
-    label --> flag
-    reverse --> flag
-    report --> manual
-    label --> agent["Analyze photo and natural-language form fields"]
-    reverse --> agent
-    report --> agent
-    ocr --> list["Draft medication list<br/>Evidence, discrepancies, and follow-up questions"]
+flowchart TD
+    label["1. Photograph all items with labels facing up"]
+    reverse["2. Flip items in place and photograph the pill side"]
+    agent["3. Analyze both photos and any staff-entered reports or transfer records"]
+    label --> reverse --> agent
+    agent --> ocr["Read Thai and English labels from Photo 1"]
+    agent --> flag["Flag unknown items and attach matched crops from Photo 2 when available"]
+    agent --> manual["Capture reported use with its source and date"]
+    ocr --> list["Prepare a draft with evidence, discrepancies and follow-up questions"]
     flag --> list
     manual --> list
-    agent --> list
-    list --> handoff["Print or open the digital review list"]
-    handoff --> review{"Pharmacist or doctor verifies<br/>what the patient actually takes"}
-    review -->|More evidence needed| follow["Ask the patient or contact the source"]
-    follow --> intake
-    review -->|Optional, with validated data| checks["Show DDI and DRP findings<br/>and coverage gaps"]
-    review -->|Explicit pharmacist approval| save["Import approved rows<br/>into mock hospital database"]
+    list --> handoff["4. Give the pharmacist or doctor the printed or digital list"]
+    handoff --> review{"Can the reviewer verify actual use with the patient and available evidence?"}
+    review -->|More evidence needed| follow["Keep the row pending and follow up with the patient or source before reviewing again"]
+    review -->|Verified| verified["Record verified current use"]
+    verified -->|Optional| checks["Show DDI and DRP findings and coverage gaps using validated data"]
+    verified -->|Explicit pharmacist approval| save["Import approved rows into the mock hospital database"]
     save --> receipt["Save only import timestamps locally"]
 
     classDef evidence fill:#EAF2FF,stroke:#5675AB,color:#172B4D
     classDef processing fill:#F1EBFF,stroke:#8765BB,color:#30204F
     classDef human fill:#FFF2D7,stroke:#AF7627,color:#4E3213
     classDef storage fill:#E5F5EC,stroke:#398367,color:#173D30
-    class label,reverse,report evidence
+    class label,reverse evidence
     class ocr,flag,manual,list,agent,checks processing
-    class handoff,review,follow human
+    class handoff,review,follow,verified human
     class save,receipt storage
 ```
 
