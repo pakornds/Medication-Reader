@@ -56,6 +56,7 @@ test("two-row worksheet retains the clinic contact and the unresolved item's own
   assert.match(text(named), /Unresolved/);
   assert.match(text(unknown), /Unknown medication A[\s\S]*Identity unresolved/);
   assert.match(text(unknown), /Reverse-side photo \[reverse-photo\]/);
+  assert.match(text(unknown), /Evidence items: pill-c/);
   assert.match(text(unknown), /No usable reverse-side crop available/);
   assert.match(text(unknown), /Documented directions\nMissing/);
   assert.match(text(unknown), /Check the documented directions with the source/);
@@ -125,4 +126,36 @@ test("an unresolved stopped item retains both statuses in the history", () => {
   const [active, history] = handoff.childNodes.filter(item => item.tag === "section");
   assert.doesNotMatch(text(active), /Unknown medication A/);
   assert.match(text(history), /Unknown medication A[\s\S]*Identity unresolved[\s\S]*No longer current/);
+});
+
+test("appearance and unqualified reviewers cannot establish a printed identity", () => {
+  const data = snapshot();
+  const pending = data.rows[2];
+  data.rows = [pending];
+  const appearance = { value: "Appearance-only identity", evidence: pending.reverse_crop };
+  pending.verification = { status: "current", identity: appearance, reviewer: { name: "Demo pharmacist", role: "pharmacist" },
+    verified_at: datedAt, evidence: pending.sources };
+  const unresolved = text(render(data));
+  assert.match(unresolved, /Unknown medication A[\s\S]*Identity unresolved/);
+  assert.doesNotMatch(unresolved, /Appearance-only identity|Verified current/);
+
+  data.evidence.items.push({ id: "matched-label", source_id: "reverse-photo", row_id: pending.id, kind: "matched_reverse_label" });
+  const label = { source_id: "reverse-photo", item_id: "matched-label" };
+  pending.verification.identity = { value: "Independently named item", evidence: label };
+  pending.verification.reviewer = { name: "Intake staff", role: "staff" };
+  assert.doesNotMatch(text(render(data)), /Independently named item|Verified current|Intake staff/);
+  pending.verification.reviewer = { name: "Demo pharmacist", role: "pharmacist" };
+  assert.doesNotMatch(text(render(data)), /Independently named item|Verified current/);
+  data.evidence.sources.push({ id: "corroborating-photo", kind: "reverse_photo", attachment_id: "separate-package" });
+  data.evidence.items.push({ id: "corroborating-label", source_id: "corroborating-photo", row_id: pending.id,
+    kind: "matched_reverse_label" });
+  pending.verification.identity.evidence = { source_id: "corroborating-photo", item_id: "corroborating-label" };
+  assert.match(text(render(data)), /Independently named item[\s\S]*Verified current/);
+});
+
+test("a report keeps the reporter when the source also lists an organization", () => {
+  const data = snapshot();
+  data.evidence.sources.find(source => source.id === "patient-account").organization = "Demo Clinic";
+  const sheet = text(render(data));
+  assert.match(sheet, /Patient report · Demo Clinic · Reported by Demo patient \[patient-account\]/);
 });

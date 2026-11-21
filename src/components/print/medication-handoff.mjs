@@ -6,6 +6,7 @@ const sourceKinds = {
   caregiver_report: "Caregiver report", reviewer_record: "Reviewer record", other_record: "Other record",
 };
 const photoKinds = new Set(["label_photo", "reverse_photo", "additional_photo"]);
+const clinicianRoles = new Set(["nurse", "doctor", "pharmacist"]);
 const fieldNames = {
   identity: "Identity", directions: "Documented directions", reported_use: "Reported use",
   period_value: "Period length", time_of_day: "Time of day", as_needed: "As needed",
@@ -46,8 +47,8 @@ function dateNode(document, value) {
 
 function sourceName(source) {
   const kind = sourceKinds[source.kind] ?? source.kind;
-  const who = source.organization ?? source.reporter;
-  return who ? `${kind} · ${who} [${source.id}]` : `${kind} [${source.id}]`;
+  const reporter = source.organization && source.reporter ? `Reported by ${source.reporter}` : source.reporter;
+  return `${[kind, source.organization, reporter].filter(Boolean).join(" · ")} [${source.id}]`;
 }
 
 function citationsFor(row, evidence) {
@@ -65,7 +66,8 @@ function citationsFor(row, evidence) {
     if (!source || (source.availability === "unavailable" && !followUp)) return null;
     const item = locate(ref);
     if ((ref.item_id || (claim && photoKinds.has(source.kind))) && !item) return null;
-    used.set(source.id, source);
+    if (!used.has(source.id)) used.set(source.id, { source, items: new Set() });
+    if (item) used.get(source.id).items.add(item.id);
     return [sourceName(source), item?.id].filter(Boolean).join(" · ");
   }
 
@@ -74,19 +76,33 @@ function citationsFor(row, evidence) {
       Boolean(describe(ref));
   }
 
-  return { describe, cropAvailable, used };
+  function supportsIdentity(ref, independentOf = null) {
+    const source = sources.get(ref?.source_id);
+    if (!source) return false;
+    const challenged = sources.get(independentOf?.source_id);
+    if (challenged && (source.id === challenged.id ||
+        (source.attachment_id && source.attachment_id === challenged.attachment_id))) return false;
+    if (photoKinds.has(source.kind)) {
+      const expected = source.kind === "reverse_photo" ? "matched_reverse_label" : "label_region";
+      if (locate(ref)?.kind !== expected) return false;
+    }
+    return Boolean(describe(ref));
+  }
+
+  return { describe, cropAvailable, supportsIdentity, used };
 }
 
 function sourceDetails(document, article, sources) {
   const section = group(document, article, "Sources and contacts");
   const list = node(document, "ul");
-  for (const source of sources.values()) {
+  for (const { source, items } of sources.values()) {
     const phone = source.organization_phone;
     const contact = [source.department_or_ward, source.organization_address,
       phone && `Phone ${phone}${source.organization_phone_extension ? ` ext. ${source.organization_phone_extension}` : ""}`,
       source.organization_email, source.contact && source.contact !== phone ? source.contact : null,
     ].filter(Boolean);
     const item = node(document, "li", sourceName(source));
+    if (items.size) item.append(node(document, "br"), node(document, "span", `Evidence items: ${[...items].join(", ")}`));
     if (source.source_date) item.append(node(document, "br"), dateNode(document, source.source_date));
     if (source.collector) item.append(node(document, "br"), node(document, "span", `Collected by ${source.collector}`));
     if (contact.length) item.append(node(document, "br"), node(document, "span", contact.join(" · ")));
@@ -129,31 +145,29 @@ function regimen(document, parent, components, cite) {
   }
 }
 
-function rowIdentity(row, cite) {
-  const verified = row.verification?.identity;
-  if (verified && cite(verified.evidence)) return verified.value;
-  const label = (row.observed_names ?? []).find(name => cite(name.evidence));
-  return row.unknown_label ?? label?.value ?? "Unknown medication";
-}
-
 function renderRow(document, row, options) {
   const { evidence, decisions, referrals, cropUrl, mode } = options;
-  const { describe: cite, cropAvailable, used } = citationsFor(row, evidence);
+  const { describe: cite, cropAvailable, supportsIdentity, used } = citationsFor(row, evidence);
   const article = node(document, "article");
   article.className = "handoff-row";
   for (const ref of row.sources) cite(ref, { claim: false });
-  const identity = rowIdentity(row, cite);
-  article.append(node(document, "h3", identity));
-  if (row.identity_status !== "named") article.append(node(document, "p", `Item ${row.id}`));
-  const verification = row.verification;
+  const unknown = row.identity_status !== "named";
+  const verification = clinicianRoles.has(row.verification?.reviewer?.role) ? row.verification : null;
+  const verifiedIdentity = verification?.identity && (!unknown || verification.reviewer.role === "pharmacist") &&
+    supportsIdentity(verification.identity.evidence, unknown ? row.reverse_crop : null) ? verification.identity : null;
   const resolved = new Set(verification?.resolved_discrepancies ?? []);
   const discrepancies = row.discrepancies ?? [];
   const pendingIdentity = discrepancies.some(item => item.field === "identity" && !resolved.has(item.id)) ||
-    (row.identity_status !== "named" && !(verification?.identity && cite(verification.identity.evidence)));
+    (unknown && !verifiedIdentity);
+  const confirmedName = pendingIdentity ? null : verifiedIdentity;
+  const observedName = (row.observed_names ?? []).find(name => supportsIdentity(name.evidence));
+  const identity = confirmedName?.value ?? row.unknown_label ?? observedName?.value ?? "Unknown medication";
+  article.append(node(document, "h3", identity));
+  if (unknown) article.append(node(document, "p", `Item ${row.id}`));
   if (pendingIdentity) article.append(node(document, "p", "Identity unresolved"));
   if (verification) {
     const status = verification.status === "no_longer_current" ? "No longer current" :
-      verification.status === "current" ? "Verified current" : "Current use uncertain";
+      verification.status === "current" && confirmedName ? "Verified current" : "Current use uncertain";
     article.append(node(document, "p", status));
   } else if (!pendingIdentity) {
     article.append(node(document, "p", "Verification pending"));
@@ -205,7 +219,7 @@ function renderRow(document, row, options) {
     info.append(dateNode(document, verification.verified_at));
     reviewed.append(info);
     const verified = node(document, "dl");
-    if (verification.identity) sourcedField(document, verified, "Verified identity", verification.identity, cite);
+    if (confirmedName) sourcedField(document, verified, "Verified identity", confirmedName, cite);
     for (const key of ["dose", "route", "frequency"]) {
       if (verification[key]) sourcedField(document, verified, fieldName(key), verification[key], cite);
     }
@@ -257,7 +271,7 @@ function renderRow(document, row, options) {
   lines.className = "handoff-notes";
   lines.setAttribute("aria-hidden", "true");
   notes.append(lines);
-  return { article, identity };
+  return { article, identity, stopped: verification?.status === "no_longer_current" };
 }
 
 /** Render a #2 review snapshot. Include medication-handoff.css in the host page. */
@@ -276,9 +290,9 @@ export function renderMedicationHandoff(container, {
   history.append(node(document, "h2", "Medication history"));
   const rowNames = new Map();
   for (const row of rows) {
-    const { article, identity } = renderRow(document, row, { evidence, decisions, referrals, cropUrl, mode });
+    const { article, identity, stopped } = renderRow(document, row, { evidence, decisions, referrals, cropUrl, mode });
     rowNames.set(row.id, identity);
-    (row.verification?.status === "no_longer_current" ? history : active).append(article);
+    (stopped ? history : active).append(article);
   }
   if (active.childNodes.length === 1) active.append(node(document, "p", "No active or pending rows."));
   handoff.append(active);
