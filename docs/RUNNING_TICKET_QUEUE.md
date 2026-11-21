@@ -1,48 +1,44 @@
 # Run the GitHub ticket queue
 
-To start a run, open Codex in this checkout and send **“Work on the project”**. A human first reviews and labels the issues that are ready for implementation. If none qualify, the coordinator reports what is blocking the queue.
+Setup happens once per repository. On any computer, open a checkout and say **“Work on the project”**. Each session independently selects eligible tickets. For a single-ticket run, say “Work only on issue #N”. GitHub issues and PRs carry progress between computers.
 
-For a separate worker session, use “Work only on GitHub issue #N. Read and follow the worker instructions in `docs/RUNNING_TICKET_QUEUE.md`.”
+## Select a ticket
 
-This playbook applies to an active run. A later run can pick up from GitHub once it starts.
+Read [AGENTS.md](../AGENTS.md), the [task-writing guide](WRITING_TASKS.md), and the [current spec](specs/medication-reader-v1.md). Verify authenticated access and fetch current main. Inspect open issues, owners, comments, branches and PRs, including work started under earlier instructions. Leave existing claims with their owners. Select an open, unassigned issue with both agent-ready and status:todo whose Depends on issues are done and merged. Prefer related tickets when several qualify. Merge after controls merge order only.
+
+## Claim one issue atomically
+
+Each worker competes only for its chosen ticket. Before editing or changing its status, create one remote claim ref keyed by issue number. Use a fresh run ID even when sessions share a GitHub account. In PowerShell, set the issue number to your selected ticket and run:
+
+```powershell
+$issue = 123  # replace with the selected issue number
+$runId = [guid]::NewGuid().ToString()
+$claim = "refs/heads/codex-claims/issue-$issue"
+$token = git -c user.name=Codex -c user.email=codex@localhost commit-tree 'origin/main^{tree}' -p origin/main -m "Issue $issue claimed by $runId"
+if ($LASTEXITCODE -ne 0) { throw 'Could not create claim identity' }
+git push "--force-with-lease=${claim}:" origin "${token}:$claim"
+```
+
+The create-only lease gives one worker ownership. If the push fails or times out, inspect `git ls-remote origin $claim`. Proceed only if the remote SHA matches your token. If another worker won, pick another ticket. Keep the token until release.
+
+After winning, reread the live issue and active claims, including newly created claim refs, before editing. Check other active tickets' owned paths and associated PRs. If work already exists, coordinate on the issue before continuing. If two tickets overlap, honor any explicit file-section agreement or dependency. Otherwise the workers agree on a handoff or sequence on both tickets before touching the shared path. Preserve existing edits. Independent tickets can proceed in parallel.
+
+Record the run ID, claim SHA, worker name, owned paths and implementation branch on the ticket. Assign yourself, set status:in-progress and post a claim comment. Use one implementation branch, worktree and PR for that ticket.
+
+## Work and recheck every five minutes
+
+Start immediately after confirming ownership. **Five minutes after starting, and every five minutes during active work**, reread the issue, comments and related PRs, fetch the implementation branch if published, and check its commits for work another session already completed or started. Verify the remote claim still matches your token. Recheck on resume and before pushing or opening a PR. Keep implementing between checks. During a long command, check at the next safe breakpoint.
+
+If ownership changes, completed work appears or paths conflict, pause the affected edits, preserve your branch and discuss ownership directly on the issue. Address the other worker by its recorded name. Update checklist items as you finish them. Comment on material progress, decisions, blockers, status changes and handoffs. Link related issues and PRs. An unchanged poll needs no comment.
+
+## Finish or hand off
+
+Run acceptance checks and the repo's documented checks. Open one PR targeting main with a closing reference. Record verification, set status:in-review, respect merge order and required reviews, and recheck against current main before merge. Confirm the merge and post-merge checks, then close out the issue as status:done.
+
+Release your claim with `git push "--force-with-lease=${claim}:$token" origin ":$claim"`. For a handoff, record the receiving worker, branch and remaining work on the ticket. The outgoing worker stops and releases its own claim. The named recipient acquires a fresh claim and confirms it on the issue before resuming. For an abandoned claim, a human verifies the previous worker has stopped and checks the issue, branches and PRs before clearing the ref with a lease against the observed SHA. Five minutes of silence alone never authorizes takeover.
+
+Refresh the queue and continue with eligible work unless assigned a single issue. Record blockers and report pending work when nothing more can advance.
 
 ## Setup prompt for another repository
 
-> Set up a GitHub Issues workflow for Codex in this repository. Inspect the existing contributor instructions, issue templates and labels first. Update the root AGENTS.md so that when I say “Work on the project” in a Codex session, it runs the ticket queue. Link to a queue playbook and a task-writing guide. Include an issue template with the goal, owned paths, exclusions, acceptance checks, Depends on and Merge after. Reserve agent-ready for human-reviewed tickets.
->
-> Have the coordinator check authenticated access, current issues, comments and PRs, then claim an eligible open ticket labeled agent-ready and status:todo. Start only after its dependencies have merged. Assign one worker, branch and PR per issue. Run its acceptance checks and the repository checks, respect merge order and required reviews, and record verification and blockers on GitHub. Refresh the queue after each handoff or merge. When no work can advance, report what finished and what is waiting. Finish setup by showing me the changed files and how to start the first run. Leave implementation for that run.
-
-## Coordinator ownership across computers
-
-Before claiming or dispatching, inspect active issues, comments and PRs. If an earlier coordinator has active assignments, confirm a handoff first. Each coordinator run must acquire the same remote ref, using a unique commit and a create-only lease. Workers use their recorded assignments and do not acquire this lock.
-
-```powershell
-$runId = [guid]::NewGuid().ToString()
-$lockRef = 'refs/heads/codex-queue-coordinator'
-$lockOid = git -c user.name=Codex -c user.email=codex@localhost commit-tree 'HEAD^{tree}' -p HEAD -m "Queue coordinator $runId"
-if ($LASTEXITCODE -ne 0) { throw 'Could not create run identity' }
-git push "--force-with-lease=${lockRef}:" origin "${lockOid}:$lockRef"
-if ($LASTEXITCODE -ne 0) { throw 'Stop dispatch and check the remote lock' }
-```
-
-Only dispatch if the remote SHA matches this run's SHA. Recheck with `git ls-remote origin refs/heads/codex-queue-coordinator` if a push result is uncertain. Release after workers finish or acknowledge a handoff with `git push "--force-with-lease=${lockRef}:$lockOid" origin ":$lockRef"`. For an abandoned lock, a human confirms that the previous coordinator has stopped and reconciles active workers and PRs before removing the ref with a lease against the observed SHA.
-
-## Five-minute checks during work
-
-Record the run ID, worker name, branch and owned paths in each assignment. Before editing, the worker checks the live ticket, comments, active assignments and related PRs once. With ownership confirmed, **start immediately**. While continuing implementation, recheck after five minutes and every five minutes thereafter, and immediately before pushing or opening a PR. Use a background timer when available or check at the next safe breakpoint during a long command. Resume with a fresh check after interruption.
-
-If another worker claims the ticket, starts an overlapping change or requests a handoff, pause only the affected work. Preserve edits, link both claims or branches on the issue, and ask the coordinator to resolve ownership. Continue independent assigned work. Use named issue comments for questions, decisions, material progress, blockers and handoffs. Update the checklist as items finish. An unchanged poll needs no comment.
-
-## Coordinator
-
-1. Read [AGENTS.md](../AGENTS.md), the [task-writing guide](WRITING_TASKS.md), and the [current spec](specs/medication-reader-v1.md). Verify authenticated GitHub access, fetch current `origin/main`, and inspect issues, their comments, and linked PRs. Resume work already assigned to this run when ownership is clear. Leave tickets actively owned by another run with their current owners.
-2. Build the ready queue. Select open issues with `agent-ready` and `status:todo` whose `Depends on` tickets are `status:done` and whose dependency PRs have merged into `main`. Use the owned paths in each ticket to identify work that can run in parallel. Humans add `agent-ready` after review.
-3. Assign each selected issue to one named worker and record the claim in GitHub before dispatching it. Keep one issue, one branch, one PR, and one worktree or checkout per active ticket. Use subagents when available or give independently launched Codex sessions explicit issue numbers. If running alone, take the next eligible issue yourself. Keep one dispatcher for the queue, especially when workers share a GitHub account.
-4. Review completed work against the ticket. Respect any `Merge after` requirement and verify each PR against current `main`. Merge through the PR once all required reviews, checks, and acceptance criteria pass. Confirm the merge and complete any post-merge checks before updating the issue to `status:done`. Recheck later PRs against the new `main`.
-5. Refresh the queue after each merge or worker handoff and dispatch newly eligible work. If a ticket is blocked, record the exact blocker, keep its state current, and continue with other eligible work. Wait for work or checks already in progress when their result can advance the queue. Stop when there is no eligible issue, active worker, or actionable PR, or when access blocks further progress. Report the merged issues, verification results, and any remaining blockers.
-
-## Worker
-
-- Read your assigned issue, comments, and linked dependencies before editing. Use the issue's branch and separate worktree, and stay within its owned paths. If you need another ticket's changes, link that ticket and describe the exact contract change or blocker.
-- Use direct messages for quick coordination when workers share a session. Record decisions, blockers, contract changes, and handoffs on the affected GitHub issues or PRs so workers in separate sessions can pick them up.
-- Run the documented checks and the issue's acceptance checks. Open or update one PR to `main` with `Closes #N`, record the results, and update the issue to `status:in-review`. Hand the PR back to the coordinator for merge. A worker in a separate session reports back on the issue or PR and waits for another explicit assignment.
+> Setup only. Add the trigger “Work on the project” to AGENTS.md and link a queue playbook. Reuse existing repo conventions. Create a task-writing guide, issue template and workflow labels. Reserve agent-ready for human review. Let peer workers on any computer independently claim eligible tickets using an atomic per-issue claim. Document owned paths, dependencies, merge order, one branch and PR per ticket, and safe handoffs. Require claim and progress comments, five-minute checks during implementation, verification before merge and owner-checked release. Test competing claims on an isolated remote. Verify and publish the setup, then wait for a separate request to start implementation.

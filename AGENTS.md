@@ -26,9 +26,8 @@ See [docs/WRITING_TASKS.md](docs/WRITING_TASKS.md) for how to write specs and sp
 When the user says **“Work on the project”**, **“Work on this project”**, or asks
 to run or drain the GitHub ticket queue, start the [queue runner playbook](docs/RUNNING_TICKET_QUEUE.md).
 Pick up eligible tickets and continue until the queue is drained or blocked.
-Use one coordinator to dispatch work when multiple Codex sessions or subagents
-are involved. A session given a specific issue follows the worker instructions
-and stays on that issue.
+Each session independently claims an eligible issue using the playbook's atomic
+per-issue claim. A session given a specific issue stays on that ticket.
 
 ## Labels
 | Label | Meaning |
@@ -48,18 +47,15 @@ status label, `## Status` block, and checklist current as work progresses. Recor
 state changes on the ticket using the comment format below.
 
 1. **Pick** an open issue labeled `agent-ready` + `status:todo` whose `Depends on` issues are all `status:done`.
-   Confirm the dependency PRs are merged into `main`. When dispatching agents in parallel,
-   assign one agent per issue before they start, especially when they share a GitHub account.
+   Confirm the dependency PRs are merged into `main`. Check owned paths and existing work across active tickets.
    ```bash
    gh issue list --label agent-ready --label status:todo --json number,title,body
    ```
-2. **Claim** it: swap the label, assign yourself, and record the start using the state-change format below.
-   ```bash
-   gh issue edit <N> --remove-label status:todo --add-label status:in-progress --add-assignee @me
-   gh issue comment <N> --body-file starting-update.md
-   ```
-   Use the format below in `starting-update.md`. Enter the actual timestamp and set State to
-   `todo -> in-progress`. Record the claim under Done and the next implementation step under Next.
+2. **Claim** the ticket using the [per-issue claim procedure](docs/RUNNING_TICKET_QUEUE.md#claim-one-issue-atomically).
+   After ownership is confirmed, assign yourself, switch to `status:in-progress`, and post the
+   claim using the update format below. Set State to `todo -> in-progress`, record the
+   run ID, claim SHA, worker, branch, and owned paths, and give the next step under Next.
+   Recheck for other work every five minutes while implementing.
 3. **Work** on branch `issue-<N>-<short-slug>` from current `origin/main`. Give each
    concurrently active branch its own Git worktree or checkout. Fill in the issue's `## Status` block
    (State, Owner, Branch, Last update) when starting. On each state change, update
