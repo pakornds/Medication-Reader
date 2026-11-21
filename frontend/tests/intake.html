@@ -110,6 +110,28 @@
     doc().querySelectorAll('.suggestion .pick-row input').forEach(input=>input.click())
     await click('Add selected to draft')
     await expect(()=>doc().querySelectorAll('aside .draft-line').length===2, 'two separate medicines from one original')
+    photo('Reverse side','reverse.png',packageLabelPhoto('Synthetic left back','Synthetic right back'))
+    const reverse = () => doc().querySelector('section[aria-label="Reverse side"]')
+    await expect(()=>reverse().querySelector('img'), 'reverse image ready')
+    let retry
+    win().fetch = async (_url,init) => {
+      const form=JSON.parse(init.body.get('form'))
+      retry=form
+      const reverseId=form.scene_photo_ids[0]
+      return Response.json({case_id:form.evidence.case_id,rows:[],located_regions:!reverseId?[]:
+        ids.map((_,i)=>{const id=crypto.randomUUID();return {attachment_id:reverseId,source_id:id,item_id:id,row_id:id,bounds:{x:i*.5,y:0,width:.5,height:1}}})})
+    }
+    await click('Analyze evidence')
+    await expect(()=>reverse().querySelectorAll('.region-box').length===2,'reverse packages located')
+    await click('Analyze evidence')
+    await expect(()=>retry.photo_source_ids.length===1,'unpaired reverse crops cannot become extra medicines on retry')
+    const controls=await openMarking('Reverse side')
+    const matching=controls.querySelector('.region-editor select')
+    matching.value=ids[1]
+    matching.dispatchEvent(new Event('change',{bubbles:true}))
+    await click('Analyze evidence')
+    await expect(()=>retry.evidence.items.filter(i=>i.kind==='pill_crop').length===1,'only the manually paired reverse is submitted')
+    assert(retry.evidence.items.find(i=>i.kind==='pill_crop').row_id===ids[1],'reverse attributed to selected front medicine')
   }
   async function scanPrefillCase() {
     localStorage.setItem('medrec.language','en')

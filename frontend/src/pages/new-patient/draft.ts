@@ -172,6 +172,7 @@ export function replacePhoto(
   if (!previous) return next ? { ...evidence, photos: [...evidence.photos, next] } : evidence
 
   const retainedItems = new Set(next?.regions.map((region) => region.id))
+  const frontAvailable = Boolean(next?.kind === 'label_photo' || evidence.photos.some(p => p !== previous && p.kind === 'label_photo'))
   const removedRows = new Set(
     previous.regions
       .filter((region) => previous.kind !== 'reverse_photo' && !retainedItems.has(region.id))
@@ -183,10 +184,12 @@ export function replacePhoto(
       if (next) photos.push(next)
     } else if (
       photo.kind === 'reverse_photo' &&
-      photo.regions.some((region) => removedRows.has(region.rowId))
+      photo.regions.some((region) => removedRows.has(region.rowId) || (region.pendingPair && !frontAvailable))
     ) {
       const regions = photo.regions.map((region) =>
-        removedRows.has(region.rowId) ? { ...region, rowId: region.id, pendingPair: region.pendingPair !== undefined || undefined } : region,
+        removedRows.has(region.rowId) || (region.pendingPair && !frontAvailable)
+          ? { ...region, rowId: region.id, pendingPair: region.pendingPair === undefined ? undefined : frontAvailable }
+          : region,
       )
       photos.push({ ...photo, regions })
     } else {
