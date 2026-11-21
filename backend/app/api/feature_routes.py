@@ -19,6 +19,7 @@ from app.api.medication_analysis import create_medication_analysis_router
 from app.api.pill_candidates import router as pill_candidates_router
 from app.api.pills import create_pills_router
 from app.api.regimens import router as regimens_router
+from app.api.review_reports import register_review_reports
 from app.schemas.review import ReviewerIdentity
 from app.services.hospital import MockHospital
 from app.services.import_eligibility import ApprovalLedger
@@ -59,5 +60,6 @@ def register_feature_routes(
     app.include_router(checks_router)
     app.include_router(products_router)
     app.include_router(local_screening_router)
+    register_review_reports(app, app.state.admissions, resolve_reviewer)
     app.include_router(regimens_router)
     app.include_router(create_import_router(ApprovalLedger(), hospital, resolve_reviewer, app.state.admissions.can_read))
