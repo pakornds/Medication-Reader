@@ -202,7 +202,7 @@ export function VerifyForm({
                 className="text-action"
                 type="button"
                 onClick={() => {
-                  setSchedules(suggestedSchedules.map((c) => ({ ...fromComponent(c), complete: false })))
+                  setSchedules(suggestedSchedules.map(fromComponent))
                   setStructured(true)
                 }}
               >

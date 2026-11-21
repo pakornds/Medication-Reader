@@ -126,7 +126,7 @@ async function verifyProduct(page, rowId, { verifyFreeText = false, separateSche
   await button(verify, 'Use the schedule recorded from this interview').click()
   const first = verify.locator('.clinical-schedule').first()
   assert.equal(await button(first, 'Evening').getAttribute('aria-pressed'), 'true')
-  await first.getByLabel('All directions are represented in these fields').check()
+  assert.equal(await label(first, 'All directions are represented in these fields').isChecked(), true)
   if (separateSchedules) {
     const extra = verify.locator('.clinical-schedule').nth(1)
     assert.equal(await label(extra, 'Dose per use').inputValue(), '2')
