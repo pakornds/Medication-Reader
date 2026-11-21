@@ -107,6 +107,11 @@ def test_item_then_whole_view_retake_and_pharmacist_handoff(client):
                    existing_rows={"order-a": row_a, "order-c": row_c})
     originals = {"front": picture(6), "reverse": picture(1)}
     case.state = submit(client, case.path, initial, originals).json()
+    alias = label("alias-c", "Demo Medicine C", attachment="unused-attachment-id", orientation=6,
+                  area=(.67, .1, .23, .35))
+    case.link(row_c, alias)
+    case.interview(row_c, "report-c", ownership_source_id="alias-c", note="Preserve this clinician note.")
+    case.send("verify", row_id=row_c, source_id="report-c", identity_source_id="alias-c")
     previous_c = deepcopy(case.state["rows"][row_c])
     previous_reverse = deepcopy(case.state["capture"]["reverse"])
     case.link(row_a, label("target-a", "Demo Medicine A", orientation=3), replaces="table-label-a")
@@ -142,6 +147,10 @@ def test_item_then_whole_view_retake_and_pharmacist_handoff(client):
     stale_candidate = submit(client, case.path, command, upload)
     assert stale_candidate.status_code == 422 and "reverse matches again" in stale_candidate.text
     replacement["reverse_matches"] = []
+    repeated_original = deepcopy(command)
+    repeated_original["manifest"]["front"]["exif_orientation"] = 6
+    repeated = submit(client, case.path, repeated_original, {"front": picture(6)})
+    assert repeated.status_code == 422 and "different original" in repeated.text
     rejected = deepcopy(command)
     rejected["manifest"]["sources"][0]["id"] = "clinic-a"
     rejected["manifest"]["packages"][0]["items"][0]["evidence"][0]["source_id"] = "clinic-a"
@@ -152,7 +161,7 @@ def test_item_then_whole_view_retake_and_pharmacist_handoff(client):
     case.state = saved.json()
     assert case.state["rows"][row_a]["verified"]["answer"]["note"] == "Kept item edit."
     new_c = case.state["rows"][row_c]
-    assert new_c["superseded"] == ["table-label-c"] and new_c["verified"] is None
+    assert new_c["superseded"] == ["table-label-c", "alias-c"] and new_c["verified"] is None
     assert new_c["interview"] == previous_c["interview"]
     assert case.state["capture"]["reverse"] == previous_reverse
     assert not case.state["capture"]["reverse_matches"]
@@ -163,16 +172,16 @@ def test_item_then_whole_view_retake_and_pharmacist_handoff(client):
     assert submit(client, case.path, initial, originals).json() == case.state
     assert submit(client, case.path, command, upload).json() == case.state
     case.send("verify", row_id=row_c, source_id="report-c", status=422)
-    for attachment in (old_front, None, "new-attachment-id"):
+    for attachment in (old_front, None, "new-attachment-id", "front-retaken"):
         reused = label("new-logical-old-image", "Demo Medicine C", attachment=attachment,
                        orientation=6, area=(.67, .1, .23, .35))
         assert "current capture original" in case.link(row_c, reused, status=422).text
     current_label = label("current-clinic-c", "Demo Medicine C", attachment="front-retaken", orientation=8,
                           area=(.67, .1, .23, .35))
-    wrong_image = deepcopy(current_label)
-    wrong_image["photo"]["data"] = base64.b64encode(picture(1)).decode()
-    assert "match its original" in case.link(row_c, wrong_image, status=422).text
     case.link(row_c, current_label)
+    wrong_image = label("cross-view", "Demo Medicine C", attachment="front-retaken", orientation=1,
+                        area=(.67, .1, .23, .35))
+    assert "match its original" in case.link(row_c, wrong_image, replaces="current-clinic-c", status=422).text
 
     pending = next(row for row in case.state["rows"] if row not in {row_a, row_c})
     case.send("refer", row_ids=[pending], checked="Reviewed active evidence", reason="Identify appearance")

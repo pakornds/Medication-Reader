@@ -1,5 +1,5 @@
 """Revisioned, encounter-scoped mock review records shared by demo staff sessions."""
-from base64 import b64decode, b64encode
+from base64 import b64decode
 from collections import defaultdict
 from copy import deepcopy
 from datetime import UTC, datetime
@@ -138,22 +138,22 @@ def retired_view_sources(case, originals, previous, manifest, replaced):
     retired.update(e.source_id for package in previous.packages for item in package.items for e in item.evidence
                    if any(e.region == match.region for match in removed_matches))
     matched_packages = {m.package_id for m in removed_matches}
-    original_data = b64encode(originals[replaced.attachment_id].content).decode()
+    original_data = originals[replaced.attachment_id].content
     reverse_attachment = previous.reverse.attachment_id if removed_matches else None
-    reverse_data = b64encode(originals[reverse_attachment].content).decode() if reverse_attachment else None
+    reverse_data = originals[reverse_attachment].content if reverse_attachment else None
     old_kind = "label_photo" if replaced.side == "front" else "reverse_photo"
     for row in case["rows"].values():
         for entry in active(row):
             source = entry["source"]
             if not entry["photo"]:
                 continue
+            photo_data = b64decode(entry["photo"]["data"])
             on_replaced_view = source["attachment_id"] == replaced.attachment_id or (
-                not source["attachment_id"] and source["kind"] == old_kind and entry["photo"]["data"] == original_data
+                source["kind"] in {old_kind, "additional_photo"} and photo_data == original_data
             )
             paired_to_replaced_front = row.get("package_id") in matched_packages and (
                 source["attachment_id"] == reverse_attachment or (
-                    not source["attachment_id"] and source["kind"] == "reverse_photo"
-                    and entry["photo"]["data"] == reverse_data
+                    source["kind"] in {"reverse_photo", "additional_photo"} and photo_data == reverse_data
                 )
             )
             if on_replaced_view or paired_to_replaced_front:
@@ -372,6 +372,8 @@ class AdmissionStore:
                 if replaced and side == replaced.side:
                     require(view and view.revision > old.revision and view.attachment_id not in originals
                             and side in images, "Supply a new original and a newer revision for the retaken view.")
+                    require(not any(images[side][1] == image.content for image in originals.values()),
+                            "Upload a different original for the replacement view.")
                 elif old:
                     require(view and old.attachment_id == view.attachment_id,
                             "Use the retake workflow to replace an existing original.", 409)
@@ -470,7 +472,7 @@ class AdmissionStore:
         except LabelPhotoError as exc:
             raise HTTPException(422, str(exc)) from None
 
-    def photo_origin(self, case, entry):
+    def photo_origin(self, case, entry, *, targeted_retake):
         if not entry["photo"]:
             return None
         originals = self.originals.get(case["id"], {})
@@ -487,9 +489,10 @@ class AdmissionStore:
         attachment = source["attachment_id"]
         if attachment in originals:
             require(attachment in view_attachments, "Select a current capture original.")
-            require(source["kind"] == view_attachments[attachment] and data == originals[attachment].content,
-                    "Capture evidence must match its original and photo view.")
-            return attachment
+            matches_view = source["kind"] == view_attachments[attachment] and data == originals[attachment].content
+            if matches_view:
+                return attachment
+            require(not targeted_retake, "Capture evidence must match its original and photo view.")
         require(not any(data == originals[old].content for old in case.get("retired_capture_attachments", ())),
                 "Select a current capture original.")
         return next((attachment for attachment, kind in view_attachments.items()
@@ -510,7 +513,7 @@ class AdmissionStore:
                 entry["product"] = " ".join(parts)
             sid = entry["source"]["id"]
             require(sid not in case.get("retired_capture_sources", ()), "Use a new logical source ID.")
-            capture_attachment = self.photo_origin(case, entry)
+            capture_attachment = self.photo_origin(case, entry, targeted_retake=isinstance(cmd, AddEvidence) and cmd.replaces)
             require(not any(sid == e["source"]["id"] for r in rows.values() for e in r["entries"]),
                     "Use a new logical source ID.")
             if isinstance(cmd, AddRow):
