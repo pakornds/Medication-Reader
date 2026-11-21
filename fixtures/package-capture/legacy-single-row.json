@@ -1,0 +1,80 @@
+{
+  "legacy_evidence": {
+    "case_id": "demo-single-row",
+    "sources": [
+      {
+        "id": "label-source",
+        "kind": "label_photo",
+        "attachment_id": "single-photo"
+      }
+    ],
+    "items": [
+      {
+        "id": "selected",
+        "source_id": "label-source",
+        "row_id": "row-1",
+        "kind": "label_region"
+      }
+    ]
+  },
+  "capture": {
+    "version": "1",
+    "case_id": "demo-single-row",
+    "front": {
+      "attachment_id": "single-photo",
+      "revision": 1,
+      "regions": [
+        {
+          "id": "front-region",
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 1,
+            "height": 1
+          }
+        }
+      ]
+    },
+    "packages": [
+      {
+        "id": "package-1",
+        "front_regions": [
+          {
+            "case_id": "demo-single-row",
+            "side": "front",
+            "attachment_id": "single-photo",
+            "revision": 1,
+            "region_id": "front-region"
+          }
+        ],
+        "items": [
+          {
+            "row_id": "row-1",
+            "kind": "order",
+            "evidence": [
+              {
+                "item_id": "selected",
+                "source_id": "label-source",
+                "kind": "label",
+                "region": {
+                  "case_id": "demo-single-row",
+                  "side": "front",
+                  "attachment_id": "single-photo",
+                  "revision": 1,
+                  "region_id": "front-region"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "id": "label-source",
+        "kind": "label_photo",
+        "attachment_id": "single-photo"
+      }
+    ]
+  }
+}
