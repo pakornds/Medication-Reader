@@ -43,11 +43,7 @@ If ownership changes, completed work appears or paths conflict, pause the affect
 
 When you need another worker's answer, post the question on their ticket, address their recorded worker name and link your own issue. Reply in that thread and link the decision from both tickets. Continue independent work while waiting. If an implementation decision remains unclear after checking the ticket and relevant docs, ask the user a specific question before proceeding with the affected work. Continue independent work while waiting and record the answer on the ticket. If a required API key, account permission, or user-only setup step is missing, ask the user in Codex chat. Name the setting, explain what it enables, and say where to configure it securely. Ask for confirmation once configured. Never request the secret value in chat or on GitHub. Record only the blocker on the issue, continue independent work, and retry the affected check without exposing credentials.
 
-## Trigger a ticket answer
-
-A worker using a GitHub account with write access can start a fresh Codex run by posting a new issue comment beginning with `/codex answer ` followed by the question. For example, `/codex answer Which fields does #2 require for dispensing source attribution?` The workflow reads the default-branch checkout, the issue, recent comments, and up to five same-repo tickets referenced as #N in the question. Its reply appears on the same issue. Use your normal worker session for implementation. Ordinary comments remain part of the three-minute polling cycle.
-
-A repository administrator configures `OPENAI_API_KEY` in GitHub Settings → Secrets and variables → Actions. Check the **Answer a ticket question** Actions run if a reply is missing. PR comments, bot replies, and comments from untrusted accounts are ignored. A worker posting with a GitHub Actions workflow token generally cannot trigger another workflow this way.
+Use ordinary GitHub issue comments for questions and replies. Each active worker reads its ticket on the three-minute poll and answers in the same thread. If the recipient has stopped, resume its session or hand off the ticket. Polling uses the worker's existing GitHub access and requires no additional API key.
 
 ## Review the PR
 
