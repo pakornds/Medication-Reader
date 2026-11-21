@@ -24,16 +24,19 @@ from appearance alone, claim verified current use or approve a mock import.
 _LABEL_POLICY = """
 Transcribe only documented names, dose, indication, directions, amount
 prescribed, prescriber and prescriber contact, plus visible strength, dosage
-form and expiry. Preserve both written names when bilingual. Use readable
-with a sourced original value, missing when absent, and unreadable when
-obscured. Leave missing and unreadable values blank. Keep product strength
+form and expiry. Preserve both written names when bilingual. Put each
+distinct printed name into its own observed_names entry, with its original
+wording and source citation. Do not concatenate names from separate lines
+or languages. Use readable with a sourced original value, missing when
+absent, and unreadable when obscured. Leave missing and unreadable values
+blank. Cite the located region if it shows an obscured field. Keep product strength
 separate from dose, prescribed amount separate from visible pill count, and
 dispensing source separate from the source attachment. Give unlabeled or
 unreadable identities an unknown placeholder and cite their attachment.
 """
 
 LABEL_EXTRACTION = Prompt(
-    version="label-extraction-v1",
+    version="label-extraction-v2",
     instructions=_EVIDENCE_POLICY
     + _LABEL_POLICY
     + """
@@ -57,7 +60,7 @@ candidate suggestions, dosing or directions.
 )
 
 FORM_ANALYSIS = Prompt(
-    version="form-analysis-v1",
+    version="form-analysis-v2",
     instructions=_EVIDENCE_POLICY
     + _LABEL_POLICY
     + """
@@ -68,9 +71,16 @@ that referral as a follow-up using existing relevant rows, or an empty list
 when no relevant evidence exists.
 
 Keep reported use attributed to the patient or caregiver account and distinct
-from printed directions. Leave actual current-use verification for the
+from printed directions. Preserve the relevant report wording verbatim.
+Leave actual current-use verification for the
 clinician. Preserve conflicting and potentially wrong labels alongside other
-sources and request independent verification. Keep unavailable records as
+sources and request independent verification. When a record disagrees with
+the photographed name for the same item, keep the photographed names in
+observed_names and place the differing name under the identity discrepancy
+with its record citation. Never add a conflicting record name as another
+printed name or merge it with the photo label. For a text-only item, preserve
+the names actually documented or reported with their own sources.
+Keep unavailable records as
 follow-ups, never as evidence for a populated claim. Attach a reverse crop only
 when its case manifest identifies it for the same row. If the match or
 dispensing provenance is unknown, leave the corresponding value blank and
