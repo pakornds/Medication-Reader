@@ -5,6 +5,7 @@ import json
 from copy import deepcopy
 from functools import partial
 from pathlib import Path
+import pytest
 
 from test_admission_package_capture import picture, submit
 from test_admission_screening_attestation import run_drp
@@ -72,6 +73,59 @@ def test_shifted_sibling_crop_cannot_replace_same_view_of_target(client):
 def manifest_for(case):
     fixture = Path(__file__).parents[3] / "fixtures/package-capture/two-photos.json"
     return json.loads(fixture.read_text().replace("demo-two-photos", case.state["id"]))
+
+
+@pytest.mark.parametrize("edit", ["move", "unmatch", "opaque"])
+def test_changed_attribution_retires_clinical_use_but_preserves_unchanged_sibling(client, edit):
+    case = Case(client, "doctor")
+    manifest = manifest_for(case)
+    old = "clinic-a" if edit == "move" else "clinic-a-reverse"
+    source = label(old, "Demo A", attachment="table-front" if edit == "move" else "table-reverse",
+                   area=(.05, .1, .25, .35), orientation=6 if edit == "move" else 1)
+    if edit != "move":
+        source["source"]["kind"] = "reverse_photo"
+        source["photo"].update(pairing="matched", front_attributed=False)
+    a = case.add(source)
+    c = case.add(label("clinic-c", "Demo C", attachment="table-front", orientation=6, area=(.67, .1, .23, .35)))
+    verify(case, a, "report-a", old)
+    verify(case, c, "report-c", "clinic-c")
+    send = partial(submit, client, case.path, role=case.role)
+    initial = send(dict(revision=case.state["revision"], request_id="initial", manifest=manifest,
+                        existing_rows={"order-a": a, "order-c": c}), {"front": picture(6), "reverse": picture(1)})
+    assert initial.status_code == 200, initial.text
+    case.state = initial.json()
+    sibling = deepcopy(case.state["rows"][c])
+    first = manifest["packages"][0]["items"][0]
+    if edit == "move":
+        manifest["front"]["revision"] += 1
+        manifest["front"]["regions"][0]["bounds"] = deepcopy(manifest["front"]["regions"][3]["bounds"])
+        for pkg in manifest["packages"]:
+            for ref in pkg["front_regions"] + [v["region"] for item in pkg["items"] for v in item["evidence"]]:
+                if ref["side"] == "front":
+                    ref["revision"] = manifest["front"]["revision"]
+        stale = send(dict(revision=case.state["revision"], request_id="stale", manifest=manifest))
+        assert stale.status_code == 422
+    elif edit == "opaque":
+        manifest["reverse"]["regions"][0]["visibility"] = "opaque"
+        manifest["reverse"]["revision"] += 1
+        for ref in [m["region"] for m in manifest["reverse_matches"]] + [
+            v["region"] for pkg in manifest["packages"] for item in pkg["items"] for v in item["evidence"]
+        ]:
+            if ref["side"] == "reverse":
+                ref["revision"] = manifest["reverse"]["revision"]
+    else:
+        manifest["reverse_matches"] = [match for match in manifest["reverse_matches"] if match["package_id"] != "package-a"]
+    first["evidence"] = [ref for ref in first["evidence"] if ref["source_id"] != old]
+    updated = send(dict(revision=case.state["revision"], request_id="withdraw", manifest=manifest))
+    assert updated.status_code == 200, updated.text
+    case.state = updated.json()
+    row = case.state["rows"][a]
+    assert old in row["superseded"] and row["verified"] is None
+    assert row["entries"][0]["name"] == "Demo A" and row["interview"]["note"] == "Preserve this clinician note."
+    assert case.state["rows"][c] == sibling
+    assert old in case.state["events"][-1]["superseded_sources"]
+    assert not any(source["id"] == old for source in case.state["capture"]["sources"])
+    case.send("import", role="pharmacist", row_ids=[a], status=422)
 
 
 def test_exact_crop_can_only_be_reused_with_explicitly_shared_package(client):

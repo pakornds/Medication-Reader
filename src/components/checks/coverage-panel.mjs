@@ -88,3 +88,28 @@ export function renderCheckCoverage(container, { current, report, rowNames = new
     panel.append(textElement(document, "p", "No findings within checked scope."));
   }
 }
+
+/** Display the server's scope counts and reasons for the current admission snapshot. */
+export function renderEncounterCoverage(container, report, rowNames, t) {
+  const doc = container.ownerDocument;
+  const labels = {
+    partial: t("Partial coverage", "ตรวจได้บางส่วน"), complete: t("Complete", "เสร็จแล้ว"),
+    unavailable: t("Unavailable", "ไม่พร้อมใช้งาน"), not_run: t("Not run", "ยังไม่ตรวจ"),
+    finding: t("Finding", "พบผล"), no_finding: t("No finding in evaluated scope", "ไม่พบในขอบเขตที่ประเมิน"),
+    unevaluated: t("Unevaluated", "ไม่ได้ประเมิน"),
+  };
+  container.replaceChildren(
+    textElement(doc, "h4", report.kind + " · " + labels[report.status]),
+    textElement(doc, "p", [
+      t("Evaluated scopes", "ขอบเขตที่ประเมินแล้ว") + " " + report.coverage.evaluated_scopes + " / " + report.coverage.total_scopes,
+      t("Findings", "ผลที่พบ") + " " + report.coverage.findings,
+    ].join(" · ")),
+    textElement(doc, "p", [report.release_id, report.ran_at].filter(Boolean).join(" · ")),
+  );
+  for (const scope of report.scopes) {
+    container.append(textElement(doc, "p", [
+      scopeName(scope, rowNames), labels[scope.outcome], scope.reason_code, scope.reference_section,
+    ].filter(Boolean).join(" · ")));
+  }
+  for (const warning of report.warnings || []) container.append(textElement(doc, "p", warning));
+}

@@ -310,6 +310,55 @@ export type Ingredient = {
   name: string
 }
 
+export type IntakeChoice = {
+  product: IntakeProduct
+  release: string
+}
+
+export type IntakeMedicine = {
+  row: MedicationSuggestion
+  origin: "manual" | "analysis"
+  catalogue?: IntakeChoice | null
+  catalogue_identity?: CatalogueIdentity | null
+  sources: Array<EvidenceSource>
+  items: Array<EvidenceItem>
+  notes: Partial<Record<string, string>>
+  regions: Partial<Record<string, RegionBounds>>
+  physical_items: Partial<Record<string, string>>
+  linked?: Array<IntakePart>
+  corrections?: Partial<Record<"name" | "strength" | "form" | "directions", string>>
+  document_excerpts?: Partial<Record<string, string>>
+}
+
+export type IntakePart = {
+  row: MedicationSuggestion
+  origin: "manual" | "analysis"
+  catalogue?: IntakeChoice | null
+  catalogue_identity?: CatalogueIdentity | null
+  sources: Array<EvidenceSource>
+  items: Array<EvidenceItem>
+  notes: Partial<Record<string, string>>
+  regions: Partial<Record<string, RegionBounds>>
+  physical_items: Partial<Record<string, string>>
+}
+
+export type IntakeProduct = {
+  tpu: string
+  label: string
+  active_tmt: boolean
+  strength: string
+  dose_form: string
+  source_generic?: string | null
+}
+
+export type IntakeSubmission = {
+  case_id: string
+  revision: number
+  current_views?: Partial<Record<"front" | "reverse", string>>
+  rows: Array<IntakeMedicine>
+  originals: Partial<Record<string, Original>>
+}
+
 export type Interview = {
   action: "interview"
   row_id: string
@@ -379,6 +428,11 @@ export type Observation = {
   status: "readable" | "missing" | "unreadable"
   value?: string | null
   evidence?: EvidenceRef | null
+}
+
+export type Original = {
+  media_type: "image/jpeg" | "image/png" | "image/webp"
+  data: string
 }
 
 export type PackageCapture = {

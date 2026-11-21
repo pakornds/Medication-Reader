@@ -56,7 +56,7 @@ export function mountPackageLayout(container, {caseId, onChange = () => {}}) {
   function choose(side, id) {
     selected[side] = id;
     if (side === "front") {
-      activePackage = layout.packages.find(pkg => pkg.frontId === id)?.id;
+      activePackage = layout.frontOwner(id)?.id;
       previewReverse = undefined;
     } else previewReverse = id;
   }
@@ -171,7 +171,7 @@ export function mountPackageLayout(container, {caseId, onChange = () => {}}) {
       stage.append(overlay);
     }
     for (const region of view.regions) {
-      const owner = side === "front" ? layout.packages.find(pkg => pkg.frontId === region.id) : null;
+      const owner = side === "front" ? layout.frontOwner(region.id) : null;
       const box = el("span", owner ? packageName(owner.id) : regionName(side, region.id), "pl-box");
       positionBox(box, region.bounds);
       if (selected[side] === region.id) {
@@ -269,6 +269,13 @@ export function mountPackageLayout(container, {caseId, onChange = () => {}}) {
   }
   render();
   return {
+    restore(scene, originals) {
+      layout.restore(scene);
+      Object.assign(urls, originals);
+      selected.front = selected.reverse = null;
+      activePackage = previewReverse = undefined;
+      render();
+    },
     setPhoto(side, photo) {
       if (photo && !photo.url) throw new Error("A displayed photo URL is required.");
       layout.replaceView(side, photo);

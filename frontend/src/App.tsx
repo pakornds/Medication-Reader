@@ -42,6 +42,7 @@ export default function App() {
     return () => { active = false }
   }, [demoAttempt])
   const [record,setRecord] = useState<CaseState | null>(null)
+  const [selectedRow,setSelectedRow] = useState('')
   const [requestError,setRequestError] = useState(false)
   const generation = useRef(0)
   const openRequest = useRef(0)
@@ -79,6 +80,7 @@ export default function App() {
   }
 
   function startFreshCase() {
+    setSelectedRow('')
     generation.current++
     openRequest.current++
     setRecord(null)
@@ -92,9 +94,9 @@ export default function App() {
     generation.current++
     setRequestError(false)
     setSession(next)
-    if (!next) {setRecord(null);setDraft(createDraft());setLastStage('input')}
+    if (!next) {setRecord(null);setSelectedRow('');setDraft(createDraft());setLastStage('input')}
   }
-  async function openEncounter(id:string, reloadSaved = false) {
+  async function openEncounter(id:string, reloadSaved = false, rowId?:string) {
     if(!session) return
     const replacing=record?.encounter.id!==id
     const unsaved=(!record || (record.synced && record.synced!==draft)) &&
@@ -112,10 +114,16 @@ export default function App() {
         generation.current++
         setDraft(createDraft());setRecord({encounter,synced:null})
       } else setRecord(prev => prev && encounter.revision>=prev.encounter.revision ? {...prev,encounter} : prev)
+      if (replacing || rowId !== undefined) setSelectedRow(rowId && encounter.rows[rowId] ? rowId : '')
       navigate('/new-patient/review')
     } catch { if (before===generation.current && token===openRequest.current) setRequestError(true) }
   }
   const generationAtRender=generation.current
+  function reviewRow(caseId:string, rowId:string) {
+    if (record?.encounter.id !== caseId) { void openEncounter(caseId, false, rowId); return }
+    setSelectedRow(rowId)
+    navigate('/new-patient/review')
+  }
   function onEncounter(encounter:Encounter) {
     if (generation.current!==generationAtRender) return
     setRecord(prev=>prev && prev.encounter.id===encounter.id && encounter.revision>=prev.encounter.revision ? {...prev,encounter}:prev)
@@ -160,15 +168,15 @@ export default function App() {
           </Link>}
           {(draft.medicines.length > 0 || record || demoFailed) && access}{error}
           {!current && (!localDemo || session) && (draft.medicines.length > 0 || record?.synced) && <CaseHandoff key={draft.caseId} draft={draft} language={language} session={session} record={record} onSaved={onSaved} onRefresh={id => openEncounter(id, true)}/>}
-          {session && record && current && <ClinicalReview key={record.encounter.id+session.actor.id} language={language} client={session.client} actor={session.actor} encounter={record.encounter} onEncounter={onEncounter}/>}
+          {session && record && current && <ClinicalReview key={record.encounter.id+session.actor.id} language={language} client={session.client} actor={session.actor} encounter={record.encounter} onEncounter={onEncounter} selectedRow={selectedRow} onSelectRow={setSelectedRow}/>}
           {current && record?.synced && <details className="intake intake-panel"><summary>{language==='th'?'ดูฉบับร่างและหลักฐานต้นทาง':'Intake draft and source evidence'}</summary><DraftReview onSave={saveDraftValues} embedded draft={draft} language={language} onCatalogue={confirmCatalogue}/></details>}
         </div>}/>
         <Route path="output" element={<div className="connected-workspace stack">
-          {session && record && current ? <OutputPage key={record.encounter.id+session.actor.id} language={language} client={session.client} encounter={record.encounter} actor={session.actor} onEncounter={onEncounter}/> : placeholderOutput}{access}
+          {session && record && current ? <OutputPage key={record.encounter.id+session.actor.id} language={language} client={session.client} encounter={record.encounter} actor={session.actor} onEncounter={onEncounter} onReviewRow={reviewRow}/> : placeholderOutput}{access}
         </div>}/>
       </Route>
       <Route path="/history" element={<div className="connected-workspace stack">
-        <HistoryPage language={language} client={session?.client ?? null}/>{access}
+        <HistoryPage language={language} client={session?.client ?? null} onReviewRow={reviewRow}/>{error}{access}
       </div>}/>
       <Route path="*" element={<Navigate to="/" replace/>}/>
     </Routes></PageContainer></main>

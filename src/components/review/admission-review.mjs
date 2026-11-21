@@ -131,7 +131,8 @@ function reviewPackage(capture, row) {
   const item = pkg?.items.find(({ row_id }) => row_id === row.capture_item_id);
   if (!item) return null;
 
-  const front = item.evidence.filter(({ region }) => region.side === "front").map(({ region }) => region);
+  const activeEvidence = item.evidence.filter(value => !row.superseded.includes(value.source_id));
+  const front = activeEvidence.filter(({ region }) => region.side === "front").map(({ region }) => region);
   const reverse = capture.reverse_matches
     .filter(match => match.package_id === pkg.id && match.status === "confirmed")
     .map(({ region }) => region);
@@ -141,7 +142,7 @@ function reviewPackage(capture, row) {
     if (!region || view.attachment_id !== link.attachment_id || view.revision !== link.revision) return null;
     return { link, opaque: view.visibility === "opaque" || region.visibility === "opaque" };
   }).filter(Boolean);
-  const sources = item.evidence.map(evidence => ({
+  const sources = activeEvidence.map(evidence => ({
     ...evidence,
     source: capture.sources.find(({ id }) => id === evidence.source_id),
   }));

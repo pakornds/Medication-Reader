@@ -135,7 +135,32 @@ def test_geometry_edits_use_new_revision_and_keep_original(session):
         for ref in refs:
             if ref["side"] == "front":
                 ref["revision"] = 2
+    assert submit(http, path, change).status_code == 422
+    item = manifest["packages"][0]["items"][0]
+    item["evidence"] = [e for e in item["evidence"] if e["region"]["side"] != "front"]
     revised = submit(http, path, change)
     assert revised.status_code == 200 and revised.json()["capture_rows"] == saved.json()["capture_rows"]
     assert http.post(path + "/capture/region", headers=headers("nurse"), json=dict(prior, revision=1)).status_code == 404
     assert http.post(path + "/capture/region", headers=headers("nurse"), json=prior).status_code == 200
+
+
+def test_mixed_package_keeps_shared_source_only_on_unchanged_sibling(session):
+    http, path, manifest = session
+    original = submit(http, path, dict(revision=1, request_id="initial", manifest=manifest),
+                      {"front": picture(6), "reverse": picture(1)})
+    assert original.status_code == 200
+    mixed = manifest["packages"][1]
+    moved = mixed["items"].pop()
+    manifest["front"]["revision"] += 1
+    manifest["front"]["regions"][2]["bounds"]["x"] = .6
+    for package in manifest["packages"]:
+        for ref in package["front_regions"] + [e["region"] for item in package["items"] for e in item["evidence"]]:
+            if ref["side"] == "front":
+                ref["revision"] = manifest["front"]["revision"]
+    response = submit(http, path, dict(revision=2, request_id="move", manifest=manifest))
+    assert response.status_code == 200, response.text
+    assert response.json()["capture"]["packages"][1]["items"] == [mixed["items"][0]]
+    moved["evidence"][0]["region"]["revision"] = manifest["front"]["revision"]
+    mixed["items"].append(moved)
+    stale = submit(http, path, dict(revision=3, request_id="reuse", manifest=manifest))
+    assert stale.status_code == 422

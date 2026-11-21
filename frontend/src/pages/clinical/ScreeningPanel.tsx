@@ -1,4 +1,5 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { renderEncounterCoverage } from '../../../../src/components/checks/coverage-panel.mjs'
 import { ApiError } from '../../api/client'
 import type { Encounter } from '../../api/admission'
 import type { LocalScreeningResult, VersionedScreeningReport } from '../../api/contracts'
@@ -15,7 +16,7 @@ function safeLink(raw: string | null) {
 
 export function ScreeningPanel({ client, encounter, t }: { client: Client; encounter: Encounter; t: Say }) {
   const [local, setLocal] = useState<LocalScreeningResult>()
-  const [fixture, setFixture] = useState<VersionedScreeningReport>()
+  const [reports, setReports] = useState<Partial<Record<'DDI'|'DRP', VersionedScreeningReport>>>({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const locked = useRef(false)
@@ -43,7 +44,7 @@ export function ScreeningPanel({ client, encounter, t }: { client: Client; encou
         setLocal(undefined)
         setLocal(await client.localCheck({ case_id: encounter.id, admission_revision: encounter.revision }))
       } else {
-        setFixture(undefined)
+        setReports(previous => ({ ...previous, [kind]: undefined }))
         const previous = await client.snapshot(encounter.id).catch((error) => {
           if (error instanceof ApiError && error.status === 404) return null
           throw error
@@ -55,9 +56,8 @@ export function ScreeningPanel({ client, encounter, t }: { client: Client; encou
                 admission_revision: encounter.revision,
                 previous_snapshot_id: previous?.snapshot_id,
               })
-        setFixture(
-          await client.runReport(encounter.id, kind, { snapshot_id: snapshot.snapshot_id, enabled: true }),
-        )
+        const report = await client.runReport(encounter.id, kind, { snapshot_id: snapshot.snapshot_id, enabled: true })
+        setReports(previous => ({ ...previous, [kind]: report }))
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : t('Screening unavailable', 'คัดกรองไม่ได้'))
@@ -153,29 +153,17 @@ export function ScreeningPanel({ client, encounter, t }: { client: Client; encou
             </button>
           ))}
         </div>
-        {fixture && (
-          <section aria-live="polite">
-            <h4>
-              {fixture.kind} · {status(fixture.status)}
-            </h4>
-            <p>
-              {t('Evaluated scopes', 'ขอบเขตที่ประเมินแล้ว')} {fixture.coverage.evaluated_scopes} /{' '}
-              {fixture.coverage.total_scopes}
-              {' · '}
-              {t('Findings', 'ผลที่พบ')} {fixture.coverage.findings}
-            </p>
-            <p>
-              {fixture.release_id} · {fixture.ran_at}
-            </p>
-            {fixture.scopes.map((s) => (
-              <p key={s.scope_id}>
-                {s.row_ids.map(name).join(' + ')} · {status(s.outcome)} ·{' '}
-                {[s.reason_code, s.rule_id, s.reference_section].filter(Boolean).join(' · ')}
-              </p>
-            ))}
-          </section>
-        )}
+        {Object.values(reports).map(report => report && <ReportCoverage key={report.kind} report={report} encounter={encounter} t={t}/>)}
       </details>
     </details>
   )
+}
+
+function ReportCoverage({ report, encounter, t }: { report: VersionedScreeningReport; encounter: Encounter; t: Say }) {
+  const panel = useRef<HTMLElement>(null)
+  useEffect(() => {
+    if (panel.current) renderEncounterCoverage(panel.current, report,
+      new Map(Object.values(encounter.rows).map(row => [row.id, rowName(row, t)])), t)
+  }, [report, encounter, t])
+  return <section ref={panel} aria-live="polite"/>
 }
