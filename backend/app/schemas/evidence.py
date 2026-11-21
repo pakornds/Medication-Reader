@@ -69,7 +69,12 @@ class EvidenceItem(ContractModel):
     id: Text
     source_id: Text
     row_id: Text
-    kind: Literal["label_region", "pill_crop", "record_excerpt"]
+    kind: Literal["label_region", "matched_reverse_label", "pill_crop", "record_excerpt"]
+
+    def supports_label(self, source_kind: SourceKind) -> bool:
+        if source_kind == SourceKind.REVERSE_PHOTO:
+            return self.kind == "matched_reverse_label"
+        return self.kind == "label_region"
 
 
 class CaseEvidence(ContractModel):
@@ -90,7 +95,9 @@ class CaseEvidence(ContractModel):
             source = sources.get(item.source_id)
             if source is None or source.availability != "available":
                 raise ValueError(f"Item {item.id} has no available source")
-            if (item.kind in {"label_region", "pill_crop"}) != (source.kind in PHOTO_KINDS):
+            if item.kind == "matched_reverse_label" and source.kind != SourceKind.REVERSE_PHOTO:
+                raise ValueError("Matched reverse label requires a reverse photo")
+            if (item.kind in {"label_region", "matched_reverse_label", "pill_crop"}) != (source.kind in PHOTO_KINDS):
                 raise ValueError(f"Item {item.id} has the wrong source type")
         return self
 

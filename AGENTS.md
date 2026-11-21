@@ -5,8 +5,8 @@ Instructions for AI coding agents working in this repository. Read this before p
 ## Project
 Medication Reader helps pharmacy and clinic staff assemble a source-linked
 medication reconciliation draft from Thai and English labels, loose-pill photos,
-and manually entered records. A pharmacist or doctor verifies current use for
-the encounter. A pharmacist approves selected rows before mock hospital import.
+and manually entered records. An assigned nurse, doctor or pharmacist verifies current use for
+the encounter. Assigned staff may finish routine review or refer unknown items. Only a pharmacist confirms a previously unknown identity using independent item-specific evidence. A pharmacist approves selected rows before mock hospital import.
 
 Read the [v1 design](docs/specs/medication-reader-v1.md) and
 [AI behavior contract](docs/ai/reconciliation-behavior.md) before implementing a ticket.

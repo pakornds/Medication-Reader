@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Admission medication review</title>
+    <link rel="stylesheet" href="admission.css" />
+    <script type="module" src="admission.js"></script>
+  </head>
+  <body>
+    <header>
+      <span>Medication Reader</span>
+      <h1>Admission medication review</h1>
+      <span id="identity"></span>
+    </header>
+    <main>
+      <p id="message" role="status" aria-live="polite"></p>
+      <section id="login">
+        <h2>Staff sign-in</h2>
+        <form id="signin">
+          <label
+            >Demo reviewer token<input
+              name="token"
+              type="password"
+              required
+              autocomplete="off" /></label
+          ><button>Sign in</button>
+        </form>
+      </section>
+      <section id="queue" hidden>
+        <div class="bar">
+          <h2>Assigned encounters</h2>
+          <button id="refresh">Refresh</button
+          ><button id="signout">Sign out</button>
+        </div>
+        <div id="cases"></div>
+        <form id="create">
+          <label>Synthetic patient name<input name="alias" required /></label>
+          <fieldset>
+            <legend>Additional assigned staff</legend>
+            <label
+              ><input type="checkbox" name="role" value="nurse" /> Nurse</label
+            ><label
+              ><input type="checkbox" name="role" value="doctor" />
+              Doctor</label
+            >
+          </fieldset>
+          <button>Create encounter</button>
+        </form>
+      </section>
+      <section id="workspace" hidden>
+        <div class="bar">
+          <button id="back">Assigned encounters</button
+          ><button id="reload">Reload review</button>
+        </div>
+        <div id="summary"></div>
+        <div class="bar">
+          <button id="start">Start patient interview</button
+          ><button id="print">Print worksheet</button>
+        </div>
+        <div id="rows"></div>
+        <div id="controls"></div>
+        <div id="timeline"></div>
+      </section>
+      <dialog id="editor">
+        <form id="editform">
+          <h2></h2>
+          <div id="fields"></div>
+          <p id="formerror" role="alert"></p>
+          <div class="bar">
+            <button type="submit">Save</button
+            ><button type="button" id="cancel">Cancel</button>
+          </div>
+        </form>
+      </dialog>
+    </main>
+  </body>
+</html>
