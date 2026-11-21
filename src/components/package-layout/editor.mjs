@@ -2,6 +2,8 @@ import {PackageLayout, boundsBetween, displayPoint} from "./layout.mjs";
 
 const titles = {front: "Photo 1 · Labels up", reverse: "Photo 2 · Backs up"};
 const percent = value => value * 100 + "%";
+const packageName = id => "Package " + id.slice("package-".length);
+const regionName = (side, id) => (side === "front" ? "Front " : "Back ") + id.slice(side.length + 1);
 
 function positionBox(node, {x, y, width, height}) {
   Object.assign(node.style, {left: percent(x), top: percent(y), width: percent(width), height: percent(height)});
@@ -104,7 +106,8 @@ export function mountPackageLayout(container, {caseId, onChange = () => {}}) {
 
   function coordinates(side, region) {
     const details = el("details");
-    details.append(el("summary", region ? "Edit region coordinates" : "Add region by coordinates"));
+    details.append(el("summary", region ? "Edit region coordinates" : "Add region by coordinates"),
+      el("p", "Use 0 to 1 across the displayed photo, measured from the upper left."));
     const form = el("form", undefined, "pl-coordinates");
     const inputs = {};
     for (const name of ["x", "y", "width", "height"]) {
@@ -138,7 +141,9 @@ export function mountPackageLayout(container, {caseId, onChange = () => {}}) {
       panel.append(el("p", side === "reverse" ? "Reverse unavailable. Front regions remain available." : "Choose the front photo to mark packages."));
       return panel;
     }
-    panel.append(el("small", view.attachment_id + " · revision " + view.revision));
+    const metadata = el("details");
+    metadata.append(el("summary", "Photo details"), el("small", view.attachment_id + " · revision " + view.revision));
+    if (view.regions.length) metadata.append(el("p", view.regions.map(region => regionName(side, region.id) + " · " + region.id).join(", ")));
     const toolbar = el("div", undefined, "pl-toolbar");
     toolbar.append(select("Zoom", [["1", "100%"], ["1.5", "150%"], ["2", "200%"]], String(zoom[side]), value => {
       zoom[side] = Number(value);
@@ -167,7 +172,7 @@ export function mountPackageLayout(container, {caseId, onChange = () => {}}) {
     }
     for (const region of view.regions) {
       const owner = side === "front" ? layout.packages.find(pkg => pkg.frontId === region.id) : null;
-      const box = el("span", owner ? owner.id : region.id, "pl-box");
+      const box = el("span", owner ? packageName(owner.id) : regionName(side, region.id), "pl-box");
       positionBox(box, region.bounds);
       if (selected[side] === region.id) {
         box.classList.add("pl-selected");
@@ -182,7 +187,7 @@ export function mountPackageLayout(container, {caseId, onChange = () => {}}) {
     viewport.append(stage);
     panel.append(viewport);
     const region = view.regions.find(item => item.id === selected[side]);
-    panel.append(select("Region", [["", "New region"], ...view.regions.map(item => [item.id, item.id])],
+    panel.append(select("Region", [["", "New region"], ...view.regions.map(item => [item.id, regionName(side, item.id)])],
       region?.id, id => { choose(side, id); render(); }));
     panel.append(coordinates(side, region));
     if (region) {
@@ -198,6 +203,7 @@ export function mountPackageLayout(container, {caseId, onChange = () => {}}) {
       }
       panel.append(actions);
     }
+    panel.append(metadata);
     return panel;
   }
 
@@ -206,7 +212,7 @@ export function mountPackageLayout(container, {caseId, onChange = () => {}}) {
     const region = layout.region(side, id);
     const {x,y,width,height} = region.bounds;
     const frame = el("div", undefined, "pl-crop");
-    const image = shallowImage(side, id + " crop");
+    const image = shallowImage(side, regionName(side, id) + " crop");
     // Crop a browser-oriented image, preserving its native aspect ratio.
     image.style.width = percent(1 / width);
     image.style.transform = "translate(" + percent(-x) + ", " + percent(-y) + ")";
@@ -214,7 +220,7 @@ export function mountPackageLayout(container, {caseId, onChange = () => {}}) {
     image.addEventListener("load", sizeFrame);
     if (image.complete && image.naturalWidth) sizeFrame();
     frame.append(image);
-    figure.append(frame, el("figcaption", id + (region.visibility === "opaque" ? " · opaque" : "")));
+    figure.append(frame, el("figcaption", regionName(side, id) + (region.visibility === "opaque" ? " · opaque" : "")));
     return figure;
   }
 
@@ -227,7 +233,7 @@ export function mountPackageLayout(container, {caseId, onChange = () => {}}) {
     }
     const pkg = layout.packages.find(item => item.id === activePackage) ?? layout.packages[0];
     activePackage = pkg.id;
-    section.append(select("Package", layout.packages.map(item => [item.id, item.id + " · " + item.status]), pkg.id,
+    section.append(select("Package", layout.packages.map(item => [item.id, packageName(item.id) + " · " + (item.status === "confirmed" ? "paired" : item.status)]), pkg.id,
       id => { choose("front", layout.package(id).frontId); render(); }));
     const choices = layout.alternatives(pkg.id);
     const suggestion = layout.suggestions().get(pkg.id);
@@ -235,7 +241,7 @@ export function mountPackageLayout(container, {caseId, onChange = () => {}}) {
       pkg.reverseId ?? suggestion;
     const controls = el("div", undefined, "pl-toolbar");
     controls.append(select("Reverse region", [["", "Choose a region"], ...choices.map(item =>
-      [item.id, item.id + (item.id === suggestion ? " · positional suggestion" : "")])], picked, id => {
+      [item.id, regionName("reverse", item.id) + (item.id === suggestion ? " · nearby" : "")])], picked, id => {
         previewReverse = id || null;
         selected.reverse = id || null;
         render();
@@ -249,7 +255,7 @@ export function mountPackageLayout(container, {caseId, onChange = () => {}}) {
     const crops = el("div", undefined, "pl-crops");
     crops.append(crop("front", pkg.frontId));
     if (picked) crops.append(crop("reverse", picked));
-    section.append(controls, crops, el("p", pkg.reverseId ? "Paired with " + pkg.reverseId + ". Package identity is unverified." :
+    section.append(controls, crops, el("p", pkg.reverseId ? "Paired with " + regionName("reverse", pkg.reverseId) + ". Medicine identity still needs review." :
       pkg.status === "hidden" ? "Reverse hidden. No reverse crop attached." : "Unmatched. No reverse crop attached."));
     return section;
   }
@@ -258,7 +264,7 @@ export function mountPackageLayout(container, {caseId, onChange = () => {}}) {
     const panel = el("section", undefined, "package-layout");
     const photos = el("div", undefined, "pl-photos");
     photos.append(photoPanel("front"), photoPanel("reverse"));
-    panel.append(el("h2", "Mark packages"), el("p", "Drag across a photo to add a region, or enter coordinates from 0 to 1."), photos, pairing());
+    panel.append(el("h2", "Mark packages"), el("p", "Mark each package on the front photo. If you have a back photo, match the same package."), photos, pairing());
     container.replaceChildren(panel);
   }
   render();

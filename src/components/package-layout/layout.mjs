@@ -30,7 +30,7 @@ export class PackageLayout {
     this.revisions = {front: 0, reverse: 0};
     this.usedAttachments = new Set();
     this.packages = [];
-    this.sequence = 0;
+    this.sequence = {front: 0, reverse: 0};
   }
 
   replaceView(side, photo) {
@@ -52,10 +52,10 @@ export class PackageLayout {
   add(side, bounds) {
     const view = this.views[side];
     if (!view) throw new Error("Choose a photo first.");
-    const region = {bounds: checkedBounds(bounds), id: side + "-" + ++this.sequence, visibility: "visible"};
+    const region = {bounds: checkedBounds(bounds), id: side + "-" + ++this.sequence[side], visibility: "visible"};
     view.regions.push(region);
     if (side === "front") this.packages.push({
-      id: "package-" + this.sequence, frontId: region.id, reverseId: null, status: "unmatched",
+      id: "package-" + this.sequence.front, frontId: region.id, reverseId: null, status: "unmatched",
     });
     return region.id;
   }
