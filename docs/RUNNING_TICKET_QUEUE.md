@@ -35,7 +35,7 @@ When you need another worker's answer, post the question on their ticket, addres
 
 ## Review the PR
 
-After opening the PR and before merging, spawn a separate review agent. Choose a capable reasoning model suited to the complexity of the change. Honor any model preference the user has given. If the choice is unclear or a suitable reviewer is unavailable, ask the user how to proceed.
+After opening the PR and before merging, spawn a separate review agent. Use the most capable code-review model available to the session unless the user requests a specific model. If several models share the highest capability tier, choose any of them. If model selection is unavailable, use the default reviewer and disclose that limitation on the PR. If an independent reviewer cannot run, ask the user how to proceed.
 
 Give the reviewer the ticket, acceptance criteria, PR diff and verification results. Ask it to check correctness, regressions and missing tests. Record its findings on the PR, address actionable findings, and have it review any resulting changes. Follow the repository's required GitHub reviews and checks as well.
 
