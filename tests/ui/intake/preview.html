@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Medication intake · Synthetic encounter</title>
+<style>body{max-width:65rem;margin:1.3rem auto;padding:0 1rem;background:#f5f6f8;color:#17212e;font:1rem/1.45 system-ui}h1{font-size:1.5rem}#layout:empty{display:none}</style>
+<main><h1>Medication intake</h1><div id="intake"></div><div id="layout"></div></main>
+<script type="module">
+import { mountIntake } from '../../../src/components/intake/index.ts'
+const params = new URLSearchParams(location.search)
+const products = [{ id: 'demo-1', name: 'Fictional A', strength: '5 mg', form: 'tablet',
+  label: 'Fictional A 5 mg tablet', tpu: 'TMT-demo', release: 'synthetic' }]
+let submitAttempts = 0
+window.submissions = []
+window.intake = mountIntake(document.querySelector('#intake'), {
+  caseId: window.fixtureCase || 'synthetic-intake', role: 'nurse', collector: 'Synthetic nurse', language: params.get('lang') || 'en',
+  searchProducts: async q => products.filter(p => p.label.toLowerCase().includes(q.toLowerCase())),
+  onSubmit: async value => {
+    if (params.has('retry') && ++submitAttempts === 1) throw new Error('fixture failure')
+    window.submissions.push(value)
+  },
+  packages: () => window.editor?.snapshot().packages.map(p => ({ id: p.id, label: p.id })) || [],
+})
+{
+  const modulePath = '/src/components/package-layout/editor.mjs'
+  const sheet = document.createElement('link')
+  sheet.rel = 'stylesheet'
+  sheet.href = modulePath.replace(/editor\.mjs$/, 'editor.css')
+  document.head.append(sheet)
+  const { mountPackageLayout } = await import(/* @vite-ignore */ modulePath)
+  window.editor = mountPackageLayout(document.querySelector('#layout'), {
+    caseId: window.fixtureCase || 'synthetic-intake', onChange: scene => window.intake.syncLayout(scene),
+  })
+  window.intake.attachLayout(window.editor)
+}
+</script></html>
