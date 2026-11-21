@@ -103,7 +103,7 @@ export function InputPage({
     try {
       const preview = await analyze(draft, controller.signal)
       if (controller.signal.aborted) return
-      setDraft((d) => (d.evidence === evidence ? { ...d, preview } : d))
+      setDraft((d) => (d.caseId === draft.caseId && d.evidence === evidence ? { ...d, preview } : d))
       setStatus('idle')
       requestAnimationFrame(() => previewArea.current?.scrollIntoView({ block: 'start' }))
     } catch {

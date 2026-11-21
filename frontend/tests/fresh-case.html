@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<title>Fresh case browser check</title>
+<pre id="result">Running</pre>
+<iframe title="Synthetic fresh case" width="1040" height="760"></iframe>
+<script type="module">
+  const frame = document.querySelector('iframe')
+  const doc = () => frame.contentDocument
+  const button = name => [...doc().querySelectorAll('button')].find(el => el.textContent.trim() === name)
+  const link = path => doc().querySelector('a[href="' + path + '"]')
+  const field = name => [...doc().querySelectorAll('label')].find(el => el.firstChild.textContent.trim() === name)?.control
+  const expect = async (predicate, message) => {
+    for (let count = 0; count < 200; count++) {
+      if (predicate()) return
+      await new Promise(resolve => setTimeout(resolve, 25))
+    }
+    throw Error(message)
+  }
+  const type = (el, value) => {
+    Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value').set.call(el, value)
+    el.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+  const stamp = '2026-11-21T03:05:00.000000Z'
+  const receiptKey = 'medication-reader:imported-at:' + stamp
+  const previous = new Map(['medrec.theme', 'medrec.language', receiptKey].map(key => [key, localStorage.getItem(key)]))
+  try {
+    localStorage.setItem('medrec.language', 'en')
+    localStorage.setItem('medrec.theme', 'dark')
+    localStorage.setItem(receiptKey, stamp)
+    frame.src = '/new-patient/input'
+    await expect(() => button('Enter medicine manually'), 'Input did not open')
+    button('Enter medicine manually').click()
+    type(field('Product name or code'), 'Synthetic B')
+    type(field('Source wording or reference'), 'Synthetic transfer record B')
+    button('Start fresh case').click()
+    await expect(() => doc().querySelector('dialog[open]'), 'Unsaved entry requires confirmation')
+    button('Keep current case').click()
+    await expect(() => field('Product name or code').value === 'Synthetic B', 'Cancel lost the unsubmitted row')
+    button('Add to draft').click()
+    link('/new-patient/review').click()
+    await expect(() => doc().querySelector('article h2')?.textContent === 'Synthetic B', 'Missing confirmed row')
+    link('/history').click()
+    await expect(() => frame.contentWindow.location.pathname === '/history', 'History did not open')
+    link('/new-patient').click()
+    await expect(() => frame.contentWindow.location.pathname === '/new-patient/review' &&
+      doc().querySelector('article h2')?.textContent === 'Synthetic B', 'Resume lost the stage or row')
+    button('Start fresh case').click()
+    button('Keep current case').click()
+    await expect(() => frame.contentWindow.location.pathname.endsWith('/review') &&
+      doc().querySelector('article h2')?.textContent === 'Synthetic B', 'Cancel lost Review or its row')
+    link('/new-patient/input').click()
+    await expect(() => field('Patient or caregiver report'), 'Missing report field')
+    type(field('Patient or caregiver report'), 'Synthetic report B')
+
+    // Hold a synthetic response beyond discard, even if the client aborts its request.
+    const caseIds = []
+    let complete
+    frame.contentWindow.fetch = async (_url, options) => {
+      const form = JSON.parse(options.body.get('form'))
+      const id = form.evidence.case_id
+      caseIds.push(id)
+      const source = form.patient_report[0].evidence
+      const row = {id: 'row-b', identity_status: 'unlabeled', unknown_label: 'Synthetic pending B',
+        observed_names: [], sources: [source], label_fields: {}, reported_use: form.patient_report,
+        discrepancies: [], follow_ups: []}
+      const preview = {case_id: id, rows: [row], unassigned_reports: []}
+      if (caseIds.length === 1) return Response.json(preview)
+      return new Promise(resolve => { complete = () => resolve(Response.json(preview)) })
+    }
+    button('Analyze evidence').click()
+    await expect(() => doc().querySelector('.suggestion input[type=checkbox]'), 'Missing synthetic suggestion')
+    doc().querySelector('.suggestion input').click()
+    button('Start fresh case').click()
+    button('Keep current case').click()
+    await expect(() => doc().querySelector('.suggestion input')?.checked, 'Cancel lost the selected row')
+    button('Analyze evidence').click()
+    await expect(() => complete, 'Analysis did not start')
+    button('Start fresh case').click()
+    button('Discard and start fresh').click()
+    await expect(() => !doc().querySelector('dialog[open]') && field('Patient or caregiver report')?.value === '' &&
+      button('Analyze evidence')?.disabled, 'Discard did not open empty Input')
+    complete()
+    await new Promise(resolve => setTimeout(resolve, 100))
+    if (doc().querySelector('.suggestion, .draft-line') || doc().body.textContent.includes('Suggested medicines')) {
+      throw Error('Discarded case or late preview appeared')
+    }
+    type(field('Patient or caregiver report'), 'Synthetic new report')
+    button('Analyze evidence').click()
+    await expect(() => caseIds.length === 3 && caseIds[2] !== caseIds[0], 'Case identifier was reused')
+    complete()
+    if (localStorage.getItem(receiptKey) !== stamp || localStorage.getItem('medrec.theme') !== 'dark' ||
+      localStorage.getItem('medrec.language') !== 'en') throw Error('History or preferences changed')
+    document.querySelector('#result').textContent = 'PASS'
+  } catch (error) {
+    document.querySelector('#result').textContent = 'FAIL ' + error.message
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === null) localStorage.removeItem(key)
+      else localStorage.setItem(key, value)
+    }
+  }
+</script>
+</html>
