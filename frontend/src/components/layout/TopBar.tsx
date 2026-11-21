@@ -1,15 +1,16 @@
-import { LuPill, LuPlus } from 'react-icons/lu'
+import { LuFolderOpen, LuPill, LuPlus } from 'react-icons/lu'
 import { messages, type Language } from '../../i18n/messages'
 import { LanguageSwitch } from './LanguageSwitch'
 import { ThemeToggle } from './ThemeToggle'
 import { TopBarLink } from './TopBarLink'
 
 type Props = {
+  canResume: boolean
   language: Language
   onLanguage: (value: Language) => void
 }
 
-export function TopBar({ language, onLanguage }: Props) {
+export function TopBar({ language, onLanguage, canResume }: Props) {
   const t = messages[language]
 
   return (
@@ -23,7 +24,10 @@ export function TopBar({ language, onLanguage }: Props) {
         </span>
         <nav aria-label={t.navigation} className="order-last flex w-full flex-wrap gap-1 sm:order-none sm:w-auto">
           <TopBarLink to="/">{t.home}</TopBarLink>
-          <TopBarLink to="/new-patient"><LuPlus aria-hidden="true" />{t.patient}</TopBarLink>
+          <TopBarLink to="/new-patient">
+            {canResume ? <LuFolderOpen aria-hidden="true" /> : <LuPlus aria-hidden="true" />}
+            {canResume ? t.resumeCase : t.patient}
+          </TopBarLink>
           <TopBarLink to="/history">{t.history}</TopBarLink>
         </nav>
         <div className="ml-auto flex gap-2">
