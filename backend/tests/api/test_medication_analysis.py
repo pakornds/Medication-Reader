@@ -69,6 +69,7 @@ async def client(case):
         assert submitted["patient_report"] == expected["patient_report"]
         assert submitted["other_source_notes"] == expected["other_source_notes"]
         assert submitted["question"] == form["question"]
+        assert list(submitted["uploaded_photo_sources"]) == form["photo_source_ids"]
         assert len([item for item in content if item["type"] == "input_image"]) == len(photos)
         assert "only user request" in body["instructions"]
         return json.dumps({
@@ -158,6 +159,31 @@ async def test_disputed_label_value_must_match_the_transcribed_fact(client, case
     assert any(item["field"] == "directions" for item in named["follow_ups"])
 
 
+async def test_logical_sources_can_share_one_uploaded_photo(client, case):
+    http, _ = client
+    form, photos, model_output = case
+    label_source = next(source for source in form["evidence"]["sources"] if source["id"] == "label-photo")
+    label_source["attachment_id"] = "one-photo"
+    form["evidence"]["sources"].append({
+        **label_source, "id": "other-label-source", "organization": "Demo Ward Pharmacy"
+    })
+    label_item = next(item for item in form["evidence"]["items"] if item["id"] == "label-b")
+    label_item["source_id"] = "other-label-source"
+    form["region_locations"]["label-photo"].pop("label-b")
+    form["region_locations"]["other-label-source"] = {"label-b": "middle label"}
+    other = model_output["rows"][1]
+    for ref in (
+        *other["sources"],
+        other["observed_names"][0]["evidence"],
+        other["label_fields"]["strength"]["evidence"],
+    ):
+        ref["source_id"] = "other-label-source"
+    response = await http.post("/medication-analysis", files=multipart_parts(form, photos))
+    assert response.status_code == 200, response.text
+    assert response.json()["rows"][1]["label_fields"]["strength"]["evidence"] == {
+        "source_id": "other-label-source", "item_id": "label-b"
+    }
+
 async def test_whole_photo_does_not_establish_unknown_items_dispensing_source(client, case):
     http, _ = client
     form, photos, model_output = case
@@ -180,6 +206,49 @@ async def test_ambiguous_patient_account_is_unassigned(client, case):
     assert [item["value"] for item in preview["unassigned_reports"]] == [
         item["value"] for item in form["patient_report"]
     ]
+
+
+async def test_report_cannot_borrow_a_name_from_another_statement(client, case):
+    http, _ = client
+    form, photos, model_output = case
+    form["patient_report_row_ids"].clear()
+    form["patient_report"][0]["value"] = "Demo A in the morning"
+    other = {"value": "Demo B at night", "evidence": {"source_id": "patient-account"}}
+    form["patient_report"].append(other)
+    model_output["rows"][0]["reported_use"] = [other]
+    response = await http.post("/medication-analysis", files=multipart_parts(form, photos))
+    assert response.status_code == 200, response.text
+    preview = response.json()
+    assert preview["rows"][0]["reported_use"] == []
+    assert [item["value"] for item in preview["unassigned_reports"]] == [
+        "Demo A in the morning", "Demo B at night"
+    ]
+
+
+async def test_same_name_on_two_rows_leaves_report_unassigned(client, case):
+    http, _ = client
+    form, photos, model_output = case
+    form["patient_report_row_ids"].clear()
+    form["patient_report"][0]["value"] = "Demo A in the morning"
+    model_output["rows"][0]["reported_use"] = form["patient_report"]
+    model_output["rows"][1]["observed_names"][0]["value"] = "Demo A"
+    response = await http.post("/medication-analysis", files=multipart_parts(form, photos))
+    assert response.status_code == 200, response.text
+    assert response.json()["rows"][0]["reported_use"] == []
+    assert len(response.json()["unassigned_reports"]) == 1
+
+
+async def test_partial_report_keeps_original_uncertain_wording(client, case):
+    http, _ = client
+    form, photos, model_output = case
+    form["patient_report_row_ids"].clear()
+    form["patient_report"][0]["value"] = "Demo A in the morning; unsure about the other pill"
+    model_output["rows"][0]["reported_use"][0]["value"] = "Demo A in the morning"
+    response = await http.post("/medication-analysis", files=multipart_parts(form, photos))
+    assert response.status_code == 200, response.text
+    preview = response.json()
+    assert preview["rows"][0]["reported_use"][0]["value"] == "Demo A in the morning"
+    assert preview["unassigned_reports"][0]["value"] == form["patient_report"][0]["value"]
 
 
 async def test_text_only_form_returns_a_sourced_named_item(client, case):

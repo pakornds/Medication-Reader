@@ -1,5 +1,7 @@
 """Build an attributed preview from a transient form submission."""
 
+import json
+import re
 from collections.abc import Callable, Sequence
 
 from pydantic import Field, ValidationError, model_validator
@@ -62,15 +64,27 @@ class FormAnalysisError(ValueError):
     pass
 
 
-def validate_form_input(form: FormAnalysisInput, photos: Sequence[EvidenceImage]) -> None:
+def validate_form_input(
+    form: FormAnalysisInput, photos: Sequence[EvidenceImage]
+) -> dict[str, list[str]]:
     photo_ids = [photo.evidence_id for photo in photos]
     available_photos = {
-        source.id for source in form.evidence.sources
+        source.id: source for source in form.evidence.sources
         if source.kind in PHOTO_KINDS and source.availability == "available"
     }
     if photo_ids != form.photo_source_ids or len(photo_ids) != len(set(photo_ids)):
         raise FormAnalysisError("Associate each uploaded photo with a distinct case source.")
-    if set(photo_ids) != available_photos:
+    if set(photo_ids) - available_photos.keys():
+        raise FormAnalysisError("Each upload must identify an available photo source.")
+    linked_sources = {}
+    for photo_id in photo_ids:
+        attachment = available_photos[photo_id].attachment_id
+        linked_sources[photo_id] = [
+            source.id for source in available_photos.values()
+            if source.id == photo_id or (attachment is not None and source.attachment_id == attachment)
+        ]
+    seen_sources = [source_id for group in linked_sources.values() for source_id in group]
+    if set(seen_sources) != available_photos.keys() or len(seen_sources) != len(set(seen_sources)):
         raise FormAnalysisError("Every available photo source needs its corresponding upload.")
     if any(not _matches_media_type(photo.content, photo.media_type) for photo in photos):
         raise FormAnalysisError("The uploaded photo bytes must match their declared image type.")
@@ -85,6 +99,7 @@ def validate_form_input(form: FormAnalysisInput, photos: Sequence[EvidenceImage]
             (source_id, item_id) not in photo_items for item_id in locations
         ):
             raise FormAnalysisError("Each region location must refer to an item in an uploaded photo.")
+    return linked_sources
 
 
 class FormGrounding:
@@ -120,18 +135,29 @@ class FormGrounding:
             )
         return any(fact.value in text for text in self.texts.get(source.id, []))
 
-    def supports_report(self, fact: SourcedValue, row: MedicationSuggestion) -> bool:
+    def supports_report(
+        self, fact: SourcedValue, row: MedicationSuggestion, rows: Sequence[MedicationSuggestion]
+    ) -> bool:
         source = self.available_reference(fact.evidence, row.id)
         if source is None or source.kind not in REPORT_KINDS or not self.supports_fact(fact, row):
             return False
         associated_row = self.form.patient_report_row_ids.get(source.id)
         if associated_row is not None:
             return associated_row == row.id
-        return any(
-            name.value.casefold() in report.casefold()
-            for name in row.observed_names
-            for report in self.texts.get(source.id, [])
-        )
+        for report in self.texts.get(source.id, []):
+            if fact.value not in report:
+                continue
+            text = report.casefold()
+            matching_rows = {
+                item.id for item in rows
+                if any(
+                    re.search(r"(?<!\w)" + re.escape(name.value.casefold()) + r"(?!\w)", text)
+                    for name in item.observed_names
+                )
+            }
+            if matching_rows == {row.id}:
+                return True
+        return False
 
     def supports_crop(self, crop: EvidenceRef, row_id: str) -> bool:
         source = self.available_reference(crop, row_id)
@@ -146,7 +172,10 @@ class FormGrounding:
     ) -> bool:
         if not self.supports_fact(fact, row):
             return False
-        if self.sources[fact.evidence.source_id].kind not in PHOTO_KINDS:
+        kind = self.sources[fact.evidence.source_id].kind
+        if kind in REPORT_KINDS:
+            return fact in row.reported_use
+        if kind not in PHOTO_KINDS:
             return True
         if field == "identity":
             return fact in row.observed_names
@@ -157,9 +186,8 @@ class FormGrounding:
             and observation.evidence == fact.evidence
         )
 
-    def ground_row(self, row: MedicationSuggestion) -> None:
+    def ground_names(self, row: MedicationSuggestion) -> None:
         row.sources = [ref for ref in row.sources if self.available_reference(ref, row.id)]
-        row.follow_ups = []
         row.observed_names = [
             name for name in row.observed_names
             if self.supports_fact(name, row)
@@ -168,6 +196,9 @@ class FormGrounding:
                 or self.form.patient_report_row_ids[name.evidence.source_id] == row.id
             )
         ]
+
+    def ground_row(self, row: MedicationSuggestion, rows: Sequence[MedicationSuggestion]) -> None:
+        row.follow_ups = []
         if not row.observed_names:
             if row.identity_status == "named":
                 row.identity_status = "unreadable"
@@ -175,7 +206,9 @@ class FormGrounding:
             row.follow_ups.append(
                 FollowUp(field="identity", question="Does the patient have the original labeled package?")
             )
-        row.reported_use = [report for report in row.reported_use if self.supports_report(report, row)]
+        row.reported_use = [
+            report for report in row.reported_use if self.supports_report(report, row, rows)
+        ]
 
         dispensing = self.sources.get(row.dispensing_source_id)
         if (
@@ -282,17 +315,21 @@ def analyze_medication_form(
     photos: Sequence[EvidenceImage],
     get_provider: Callable[[], OpenAIClient],
 ) -> AnalysisPreview:
-    validate_form_input(form, photos)
+    linked_sources = validate_form_input(form, photos)
+    provider_input = form.model_dump(mode="json")
+    provider_input["uploaded_photo_sources"] = linked_sources
     proposed = get_provider().generate(
         instructions=FORM_ANALYSIS.instructions,
-        evidence_text=form.model_dump_json(),
+        evidence_text=json.dumps(provider_input, ensure_ascii=False),
         output_type=FormProposal,
         images=photos,
     )
     grounding = FormGrounding(form)
     try:
         for row in proposed.rows:
-            grounding.ground_row(row)
+            grounding.ground_names(row)
+        for row in proposed.rows:
+            grounding.ground_row(row, proposed.rows)
         grounded = AnalysisResult.model_validate(proposed.model_dump())
         validate_analysis_result(grounded, form.evidence)
     except (ValidationError, EvidenceValidationError):
@@ -310,7 +347,7 @@ def analyze_medication_form(
             report
             for report in form.patient_report
             if not any(
-                used.evidence.source_id == report.evidence.source_id and used.value in report.value
+                used.evidence.source_id == report.evidence.source_id and used.value == report.value
                 for used in used_reports
             )
         ],
