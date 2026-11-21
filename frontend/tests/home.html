@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<title>Home workflow browser check</title>
+<pre id="result">Running</pre>
+<iframe title="Application under test" width="900" height="720"></iframe>
+<script type="module">
+  const frame = document.querySelector('iframe')
+  const result = document.querySelector('#result')
+  const doc = () => frame.contentDocument
+  const by = selector => doc()?.querySelector(selector)
+  const heading = () => by('h1')?.textContent
+  const path = () => frame.contentWindow.location.pathname
+  const homeLink = () => by('main a[href="/new-patient"]')
+  const previousLanguage = localStorage.getItem('medrec.language')
+  const syntheticReport = 'ข้อมูลสมมติ: ผู้ป่วยแจ้งว่าใช้ยาเฉพาะตอนเช้า'
+
+  async function expect(check, description) {
+    for (let i = 0; i < 100; i++) {
+      if (check()) return
+      await new Promise(resolve => setTimeout(resolve, 50))
+    }
+    throw new Error(description)
+  }
+
+  async function checkHome(language, title, link, steps) {
+    await expect(() => path() === '/' && heading() === title && doc()?.documentElement.lang === language,
+      title + ' opens in the selected language')
+    await expect(() => homeLink()?.textContent.trim() === link, link + ' is visible inside Home')
+    const instructions = [...doc().querySelectorAll('main li')]
+    await expect(() => instructions.length === steps.length && instructions.every((step, i) =>
+      step.querySelector('h2')?.textContent === steps[i][0] && steps[i][1].test(step.querySelector('p')?.textContent)),
+      title + ' explains capture, source comparison, handoff, and pharmacist import')
+  }
+
+  const english = ['en', 'Home', 'New Patient', [
+    ['Input', /label sides.*optional second photo.*flip the same items in place.*pill sides/],
+    ['Review', /cited sources.*label directions.*reported use/],
+    ['Output', /Print a dated handoff.*pharmacist.*approve and import.*selected eligible rows/],
+  ]]
+  const thai = ['th', 'หน้าหลัก', 'ผู้ป่วยใหม่', [
+    ['ป้อนข้อมูล', /ด้านฉลาก.*หากถ่ายภาพที่สอง.*ตำแหน่งเดิม.*ด้านเม็ดยา/],
+    ['ทบทวน', /แหล่งข้อมูล.*วิธีใช้บนฉลาก.*วิธีใช้ที่ผู้ป่วยแจ้ง/],
+    ['ผลลัพธ์', /พิมพ์เอกสารส่งต่อ.*เภสัชกร.*อนุมัติและนำเข้า.*ผ่านเกณฑ์/],
+  ]]
+
+  try {
+    localStorage.removeItem('medrec.language')
+    frame.src = '/'
+    await checkHome(...english)
+    homeLink().click()
+    await expect(() => path() === '/new-patient/input' && by('textarea[id^="text-"]'),
+      'New Patient opens a fresh Input stage')
+    const notes = by('textarea[id^="text-"]')
+    Object.getOwnPropertyDescriptor(Object.getPrototypeOf(notes), 'value').set.call(notes, syntheticReport)
+    notes.dispatchEvent(new Event('input', { bubbles: true }))
+    by('a[href="/new-patient/review"]').click()
+    await expect(() => path() === '/new-patient/review' && heading() === 'Review',
+      'an edited case is open on Review')
+
+    by('header a[href="/"]').click()
+    await checkHome(...english)
+    homeLink().click()
+    await expect(() => path() === '/new-patient/review' && heading() === 'Review',
+      'English Home resumes the last stage')
+
+    by('header a[href="/"]').click()
+    await checkHome(...english)
+    by('button[title="Switch to Thai"]').click()
+    await checkHome(...thai)
+    frame.width = '320'
+    await expect(() => doc().documentElement.scrollWidth <= 320, 'Thai Home wraps at phone width')
+    homeLink().click()
+    await expect(() => path() === '/new-patient/review' && heading() === 'ทบทวน',
+      'Thai Home resumes the last stage')
+    by('a[href="/new-patient/input"]').click()
+    await expect(() => path() === '/new-patient/input' && by('textarea[id^="text-"]')?.value === syntheticReport,
+      'the edited report survives navigation and language change')
+    result.textContent = 'PASS'
+  } catch (error) {
+    result.textContent = 'FAIL ' + error.message
+  } finally {
+    if (previousLanguage === null) localStorage.removeItem('medrec.language')
+    else localStorage.setItem('medrec.language', previousLanguage)
+  }
+</script>
+</html>
