@@ -30,6 +30,7 @@
         <option value="stale">New snapshot, prior report</option>
         <option value="updated">New snapshot, current report</option>
         <option value="single">One eligible product</option>
+        <option value="unsupported-route">One supported route</option>
         <option value="doctor">Doctor view</option>
       </select>
     </label>
@@ -52,12 +53,25 @@
       scopes: afterDrp.scopes.filter(scope => scope.row_ids.includes("R1") && scope.row_ids.includes("R3")),
     };
 
+    const unsupportedRoute = {
+      ...before, snapshot_id: "unsupported-route",
+      rows: before.rows.map(row => row.id === "R2" ? { ...row, route: "topical" } : row),
+    };
+    const unsupportedRouteReport = {
+      ...beforeDrp, snapshot_id: unsupportedRoute.snapshot_id, status: "unavailable",
+      coverage: { total_scopes: 3, evaluated_scopes: 0, excluded_scopes: 3, findings: 0 },
+      scopes: beforeDrp.scopes.map(scope => scope.scope_id === "drp-R1-R2"
+        ? { ...scope, outcome: "unevaluated", reason_code: "unsupported_route", follow_up_ids: [] }
+        : scope),
+    };
+
     const scenarios = {
       baseline: { snapshot: before, report: beforeDrp },
       ddi: { snapshot: before, report: beforeDdi },
       stale: { snapshot: after, report: beforeDrp },
       updated: { snapshot: after, report: afterDrp },
       single: { snapshot: single, report: singleReport },
+      "unsupported-route": { snapshot: unsupportedRoute, report: unsupportedRouteReport },
       doctor: { snapshot: before, report: beforeDrp, canRecordDisposition: false },
     };
     const choose = document.querySelector("#fixture");

@@ -86,6 +86,12 @@ async function run() {
     assert.doesNotMatch(await review.innerText(), /%/);
     assert.match(await review.innerText(), /Not evaluated/);
 
+    await fixture.selectOption("unsupported-route");
+    await review.getByText("No pair to assess.", { exact: true }).waitFor();
+    assert.doesNotMatch(await review.innerText(), /%/);
+    await review.getByText("Not evaluated · Demo Amber + Demo Slate", { exact: true }).click();
+    await review.getByText("Route is outside the reference scope", { exact: true }).waitFor();
+
     await fixture.selectOption("doctor");
     finding = await openFinding();
     assert.equal(await finding.getByRole("button", { name: "Save disposition" }).count(), 0);

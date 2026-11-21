@@ -163,8 +163,11 @@ export function mountReviewItems(container) {
       return;
     }
     status.textContent = "Simulated review · " + report.release_id;
+    const supportedRoutes = new Set(release.rules
+      .filter(rule => rule.kind === report.kind).flatMap(rule => rule.routes));
     const eligibleProducts = new Set(snapshot.rows
-      .filter(row => row.use_status === "current" && row.mapping_status === "complete" && row.route)
+      .filter(row => row.use_status === "current" && row.mapping_status === "complete"
+        && supportedRoutes.has(row.route))
       .map(row => row.product_id));
     const { evaluated_scopes: evaluated, total_scopes: total, findings } = report.coverage;
     const scopes = report.kind === "DDI" ? "medication pairs" : "rule scopes";
