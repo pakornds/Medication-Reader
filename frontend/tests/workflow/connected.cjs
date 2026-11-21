@@ -278,11 +278,11 @@ async function namedPhoto(browser) {
   await stage(page, 'review')
   const compare = page.locator('.scan-catalogue')
   await compare.locator('summary').click()
-  const picker = compare.getByRole('combobox')
+  const picker = label(compare, 'Observed name or TPU code')
   assert.equal(await picker.inputValue(), product.label)
   const compareWith = async code => {
     await picker.fill(code)
-    await compare.getByRole('option').filter({ hasText: 'TPU ' + code }).click()
+    await compare.getByText('TPU ' + code, { exact: true }).waitFor()
   }
   await compareWith('1044462')
   const nameWarning = compare.getByText(/The observed name does not appear/)
@@ -291,16 +291,31 @@ async function namedPhoto(browser) {
   await compareWith('117365')
   assert.equal(await nameWarning.count(), 0, 'An exact observed and catalogue name should agree.')
   await button(compare, 'Confirm this catalogue product').click()
-  await button(compare, 'Remove catalogue selection').click()
+  await button(page, 'Remove catalogue selection').click()
   assert.equal(await page.getByRole('heading', { name: product.label }).count(), 1)
-  await compareWith('117365')
-  await button(compare, 'Confirm this catalogue product').click()
   await signIn(page, nurse)
-  const saved = page.waitForResponse(r => r.url().endsWith('/admissions/intake') && r.request().method() === 'POST')
-  await button(page, 'Save draft and open clinical review').click()
-  const response = await saved
-  assert.equal(response.status(), 200, await response.text())
-  const encounter = await response.json(), [row] = Object.values(encounter.rows)
+  async function save() {
+    const saved = page.waitForResponse(r => r.url().endsWith('/admissions/intake') && r.request().method() === 'POST')
+    await page.getByRole('button', { name: /^(Save draft and open clinical review|Save revised draft)$/ }).click()
+    const response = await saved
+    assert.equal(response.status(), 200, await response.text())
+    return response.json()
+  }
+  async function editSavedDraft() {
+    await page.getByText('Intake draft and source evidence', { exact: true }).click()
+    await compare.locator('summary').click()
+  }
+  const cleared = await save()
+  assert.equal(Object.values((await assignedEncounter(cleared.id)).rows)[0].intake_catalogue, null)
+  await editSavedDraft()
+  await compareWith('1044462')
+  await button(compare, 'Confirm this catalogue product').click()
+  await save()
+  assert.equal(Object.values((await assignedEncounter(cleared.id)).rows)[0].intake_catalogue.product.tpu, '1044462')
+  await editSavedDraft()
+  await compareWith('117365')
+  await button(compare, 'Replace confirmed TPU 1044462').click()
+  const encounter = await save(), [row] = Object.values((await assignedEncounter(cleared.id)).rows)
   assert.equal(row.intake_catalogue.product.tpu, '117365')
   assert.equal(row.intake.observed_names[0].value, product.label)
   assert.ok(row.entries.some(e => e.photo && e.source.kind === 'label_photo' && e.name === product.label))
@@ -401,6 +416,11 @@ async function presenter(browser) {
     if (demo) {
       await presenter(browser)
       console.log('PASS loopback presenter: pending scan in Review, pharmacist verification, final import, and receipt with no staff token in the browser.')
+      return
+    }
+    if (process.argv.includes('--scan-catalogue')) {
+      await namedPhoto(browser)
+      console.log('PASS scan catalogue confirmation, removal, replacement and independent clinical readback.')
       return
     }
     await workflow(browser)

@@ -7,7 +7,7 @@ type Original = { media_type: string; data: string }
 type IntakePart = {
   row: Suggestion
   origin: Medicine['origin']
-  catalogue: CatalogueMatch | null
+  catalogue: Pick<CatalogueMatch, 'product' | 'release'> | null
   catalogue_identity?: CatalogueIdentity
   sources: EvidenceSource[]
   items: EvidenceItem[]
@@ -74,7 +74,8 @@ function prepareSnapshot({ row, evidence, facility, catalogueIdentity }: Medicin
       width: region.box.w / 100, height: region.box.h / 100 }
   }
   const earlier = hasEarlierEvidence({ row, evidence }, currentEvidence)
-  return { row, origin, catalogue, catalogue_identity: earlier ? undefined : catalogueIdentity,
+  return { row, origin, catalogue: catalogue ? { product: catalogue.product, release: catalogue.release } : null,
+    catalogue_identity: earlier ? undefined : catalogueIdentity,
     sources: [...sources.values()], items, notes, regions, physical_items: physicalItems }
 }
 

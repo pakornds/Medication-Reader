@@ -4,6 +4,7 @@
 <pre id="result">Running</pre>
 <iframe title="Synthetic intake case" width="1100" height="720"></iframe>
 <script type="module">
+  import { checkAdjudicatedAlias, checkScanCatalogue, checkUnspecifiedPresentation } from './scan-catalogue.js'
   const frame = document.querySelector('iframe')
   const result = document.querySelector('#result')
   const doc = () => frame.contentDocument
@@ -139,6 +140,7 @@
     await expect(()=>doc().querySelectorAll('aside .draft-line').length===2, 'two separate medicines from one original')
     assert(doc().querySelectorAll('aside .draft-line')[1].innerText.includes('Example ingredient (Synthetic right)'),
       'the accepted draft retains the source-linked display name')
+    await checkAdjudicatedAlias({ doc, win, expect, assert, type, itemId: ids[1] })
     photo('Reverse side','reverse.png',packageLabelPhoto('Synthetic left back','Synthetic right back'))
     const reverse = () => doc().querySelector('section[aria-label="Reverse side"]')
     await expect(()=>reverse().querySelector('img'), 'reverse image ready')
@@ -338,11 +340,13 @@
     type(field('Draft strength', correction), '12 mg')
     correction.querySelector('button[type="submit"]').click()
     await expect(() => scannedOrder.textContent.includes('12 mg'), 'staff correction saved to the intended order')
+    const finishOldLookup = await checkScanCatalogue({ frame: win(), manualOrder, scannedOrder, expect, assert, type })
     assert(scannedOrder.querySelector('.staff-corrections').querySelectorAll('dt').length===1
       && scannedOrder.querySelector('.staff-corrections dt').textContent==='Draft strength',
       'only the changed strength is attributed to staff')
 
     input()
+    await finishOldLookup()
     await expect(() => draftRows().some(row => row.textContent.includes('12 mg')), 'correction reflected in the draft')
     await click('Analyze evidence')
     await expect(() => suggestion('9 mg'), 'new reading from the original source is available for inspection')
@@ -373,6 +377,9 @@
     review()
     await expect(() => reviewSources('Demo South Facility Retake'), 'linked retake visible in Review')
     const linkedOrder = reviewSources('Demo South Facility Retake')
+    const oldManual = reviewSources('Synthetic manual 5 mg order')
+    assert(oldManual && !oldManual.querySelector('.selected-trade-product') && oldManual.textContent.includes('Demo North Facility'),
+      'retaking the original photo clears its active catalogue selection while preserving manual and earlier scan evidence')
     assert(linkedOrder.textContent.includes('neighboring-labels.png') && linkedOrder.textContent.includes('retaken-labels.png'), 'both original and retaken source remain attributable')
     assert(linkedOrder.textContent.includes(facilityPhones['Demo South Facility']) && linkedOrder.textContent.includes(facilityPhones['Demo South Facility Retake']) && !linkedOrder.textContent.includes(facilityPhones['Demo North Facility']), 'retake preserves both attributed dispensing phones without borrowing the neighboring number')
     assert(linkedOrder.querySelector('h2').textContent==='Demo order' && linkedOrder.textContent.includes('Demo retake reading'), 'retaken identity is preserved as an observation without overwriting the order')
@@ -610,6 +617,8 @@
     await expect(() => doc()?.querySelector('.input-modes') && !doc().querySelector('.draft-line, .suggestion, aside'),'reload clears the open case')
     await scanPrefillCase()
     await wholeTableCase()
+    await checkUnspecifiedPresentation({ frame, doc, win, photo, packageLabelPhoto, click, expect, assert, type,
+      live: new URLSearchParams(location.search).has('liveCatalogue') })
     result.textContent='PASS'
   } catch(error) {
     result.textContent='FAIL '+error.message
