@@ -20,7 +20,7 @@ def test_two_photos_round_trip_and_project_to_existing_evidence(capture_payload)
     capture = PackageCapture.model_validate(capture_payload)
     assert PackageCapture.model_validate_json(capture.model_dump_json()) == capture
     assert [package.id for package in capture.packages] == ["package-a", "package-b", "package-c"]
-    assert len(capture.reverse.regions) == 2
+    assert [region.visibility for region in capture.reverse.regions] == ["visible", "visible"]
     assert len(capture.packages[1].items) == 2
     assert {item.kind for item in capture.packages[1].items} == {"pending_appearance"}
     assert capture.front.regions[-1].id == "front-unassigned"
@@ -32,9 +32,13 @@ def test_two_photos_round_trip_and_project_to_existing_evidence(capture_payload)
         ("clinic-a-reverse", "Demo Clinic A"),
         ("clinic-c", "Demo Clinic C"),
     }
-    assert {item.row_id for item in manifest.items if item.kind == "pill_crop"} == {
-        "pending-b-round", "pending-b-oval",
-    }
+    appearance_items = [item for item in manifest.items if item.kind == "pill_crop"]
+    assert {item.row_id for item in appearance_items} == {"pending-b-round", "pending-b-oval"}
+    assert {item.source_id for item in appearance_items} == {"bag-b"}
+    assert {
+        capture.origin_for(EvidenceRef(source_id=item.source_id, item_id=item.id)).region_id
+        for item in appearance_items
+    } == {"front-b-round", "front-b-oval"}
     reverse_label = next(item for item in manifest.items if item.kind == "matched_reverse_label")
     origin = capture.origin_for(EvidenceRef(source_id=reverse_label.source_id, item_id=reverse_label.id))
     assert (origin.attachment_id, origin.revision, origin.region_id) == ("table-reverse", 2, "reverse-a")
@@ -101,6 +105,11 @@ def test_opaque_reverse_remains_recorded_without_evidence(capture_payload):
 
     capture_payload["reverse"] = None
     capture_payload["reverse_matches"] = []
+    with pytest.raises(ValidationError, match="corresponding capture view"):
+        PackageCapture.model_validate(capture_payload)
+    capture_payload["sources"] = [
+        source for source in capture_payload["sources"] if source["kind"] != "reverse_photo"
+    ]
     assert PackageCapture.model_validate(capture_payload).reverse is None
 
 
@@ -112,13 +121,13 @@ def test_candidate_reverse_cannot_supply_evidence(capture_payload):
 
 def test_two_front_packages_cannot_confirm_the_same_reverse(capture_payload):
     capture_payload["reverse_matches"][1]["status"] = "confirmed"
-    with pytest.raises(ValidationError, match="one-to-one"):
+    with pytest.raises(ValidationError, match="only one package"):
         PackageCapture.model_validate(capture_payload)
 
 
 def test_source_on_shared_attachment_cannot_leak_across_regions(capture_payload):
     capture_payload["packages"][2]["items"][0]["evidence"][0]["source_id"] = "clinic-a"
-    with pytest.raises(ValidationError, match="single attributable region"):
+    with pytest.raises(ValidationError, match="across physical packages"):
         PackageCapture.model_validate(capture_payload)
 
 
@@ -126,3 +135,38 @@ def test_pending_appearance_cannot_claim_label_evidence(capture_payload):
     capture_payload["packages"][1]["items"][0]["evidence"][0]["kind"] = "label"
     with pytest.raises(ValidationError, match="only cite appearance"):
         PackageCapture.model_validate(capture_payload)
+
+
+def test_multiple_reverse_crops_can_belong_to_one_package(capture_payload):
+    reverse_region_ids = ["reverse-b-round", "reverse-b-oval"]
+    package = capture_payload["packages"][1]
+    reverse_source_id = "reverse-bag-b"
+    capture_payload["sources"].append({
+        "id": reverse_source_id, "kind": "reverse_photo", "attachment_id": "table-reverse",
+    })
+    for region_id, item, x in zip(reverse_region_ids, package["items"], (0.4, 0.51), strict=True):
+        capture_payload["reverse"]["regions"].append({
+            "id": region_id,
+            "bounds": {"x": x, "y": 0.1, "width": 0.08, "height": 0.1},
+        })
+        region = {
+            "case_id": "demo-two-photos",
+            "side": "reverse",
+            "attachment_id": "table-reverse",
+            "revision": 2,
+            "region_id": region_id,
+        }
+        capture_payload["reverse_matches"].append({
+            "package_id": "package-b", "region": region, "status": "confirmed",
+        })
+        item["evidence"].append({
+            "item_id": region_id, "source_id": reverse_source_id, "kind": "appearance", "region": region,
+        })
+
+    capture = PackageCapture.model_validate(capture_payload)
+    manifest = capture.to_case_evidence()
+    for region_id, row_id in zip(reverse_region_ids, ["pending-b-round", "pending-b-oval"], strict=True):
+        item = next(item for item in manifest.items if item.id == region_id)
+        assert (item.kind, item.row_id) == ("pill_crop", row_id)
+        ref = EvidenceRef(source_id=item.source_id, item_id=item.id)
+        assert capture.origin_for(ref).region_id == region_id

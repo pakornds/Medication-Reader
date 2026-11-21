@@ -15,6 +15,7 @@ from .evidence import (
     EvidenceItem,
     EvidenceRef,
     EvidenceSource,
+    PHOTO_KINDS,
     SourceKind,
     Text,
 )
@@ -47,7 +48,7 @@ class PhotoRegion(ContractModel):
 class PhotoView(ContractModel):
     attachment_id: Text
     revision: Revision
-    exif_orientation: Literal[1, 2, 3, 4, 5, 6, 7, 8] = 1
+    exif_orientation: Annotated[int, Field(strict=True, ge=1, le=8)] = 1
     coordinate_space: Literal["exif_transposed_display"] = "exif_transposed_display"
     visibility: Literal["visible", "opaque"] = "visible"
     regions: list[PhotoRegion] = Field(default_factory=list)
@@ -127,6 +128,8 @@ class PackageCapture(ContractModel):
         if len(set(identifiers)) != len(identifiers):
             raise ValueError("Package, row and source IDs must be distinct")
 
+        self._check_photo_sources()
+
         front_owners: dict[str, str] = {}
         for package in self.packages:
             for link in package.front_regions:
@@ -139,9 +142,24 @@ class PackageCapture(ContractModel):
         self._check_evidence(sources, front_owners, confirmed)
         return self
 
+    def _check_photo_sources(self) -> None:
+        attachments = {self.front.attachment_id}
+        reverse_attachment = self.reverse.attachment_id if self.reverse is not None else None
+        if reverse_attachment is not None:
+            attachments.add(reverse_attachment)
+
+        for source in self.sources:
+            if source.kind not in PHOTO_KINDS or source.availability != "available":
+                continue
+            if (
+                source.attachment_id not in attachments
+                or (source.kind == SourceKind.LABEL_PHOTO and source.attachment_id != self.front.attachment_id)
+                or (source.kind == SourceKind.REVERSE_PHOTO and source.attachment_id != reverse_attachment)
+            ):
+                raise ValueError("An available photo source requires the corresponding capture view")
+
     def _check_reverse_matches(self, packages: set[str]) -> dict[str, str]:
         confirmed: dict[str, str] = {}
-        matched_packages: set[str] = set()
         proposed: set[tuple[str, str]] = set()
         for match in self.reverse_matches:
             self.locate(match.region)
@@ -151,10 +169,9 @@ class PackageCapture(ContractModel):
                 raise ValueError("A reverse match requires a distinct package and reverse-region pair")
             proposed.add(pair)
             if match.status == "confirmed":
-                if region_id in confirmed or match.package_id in matched_packages:
-                    raise ValueError("A confirmed reverse match must be one-to-one")
+                if region_id in confirmed:
+                    raise ValueError("A reverse region can be confirmed for only one package")
                 confirmed[region_id] = match.package_id
-                matched_packages.add(match.package_id)
         return confirmed
 
     def _check_evidence(
@@ -164,7 +181,7 @@ class PackageCapture(ContractModel):
         reverse_owners: dict[str, str],
     ) -> None:
         evidence_ids: set[tuple[str, str]] = set()
-        source_regions: dict[str, str] = {}
+        source_packages: dict[str, str] = {}
         for package in self.packages:
             for item in package.items:
                 for evidence in item.evidence:
@@ -186,8 +203,8 @@ class PackageCapture(ContractModel):
                         or source.attachment_id != view.attachment_id
                     ):
                         raise ValueError("Region evidence requires an available photo source on the same attachment")
-                    if source_regions.setdefault(source.id, region.id) != region.id:
-                        raise ValueError("Each photo source describes a single attributable region")
+                    if source_packages.setdefault(source.id, package.id) != package.id:
+                        raise ValueError("A photo source cannot be shared across physical packages")
                     if item.kind == "pending_appearance" and evidence.kind != "appearance":
                         raise ValueError("Pending appearances can only cite appearance evidence")
 

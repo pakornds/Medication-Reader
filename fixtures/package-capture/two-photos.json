@@ -76,8 +76,7 @@
           "y": 0.11,
           "width": 0.23,
           "height": 0.34
-        },
-        "visibility": "opaque"
+        }
       }
     ]
   },
@@ -151,7 +150,7 @@
           "evidence": [
             {
               "item_id": "crop-b-round",
-              "source_id": "bag-b-round",
+              "source_id": "bag-b",
               "kind": "appearance",
               "region": {
                 "case_id": "demo-two-photos",
@@ -169,7 +168,7 @@
           "evidence": [
             {
               "item_id": "crop-b-oval",
-              "source_id": "bag-b-oval",
+              "source_id": "bag-b",
               "kind": "appearance",
               "region": {
                 "case_id": "demo-two-photos",
@@ -267,12 +266,7 @@
       "organization_type": "clinic"
     },
     {
-      "id": "bag-b-round",
-      "kind": "label_photo",
-      "attachment_id": "table-front"
-    },
-    {
-      "id": "bag-b-oval",
+      "id": "bag-b",
       "kind": "label_photo",
       "attachment_id": "table-front"
     },
