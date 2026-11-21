@@ -5,6 +5,7 @@ import { regimenText } from '../../i18n/regimen'
 import { intake } from '../../i18n/intake'
 import { ScheduleEditor } from '../new-patient/DirectionsEditor'
 import { MedicinePicker } from '../new-patient/MedicinePicker'
+import { RegimenReadback } from '../new-patient/RegimenReadback'
 import type { CatalogueMatch } from '../new-patient/draft'
 import { emptySchedule, fromComponent, toComponents, type Schedule } from '../new-patient/regimen'
 import {
@@ -70,6 +71,13 @@ export function VerifyForm({
       </p>
     )
 
+  const identityEntry = named.find((e) => e.source.id === (row.unknown ? row.confirmed?.source_id : identity))
+  const suggestedProduct = row.intake_catalogue
+  const suggestedSchedules = (row.intake?.regimens ?? []).filter((c) =>
+    Object.values(c.evidence).every((ref) => ref.source_id === source.source.id) &&
+    c.evidence.directions_text?.source_id === source.source.id &&
+    c.directions_text === source.wording.trim(),
+  )
   const notPatient = answer.ownership === 'other'
   const consistent =
     answer.ownership !== 'uncertain' &&
@@ -92,33 +100,35 @@ export function VerifyForm({
     answer.current_use !== 'current' ||
     (structured ? readySchedules : Boolean(answer.dose && answer.route && answer.schedule))
   const corrections = intakeCorrections(row)
+  const resolutionRequired = corrections.length > 0 || (named.length > 0 && !uniqueProduct)
+  const components = structured && readySchedules
+    ? toComponents({
+        note: {
+          id: source.source.id,
+          kind: reported(source)
+            ? source.source.kind === 'patient_report'
+              ? 'patient_report'
+              : 'caregiver_report'
+            : 'other_record',
+          text: source.wording,
+          author: '',
+          date: '',
+        },
+        schedules,
+        boundWording: source.wording,
+      }).map((c) => ({ ...c, basis: 'verified' as const }))
+    : []
+  const directionsText = [answer.dose, answer.route, answer.schedule].filter(Boolean).join(' · ')
   const canVerify =
     consistent &&
     readyUse &&
     !needsIdentity(row) &&
-    (!corrections.length || resolution.trim()) &&
+    (!resolutionRequired || resolution.trim()) &&
     (row.unknown || identity) &&
-    (!match || confirmedProduct)
+    (!match || (confirmedProduct && identityEntry))
   function verify(event: React.FormEvent) {
     event.preventDefault()
     if (!canVerify || !source) return
-    const components = structured
-      ? toComponents({
-          note: {
-            id: source.source.id,
-            kind: reported(source)
-              ? source.source.kind === 'patient_report'
-                ? 'patient_report'
-                : 'caregiver_report'
-              : 'other_record',
-            text: source.wording,
-            author: '',
-            date: '',
-          },
-          schedules,
-          boundWording: source.wording,
-        }).map((c) => ({ ...c, basis: 'verified' as const }))
-      : []
     const command = {
       action: 'verify' as const,
       row_id: row.id,
@@ -166,7 +176,7 @@ export function VerifyForm({
       <label>
         {t('Resolution of conflicting evidence', 'คำอธิบายการแก้ข้อมูลขัดแย้ง')}
         <textarea
-          required={corrections.length > 0}
+          required={resolutionRequired}
           value={resolution}
           onChange={(e) => setResolution(e.target.value)}
         />
@@ -181,31 +191,31 @@ export function VerifyForm({
       )}
       {answer.current_use === 'current' && (
         <>
+          {suggestedSchedules.length > 0 && (
+            <section className="clinical-inset clinical-form">
+              <h5>{t('Intake schedule suggestion', 'ตารางใช้ยาที่เสนอจากข้อมูลแรกรับ')}</h5>
+              <p>{sourceLabel(source, t)}</p>
+              {suggestedSchedules.map((c) => (
+                <RegimenReadback key={c.component_id} component={c} t={regimenText[language]} />
+              ))}
+              <button
+                className="text-action"
+                type="button"
+                onClick={() => {
+                  setSchedules(suggestedSchedules.map((c) => ({ ...fromComponent(c), complete: false })))
+                  setStructured(true)
+                }}
+              >
+                {t('Use the schedule recorded from this interview', 'ใช้ตารางที่บันทึกจากการสัมภาษณ์นี้')}
+              </button>
+            </section>
+          )}
           <label className="clinical-check">
             <input type="checkbox" checked={structured} onChange={(e) => setStructured(e.target.checked)} />
             {t('Verify a structured dosing schedule', 'ยืนยันตารางใช้ยาแบบแยกช่อง')}
           </label>
           {structured && (
             <div className="clinical-form">
-              {(row.intake?.regimens || []).filter(
-                (c) => c.evidence.directions_text?.source_id === source.source.id,
-              ).length > 0 && (
-                <button
-                  className="text-action"
-                  type="button"
-                  onClick={() =>
-                    setSchedules(
-                      row
-                        .intake!.regimens!.filter(
-                          (c) => c.evidence.directions_text?.source_id === source.source.id,
-                        )
-                        .map((c) => ({ ...fromComponent(c), complete: false })),
-                    )
-                  }
-                >
-                  {t('Use the schedule recorded from this interview', 'ใช้ตารางที่บันทึกจากการสัมภาษณ์นี้')}
-                </button>
-              )}
               {schedules.map((s, i) => (
                 <div className="clinical-schedule" key={s.id}>
                   <ScheduleEditor
@@ -235,25 +245,30 @@ export function VerifyForm({
           )}
         </>
       )}
+      {suggestedProduct && (
+        <section className="clinical-inset clinical-form">
+          <h5>{t('Intake product suggestion', 'ผลิตภัณฑ์ที่เสนอจากข้อมูลแรกรับ')}</h5>
+          <p>{suggestedProduct.product.label} · TPU {suggestedProduct.product.tpu} · {suggestedProduct.release}</p>
+          <button
+            className="text-action"
+            type="button"
+            disabled={!identityEntry}
+            onClick={() => {
+              setProduct(suggestedProduct)
+              setQuery(suggestedProduct.product.label)
+              setMatch(true)
+            }}
+          >
+            {t('Use the intake selection', 'ใช้รายการที่เลือกตอนรับข้อมูล')}
+          </button>
+        </section>
+      )}
       <label className="clinical-check">
         <input type="checkbox" checked={match} onChange={(e) => setMatch(e.target.checked)} />
         {t('Confirm an exact TMT product', 'ยืนยันผลิตภัณฑ์ที่ตรงกับบัญชี TMT')}
       </label>
       {match && (
         <div className="clinical-form">
-          {row.intake_catalogue && (
-            <button
-              className="text-action"
-              type="button"
-              onClick={() => {
-                setProduct(row.intake_catalogue!)
-                setQuery(row.intake_catalogue!.product.label)
-              }}
-            >
-              {t('Use the intake selection', 'ใช้รายการที่เลือกตอนรับข้อมูล')} ·{' '}
-              {row.intake_catalogue.product.label}
-            </button>
-          )}
           <MedicinePicker
             t={intake[language]}
             name={query}
@@ -268,14 +283,46 @@ export function VerifyForm({
               setQuery(v.product.label)
             }}
           />
-          {confirmedProduct && (
-            <small>
-              {keepPrior && !product ? prior?.identity?.name + ' · ' : ''}TPU {confirmedProduct.tpu} ·{' '}
-              {confirmedProduct.tmt_release}
-            </small>
-          )}
         </div>
       )}
+      <section
+        className="clinical-inset clinical-form"
+        aria-label={t('Verification readback', 'ข้อมูลที่จะบันทึกเมื่อยืนยัน')}
+      >
+        <h5>{t('Verification readback', 'ข้อมูลที่จะบันทึกเมื่อยืนยัน')}</h5>
+        {identityEntry && (
+          <p>
+            {t('Identity source', 'หลักฐานระบุชนิดยา')} · {entryName(identityEntry)} · {sourceLabel(identityEntry, t)}
+            {' · '}{identityEntry.wording}
+          </p>
+        )}
+        <p>
+          {match && confirmedProduct
+            ? <>{product?.product.label ?? prior?.identity?.name} · TPU {confirmedProduct.tpu} · {confirmedProduct.tmt_release}</>
+            : match
+              ? t('Select the exact catalogue product to continue.', 'เลือกผลิตภัณฑ์ที่ตรงกับบัญชีเพื่อดำเนินการต่อ')
+              : t('Catalogue product will remain unverified.', 'จะยังไม่ยืนยันผลิตภัณฑ์ในบัญชียา')}
+        </p>
+        <p>{t('Current-use source', 'แหล่งข้อมูลการใช้ยาจริง')} · {sourceLabel(source, t)} · {source.wording}</p>
+        {components.map((c) => (
+          <RegimenReadback
+            key={c.component_id}
+            component={c}
+            t={regimenText[language]}
+            heading={t('Schedule to record', 'ตารางใช้ยาที่จะบันทึก')}
+          />
+        ))}
+        {structured && !components.length && (
+          <p>{t('Review and complete every structured schedule.', 'ทบทวนและกรอกตารางใช้ยาให้ครบทุกตาราง')}</p>
+        )}
+        {!structured && (
+          <p>
+            {directionsText
+              ? <>{regimenText[language].freeTextOnly} · {directionsText}</>
+              : t('No schedule will be recorded.', 'จะไม่บันทึกตารางใช้ยา')}
+          </p>
+        )}
+      </section>
       <div className="clinical-actions">
         <button className="primary-btn" disabled={!canVerify}>
           {t('Verify this medicine', 'ยืนยันรายการยานี้')}

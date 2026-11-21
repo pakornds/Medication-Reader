@@ -29,7 +29,7 @@ const signIn = async (page, token) => {
 const stage = (page, name) => routeLink(page, '/new-patient/' + name).click()
 const fitsWidth = page => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
 
-async function addDocumentedProduct(page) {
+async function addDocumentedProduct(page, { separateSchedules = false } = {}) {
   await button(page, 'Enter medicine manually').click()
   const field = page.getByRole('combobox', { name: 'Product name or code' })
   await field.fill('117365')
@@ -55,7 +55,8 @@ async function addDocumentedProduct(page) {
   await button(page, 'Add another set of directions').click()
   const second = page.locator('.directions-card').nth(1)
   await second.getByLabel('Directions source', { exact: true }).selectOption('patient_report')
-  await second.getByLabel('Directions as written or reported', { exact: true }).fill('I take 1 tablet by mouth each evening')
+  await second.getByLabel('Directions as written or reported', { exact: true }).fill(
+    'I take 1 tablet by mouth each evening' + (separateSchedules ? ' and 2 tablets by mouth each morning' : ''))
   await second.getByRole('button', { name: 'Fill fields from wording' }).click()
   await page.waitForFunction(() => document.querySelectorAll('.directions-card')[1]?.querySelector('[aria-pressed=true]')?.textContent === 'Evening')
   await button(page, 'Add to draft').click()
@@ -75,7 +76,7 @@ async function addUnreadablePhoto(page) {
   await page.locator('.draft-line').filter({ hasText: 'Unidentified medicine' }).waitFor()
 }
 
-async function verifyProduct(page, rowId) {
+async function verifyProduct(page, rowId, { verifyFreeText = false, separateSchedules = false } = {}) {
   // Select the documented row even when the backend returns the unreadable row first.
   const identity = page.getByRole('button', { name: /ZOCOR/i }).filter({ visible: true })
   if (await identity.count()) await identity.first().click()
@@ -86,9 +87,10 @@ async function verifyProduct(page, rowId) {
   await source.selectOption(account)
   await interview.getByLabel('Whose medicine?').selectOption('patient')
   await interview.getByLabel('Current use').selectOption('current')
-  await interview.getByLabel('Actual dose').fill('1 tablet')
+  await interview.getByLabel('Actual dose').fill(separateSchedules ? '1 tablet evening, 2 tablets morning' : '1 tablet')
   await interview.getByLabel('Actual route').fill('oral')
-  await interview.getByLabel('Actual schedule').fill('each evening')
+  const actualSchedule = separateSchedules ? 'each evening and each morning' : 'each evening'
+  await interview.getByLabel('Actual schedule').fill(actualSchedule)
   await interview.getByLabel('Reported reason for use').fill('Synthetic admission review')
   const interviewSaved = page.waitForResponse(r => r.url().endsWith('/actions') && r.request().postDataJSON()?.command.action === 'interview')
   await button(page, 'Save interview').click()
@@ -96,24 +98,103 @@ async function verifyProduct(page, rowId) {
   assert.equal(recorded.status(), 200, await recorded.text())
   const verify = page.locator('form').filter({ has: button(page, 'Verify this medicine') })
   await verify.waitFor()
-  await verify.getByLabel('Verify a structured dosing schedule').check()
+  const readback = verify.getByRole('region', { name: 'Verification readback' })
+  const submit = async () => {
+    const response = page.waitForResponse(r => r.url().endsWith('/actions') && r.request().postDataJSON()?.command.action === 'verify')
+    await button(page, 'Verify this medicine').click()
+    const saved = await response
+    assert.equal(saved.status(), 200, await saved.text())
+    return (await saved.json()).rows[rowId].verified
+  }
+  await verify.getByRole('heading', { name: 'Intake schedule suggestion' }).waitFor()
+  await verify.getByRole('heading', { name: 'Intake product suggestion' }).waitFor()
+  await readback.getByText('Catalogue product will remain unverified.').waitFor()
+  await readback.getByText(/Directions recorded as free text only.*1 tablet.*oral.*each evening/).waitFor()
+  assert.equal(await readback.locator('.regimen-readback').count(), 0)
+  const identitySource = await label(verify, 'Supported medicine identity').inputValue()
+  assert.match(await readback.innerText(), /Identity source.*ZOCOR[\s\S]*Current-use source.*Patient report/)
+  if (verifyFreeText) {
+    const ordinary = await submit()
+    assert.equal(ordinary.regimens, undefined)
+    assert.equal(ordinary.identity.normalized_medication_id, undefined)
+    assert.equal(ordinary.answer.schedule, actualSchedule)
+    assert.equal(ordinary.source_id, account)
+    assert.equal(ordinary.identity.source_id, identitySource)
+    await page.getByText('Directions recorded as free text only', { exact: true }).waitFor()
+    await page.locator('summary').filter({ hasText: 'Verify actual use' }).click()
+  }
   await button(verify, 'Use the schedule recorded from this interview').click()
-  assert.equal(await button(verify, 'Evening').getAttribute('aria-pressed'), 'true')
-  await verify.getByLabel('All directions are represented in these fields').check()
-  await verify.getByLabel('Confirm an exact TMT product').check()
+  const first = verify.locator('.clinical-schedule').first()
+  assert.equal(await button(first, 'Evening').getAttribute('aria-pressed'), 'true')
+  await first.getByLabel('All directions are represented in these fields').check()
+  if (separateSchedules) {
+    const extra = verify.locator('.clinical-schedule').nth(1)
+    assert.equal(await label(extra, 'Dose per use').inputValue(), '2')
+    assert.equal(await button(extra, 'Morning').getAttribute('aria-pressed'), 'true')
+    await label(extra, 'Dose unit').fill('tablets')
+    assert.equal(await button(verify, 'Verify this medicine').isDisabled(), true)
+    await label(extra, 'All directions are represented in these fields').check()
+  }
   await verify.getByRole('button', { name: /Use the intake selection/ }).click()
-  const response = page.waitForResponse(r => r.url().endsWith('/actions') && r.request().postDataJSON()?.command.action === 'verify')
-  await button(page, 'Verify this medicine').click()
-  const saved = await response
-  assert.equal(saved.status(), 200, await saved.text())
-  const verified = (await saved.json()).rows[rowId].verified
+  await readback.getByText(/TPU 117365/).waitFor()
+  const previews = readback.locator('.regimen-readback')
+  assert.equal(await previews.count(), separateSchedules ? 2 : 1)
+  assert.match(await previews.first().innerText(), /Evening/)
+  if (separateSchedules) assert.match(await previews.nth(1).innerText(), /2 tablets[\s\S]*Morning/)
+  assert.ok(await fitsWidth(page))
+  const verified = await submit()
   assert.equal(verified.answer.current_use, 'current')
-  assert.equal(verified.regimens.length, 1)
+  assert.equal(verified.regimens.length, separateSchedules ? 2 : 1)
   const [confirmed] = verified.regimens
   assert.equal(confirmed.basis, 'verified')
   assert.equal(confirmed.evidence.directions_text.source_id, account)
   assert.deepEqual(confirmed.time_of_day, ['evening'])
   assert.equal(verified.identity.normalized_medication_id, '117365')
+  assert.equal(verified.identity.source_id, identitySource)
+  if (separateSchedules) {
+    assert.deepEqual(verified.regimens[1].time_of_day, ['morning'])
+    assert.equal(verified.regimens[1].dose_amount, 2)
+    assert.equal(verified.regimens[1].evidence.directions_text.source_id, account)
+  }
+  await verify.waitFor({ state: 'hidden' })
+}
+
+async function verificationReadback(browser) {
+  for (const width of [1280, 390]) {
+    const page = await browser.newPage({ viewport: { width, height: 844 }, isMobile: width < 500, hasTouch: width < 500 })
+    await page.goto(ui + '/new-patient/input')
+    await addDocumentedProduct(page, { separateSchedules: true })
+    await stage(page, 'review')
+    await signIn(page, pharmacy)
+    const stored = page.waitForResponse(r => r.url().endsWith('/admissions/intake') && r.request().method() === 'POST')
+    await button(page, 'Save draft and open clinical review').click()
+    const response = await stored
+    assert.equal(response.status(), 200, await response.text())
+    const [known] = Object.values((await response.json()).rows)
+    await verifyProduct(page, known.id, { verifyFreeText: true, separateSchedules: true })
+    if (width === 1280) {
+      await page.locator('summary').filter({ hasText: 'Verify actual use' }).click()
+      const verify = page.locator('form').filter({ has: button(page, 'Verify this medicine') })
+      await verify.getByLabel('Verify a structured dosing schedule').uncheck()
+      await verify.getByLabel('Confirm an exact TMT product').uncheck()
+      const reverified = page.waitForResponse(r =>
+        r.url().endsWith('/actions') && r.request().postDataJSON()?.command.action === 'verify')
+      await button(verify, 'Verify this medicine').click()
+      const saved = await reverified
+      assert.equal(saved.status(), 200, await saved.text())
+      assert.equal((await saved.json()).rows[known.id].verified.regimens, undefined)
+      await stage(page, 'output')
+      await page.getByRole('checkbox', { name: /ZOCOR/i }).check()
+      await button(page, 'Approve and import selected medicines').click()
+      await page.getByRole('heading', { name: 'Import confirmed' }).waitFor()
+      await routeLink(page, '/history').click()
+      await button(page, 'View receipt').click()
+      await page.getByText('Directions recorded as free text only', { exact: true }).waitFor()
+      await page.getByText('each evening and each morning', { exact: true }).waitFor()
+      assert.equal(await page.locator('.regimen-readback').count(), 0)
+    }
+    await page.close()
+  }
 }
 
 async function assertReceiptHistory(page, expected, canRead) {
@@ -421,6 +502,12 @@ async function presenter(browser) {
     if (process.argv.includes('--scan-catalogue')) {
       await namedPhoto(browser)
       console.log('PASS scan catalogue confirmation, removal, replacement and independent clinical readback.')
+      return
+    }
+    if (process.argv.includes('--verification')) {
+      await verificationReadback(browser)
+      await namedPhoto(browser)
+      console.log('PASS desktop and phone verification readback, separate schedules, and conflicting catalogue rejection.')
       return
     }
     await workflow(browser)

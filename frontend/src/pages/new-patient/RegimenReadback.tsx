@@ -5,9 +5,11 @@ import { namedTimes } from './regimen'
 export function RegimenReadback({
   component: c,
   t,
+  heading = t[c.basis],
 }: {
   component: RegimenComponent
   t: RegimenText
+  heading?: string
 }) {
   const times = (c.time_of_day ?? []).map((value) => {
     const key = namedTimes.find((v) => v === value)
@@ -30,7 +32,7 @@ export function RegimenReadback({
   ]
   return (
     <section className="regimen-readback">
-      <strong>{t[c.basis]}</strong>
+      <strong>{heading}</strong>
       <blockquote>{c.directions_text}</blockquote>
       <dl>
         {fields.map(([key, value]) => (

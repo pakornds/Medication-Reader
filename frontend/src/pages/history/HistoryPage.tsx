@@ -93,10 +93,12 @@ function ReceiptDetails({ client, stamp, language }: { client: Client; stamp: st
           {v && <>
             <p>{v.status === 'current' ? t.current : v.status === 'no_longer_current' ? t.stopped : t.uncertain}</p>
             {directions.length ? directions.map(c => <RegimenReadback key={c.component_id} component={c} t={regimenText[language]} />)
-              : <dl className="flex flex-wrap gap-x-5 gap-y-1">
+              : (v.dose || v.route || v.frequency) && <>
+              <p>{regimenText[language].freeTextOnly}</p>
+              <dl className="flex flex-wrap gap-x-5 gap-y-1">
                 {([[t.dose, v.dose], [t.route, v.route], [t.frequency, v.frequency]] as const).map(([label, fact]) => fact && <div key={label}>
                   <dt className="text-sm text-2">{label}</dt><dd>{fact.value}</dd></div>)}
-              </dl>}
+              </dl></>}
             <small>{t.verified} · {v.reviewer.name} · <time dateTime={v.verified_at}>{localTime(v.verified_at, language)}</time></small>
           </>}
           {row.approval && <small>{t.approval} · {row.approval.pharmacist_id}</small>}

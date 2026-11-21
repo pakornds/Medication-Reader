@@ -46,6 +46,7 @@ export const regimenText = {
     documented: 'Documented',
     reported: 'Reported',
     verified: 'Verified',
+    freeTextOnly: 'Directions recorded as free text only',
     schedule: 'Schedule',
   },
   th: {
@@ -95,6 +96,7 @@ export const regimenText = {
     documented: 'ตามเอกสาร',
     reported: 'ตามคำบอกเล่า',
     verified: 'ยืนยันแล้ว',
+    freeTextOnly: 'บันทึกวิธีใช้ยาเป็นข้อความเท่านั้น',
     schedule: 'ตารางการใช้ยา',
   },
 }
