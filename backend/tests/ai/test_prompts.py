@@ -37,11 +37,36 @@ def assert_expected_labels(result: AnalysisResult, fixture: dict) -> None:
             (item["value"], item["evidence"]["item_id"])
             for item in expected_row["observed_names"]
         }
-        expected = expected_row["label_fields"]["strength"]
-        strength = row.label_fields["strength"]
-        assert strength.value == expected["value"], f"Unsupported strength for {row.id}"
-        assert strength.evidence.source_id == expected["evidence"]["source_id"]
-        assert strength.evidence.item_id == expected["evidence"]["item_id"]
+        for field, expected in expected_row["label_fields"].items():
+            observation = row.label_fields[field]
+            assert observation.status == expected["status"], f"Wrong {field} status for {row.id}"
+            assert observation.value == expected.get("value"), f"Unsupported {field} for {row.id}"
+            if expected.get("evidence"):
+                assert observation.evidence.source_id == expected["evidence"]["source_id"]
+                assert observation.evidence.item_id == expected["evidence"]["item_id"]
+
+
+def assert_expected_form(result: AnalysisResult, fixture: dict, request: AnalysisRequest) -> None:
+    assert_expected_labels(result, fixture)
+    rows = {row.id: row for row in result.rows}
+    assert set(rows) == {row["id"] for row in fixture["rows"]}
+    assert rows["row-a"].reported_use == request.patient_report
+    assert rows["row-b"].reported_use == rows["row-c"].reported_use == []
+    unknown = rows["row-c"]
+    assert unknown.identity_status == "unlabeled"
+    assert unknown.dispensing_source_id is None
+    assert unknown.reverse_crop.item_id == "pill-c"
+    ward_note_fields = {
+        value.evidence.source_id: value.value
+        for value in request.other_source_notes
+    }
+    for row in rows.values():
+        for conflict in row.discrepancies:
+            for value in conflict.observed_values:
+                if value.evidence.source_id in ward_note_fields:
+                    assert value.value in ward_note_fields[value.evidence.source_id], (
+                        "Unsupported ward-note discrepancy"
+                    )
 
 
 def test_versioned_prompts_keep_task_boundaries():
@@ -91,7 +116,7 @@ def test_valid_citation_with_wrong_value_fails_fixture_evaluation(transfer, scen
 
 def test_untrusted_note_is_sent_as_evidence(transfer, scenarios):
     notes = transfer["request"]["other_source_notes"]
-    notes[0]["value"] = scenarios["untrusted_note"]
+    notes[0]["value"] += " " + scenarios["untrusted_note"]
     request = AnalysisRequest.model_validate(transfer["request"])
 
     def transport(http_request, _timeout):
@@ -114,12 +139,26 @@ def test_untrusted_note_is_sent_as_evidence(transfer, scenarios):
         output_type=AnalysisResult,
     )
     validate_analysis_result(result, request.evidence)
-    named, _, unknown = result.rows
-    assert named.reported_use[0].evidence.source_id == "patient-account"
-    assert named.label_fields["directions"].evidence.source_id == "label-photo"
-    assert unknown.identity_status == "unlabeled"
-    assert unknown.dispensing_source_id is None
+    assert_expected_form(result, transfer["response"], request)
     assert all("approval" not in row.model_dump() for row in result.rows)
+
+
+@pytest.mark.parametrize("location", ["directions", "reported_use", "ward_note"])
+def test_form_evaluation_rejects_unsupported_claims_with_valid_references(transfer, location):
+    expected = AnalysisResult.model_validate(transfer["response"]).model_dump(mode="json")
+    if location == "ward_note":
+        transfer["request"]["other_source_notes"][0]["value"] = "No medication name recorded."
+    request = AnalysisRequest.model_validate(transfer["request"])
+    named = transfer["response"]["rows"][0]
+    if location == "directions":
+        named["label_fields"]["directions"]["value"] = "Invented directions."
+    elif location == "reported_use":
+        named["reported_use"][0]["value"] = "Invented patient report."
+    result = validate_analysis_result(
+        AnalysisResult.model_validate(transfer["response"]), request.evidence
+    )
+    with pytest.raises(AssertionError):
+        assert_expected_form(result, expected, request)
 
 
 def test_pill_fixture_preserves_hidden_imprint_and_appearance(scenarios):
@@ -143,6 +182,7 @@ def test_live_synthetic_form_analysis(transfer):
         },
         "reverse-photo": {"pill-c": "single right pouch crop"},
     }
+    evidence["patient_report_row_ids"] = {"patient-account": "row-a"}
     result = client.generate(
         instructions=FORM_ANALYSIS.instructions,
         evidence_text=json.dumps(evidence, ensure_ascii=False),
@@ -153,10 +193,5 @@ def test_live_synthetic_form_analysis(transfer):
         ],
     )
     validate_analysis_result(result, request.evidence)
-    assert_expected_labels(result, transfer["response"])
-    rows = {row.id: row for row in result.rows}
-    assert rows["row-a"].reported_use[0].evidence.source_id == "patient-account"
-    assert rows["row-c"].identity_status == "unlabeled"
-    assert rows["row-c"].dispensing_source_id is None
-    assert rows["row-c"].reverse_crop.item_id == "pill-c"
+    assert_expected_form(result, transfer["response"], request)
     print(f"{FORM_ANALYSIS.version} on {client.model}: labels, sources and unknown-item crop passed")
