@@ -3,6 +3,7 @@ import type { FormEvent } from 'react'
 import type { ProductOption, ProductOptions } from '../../api/contracts'
 import { searchProducts } from '../../api/reconciliation'
 import { Button } from '../../components/ui/Button'
+import { InputField } from '../../components/ui/InputField'
 import type { Language } from '../../i18n/messages'
 import { EvidenceCrop } from './EvidenceImage'
 import { photoCitation, type CatalogueMatch, type Fact, type MedicineEvidence, type Photo, type Region } from './draft'
@@ -102,12 +103,12 @@ function Search({ scan, language, current, onConfirm, name }: Props & { name: Lo
     </div>
     <div className="stack">
       <form className="stack" onSubmit={search}>
-        <label>{t.query}<input value={query} maxLength={120} onChange={event => {
+        <InputField label={t.query} value={query} maxLength={120} onChange={event => {
           active.current?.abort()
           setResult(undefined)
           setStatus('idle')
           setQuery(event.target.value)
-        }} /></label>
+        }} />
         <Button type="submit" disabled={!query.trim() || status === 'loading'}>{t.search}</Button>
       </form>
       {status === 'loading' && <p role="status">{t.loading}</p>}
@@ -121,7 +122,7 @@ function Search({ scan, language, current, onConfirm, name }: Props & { name: Lo
             form && product.dose_form && wording(form) !== wording(product.dose_form) && t.form,
           ].filter(Boolean)
           const observedName = normalizeName(fact.value)
-          const nameMismatch = observedName && ![product.label, product.source_generic ?? ''].some(
+          const nameMismatch = observedName && fact.value.trim() !== product.tpu && ![product.label, product.source_generic ?? ''].some(
             value => (' ' + normalizeName(value) + ' ').includes(' ' + observedName + ' '),
           )
           const sameProduct = current?.product.tpu === product.tpu && current.release === result.tmt_release

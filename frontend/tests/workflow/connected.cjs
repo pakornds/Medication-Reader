@@ -345,6 +345,11 @@ async function namedPhoto(browser) {
 ;(async () => {
   const browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {})
   try {
+    if (process.argv.includes('--scan-catalogue')) {
+      await namedPhoto(browser)
+      console.log('PASS scan catalogue confirmation, removal, replacement and independent clinical readback.')
+      return
+    }
     await workflow(browser)
     await mobile(browser)
     await namedPhoto(browser)
