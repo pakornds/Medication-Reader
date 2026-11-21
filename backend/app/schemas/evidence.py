@@ -32,7 +32,13 @@ REPORT_KINDS = frozenset({SourceKind.PATIENT_REPORT, SourceKind.CAREGIVER_REPORT
 class EvidenceSource(ContractModel):
     id: Text
     kind: SourceKind
+    attachment_id: Text | None = None
     organization: Text | None = None
+    organization_type: Literal["clinic", "hospital", "community_pharmacy", "other"] | None = None
+    organization_address: Text | None = None
+    organization_phone: Text | None = None
+    organization_phone_extension: Text | None = None
+    organization_email: Text | None = None
     department_or_ward: Text | None = None
     reporter: Text | None = None
     collector: Text | None = None

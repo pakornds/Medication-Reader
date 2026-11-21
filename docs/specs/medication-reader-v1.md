@@ -12,8 +12,9 @@ In the fixture-only, 12-hour Medication Reader demo, community and hospital phar
 
 ```mermaid
 flowchart TD
-  photo[/"Label and pill photos"/] --> extract["Extract sourced medication rows"]
-  textInput[/"Typed report or record"/] --> extract
+  photo[/"Label and pill photos"/] --> sources["Attribute each label, record or report to its source"]
+  textInput[/"Typed report or record"/] --> sources
+  sources --> extract["Extract sourced medication rows"]
   extract --> product{"Name or product code available?"}
   product -->|"Yes"| lookup["Find TMT candidates by code or name using observed strength and form"]
   product -->|"No"| unknown["Keep an unidentified item for follow-up"]
@@ -22,11 +23,13 @@ flowchart TD
   unknown --> preview
   sig --> preview
   preview --> draft["Staff confirm draft for screen or print"]
+  preview -->|Revise evidence| sources
   draft --> handoff(["Provide digital or printed handoff"])
   draft --> verify{"Can clinician verify identity and actual use?"}
   verify -->|"More evidence needed"| follow["Keep row pending and request specific evidence"]
   follow -.-> extract
   verify -->|"Verified"| record["Record current-use status and verified regimen"]
+  record --> handoff
   record -->|Selected for import| approve["Pharmacist approves selected rows"]
   approve --> receipt["Mock hospital imports approved rows and returns a UTC receipt"]
   record -->|"Optional"| checks["Review supported DDI or DRP checks and coverage"]
@@ -34,14 +37,47 @@ flowchart TD
   style lookup fill:#E3F2EF,stroke:#428875
 ```
 
-1. A staff member opens a transient case. For **Photo 1**, keep available items in their original packaging or in separate groups on a plain background, including bags, boxes, blister packs, and loose or unlabeled items. Face the labels up and make the text readable in the frame. Staff can also add medicines manually during intake, including medicines the patient reports but did not photograph. Record the source and date when available. For optional **Photo 2**, flip the same bags or packs to show the pills where visible. Keep the items in their original positions so the two photos can be matched. Allow either photo to be retaken. Attach a source to each photo or supplemental manual record. Capture the evidence type, organization or reporter, department or ward, contact, and source date when available. Flag missing source details for follow-up. The demo uses `ศักดาเวชการ` and the masked contact `075-356XXXX`.
-2. Automatically read Thai, English, and bilingual labels from **Photo 1** and suggest one row per item or inseparable group. Capture the medication name, dose, indication, regimen or directions, amount prescribed, prescriber, and prescriber contact when explicitly documented. Also capture strength, dosage form, and expiry when visible. Preserve the original text, numerals, units, and dates and link each field to its evidence. Keep the dose separate from product strength and the amount prescribed separate from the number of pills visible. Leave missing or unreadable fields blank and allow the reviewer to fill them from a documented source. Keep undocumented indication, prescriber identity, and contact details unknown. Preview suggestions for staff confirmation before updating the draft.
-3. Give unlabeled items and items whose identity is unreadable a stable placeholder such as **Unknown medication A**, with an **Unlabeled** or **Unreadable** status. Match the same item across the photos and attach its crop from **Photo 2** when the match is supported. If pills are hidden or the match is uncertain, keep the row pending and ask the reviewer to match the images or retake the photo. A reviewer may inspect loose-pill descriptors and synthetic reference candidates. Require independent evidence to confirm identity.
-4. Show conflicting values side by side with their sources and ask for the specific missing evidence. Provide the same dated draft as a digital review list and a print-friendly list. Both show medication details, evidence references, reported use, discrepancies, follow-up items, and each matched Photo 2 crop beside its unknown item. Show a missing-image note when a crop is unavailable. The print layout includes space for verification and notes. The digital view links back to the photos and supports corrections. Drafts and unresolved rows carry visible status labels in both formats.
-5. A pharmacist or doctor reviews the list with the patient or caregiver and uses other source records as needed. For each row, confirm identity and record whether the patient currently takes it, no longer takes it, or has uncertain use at this encounter. For current medications, record the actual dose, route, and frequency as verified, separately from the printed directions. Record who verified the row, when, and which evidence supports it. Keep unresolved discrepancies pending and record any medicines missing from the photos. Clinical decisions and advice remain with the reviewer.
-6. The mock hospital import requires explicit pharmacist approval and valid source evidence for every selected row. Keep ineligible rows pending and show what remains after a partial import. Return the mock hospital's UTC import timestamp after success and save only that timestamp in local history. Timestamp searches may return multiple results for staff to disambiguate. Reloading restores the history and clears the draft.
+1. **Collect available evidence.** Accept typed evidence, photos, or both. For photos, keep items in their original packaging or in separate groups. Photograph the label side. If useful, flip items in place for a second view. Mark an uncertain pairing for manual matching or retake. Staff can add a medicine that the patient mentions but did not bring. Record where each account, label or document came from.
+2. **Build a preview.** Extract each supported name, product detail and instruction with a citation. Keep source wording in Thai or English. Give each inseparable or unidentified item a stable ID, attach a matched crop when available, and leave unreadable fields blank. A failed analysis preserves the open draft and inputs.
+3. **Check identity and disagreements.** Run product lookup when a name or code is available. Compare the candidates with the evidence. If an item may have the wrong label, record the conflicting values and request independent, item-specific confirmation. A catalogue match to the disputed wording cannot establish which medicine is inside the bag.
+4. **Confirm the draft.** Staff can correct, omit or accept suggestions and print the dated draft with pending rows and questions. Draft acceptance means the evidence has been represented accurately. A reviewer can still find that the patient takes a different dose or has stopped taking the medicine.
+5. **Verify each row.** A pharmacist or doctor checks identity, actual use and discrepancies with the patient, caregiver or documented source. Record what was verified, by whom, when and from which evidence. If more evidence arrives, update the affected row and print a dated handoff again. Show unresolved rows, their next question and the organization to contact when known. Mark verified stopped medicines as historical.
+6. **Approve and import the selected subset.** A pharmacist selects eligible rows. The server checks the selection before writing. One ineligible selected row rejects the entire request. Staff can then select only eligible rows and retry. Show the imported row IDs and UTC time, alongside the remaining draft rows. A failed write produces no receipt. The browser retains only successful UTC import timestamps.
 
-If evidence suggests a label may belong to a different medicine, show the original transcription and the conflicting evidence with their sources. Keep the row pending until a clinician verifies identity against independent evidence and documents the resolution. Pharmacist approval is still required before import.
+### Source fields and attribution
+
+One **source** represents one attributable label, document or report. Multiple medications can cite the same source. One medication can cite several sources. Staff enter organization details once per source and expand them from a medication row when they need to follow up.
+
+| API field | What it records |
+| --- | --- |
+| `id`, `kind` | Required case-local source ID and evidence kind, such as a label photo, transfer record, or patient report. |
+| `attachment_id` | Optional case-local ID of the original upload. Different logical sources in a mixed photo can share this ID. Each field still cites its own source and located item. |
+| `organization`, `organization_type` | Facility named on this source. Type is `clinic`, `hospital`, `community_pharmacy`, `other`, or null when unknown. |
+| `department_or_ward` | Documented department, pharmacy or ward within that facility. |
+| `organization_address` | Facility mailing or street address, in its original language. |
+| `organization_phone`, `organization_phone_extension` | Documented facility or department phone and extension, both strings. Preserve leading zeros, country codes and masked digits. |
+| `organization_email` | Institutional contact email when documented. |
+| `contact` | Existing free-text contact field for older records or an otherwise unclassified contact. A reviewer must establish ownership before copying it into a typed facility field. |
+| `source_date`, `availability`, `unavailable_reason` | Date on the record or date of the report when known, plus whether the evidence is available. An outstanding request can carry a reason and follow-up. |
+| `reporter`, `collector` | Who supplied the account and who captured it. Use roles or synthetic identities in the demo. |
+
+When a label or letterhead supplies a facility name, address or number, display the exact wording with its source. If staff obtain updated details by phone, add a dated reviewer record and identify the department contacted. Keep a patient-reported facility name attributed to the patient until documentation confirms dispensing. If two numbers conflict, present both with their sources and dates so the reviewer can choose a follow-up channel. Never infer a missing digit from a masked number or copy an address from another document based on a name match alone.
+
+**Mixed-photo example.** One upload shows a bag from Demo Clinic, a labeled pack from Demo Hospital Pharmacy and an unmarked tablet. Create two label sources with the same attachment ID and distinct source IDs and regions. Show the clinic phone beside the clinic bag and the hospital department beside the hospital pack. The tablet has its own image citation and **Dispensing organization unknown**. A hospital's transfer note can support directions while the clinic label supports dispensing origin. Set the row's `dispensing_source_id` only when the source explicitly connects that dispenser to the item.
+
+Facility contact fields are optional. A missing phone or address cannot establish or disprove identity. Leave undocumented values blank. Keep patient addresses, personal phone numbers and prescriber details out of facility fields. Use synthetic contacts and a masked clinic number such as `075-356XXXX` in the demo. Contacts belong to the open case and may accompany its authorized handoff. Browser history contains timestamps only.
+
+### Decisions at review
+
+| Situation | Expected decision |
+| --- | --- |
+| Clear label says “1 tablet each morning,” with route absent | Accept the documented directions into the draft. Ask the reviewer to verify route from an attributable source. Current-medication import requires verified identity, dose, route and frequency. |
+| The patient stopped a medicine | Record verified identity and `no_longer_current`. Keep it in dated history. An active regimen is unnecessary for this status. |
+| A clinic has no working phone or a medicine has no TMT candidate | Continue with available evidence. Ask for another source only if identity, use or a required field is unresolved. |
+| Label and ward record disagree about which medicine is in a bag | Keep the row pending. Record the specific corroborating evidence and how it resolves the conflict before approval. An unavailable clinic record can be a follow-up target only. |
+| A new note changes an already approved case | Refresh the handoff and obtain fresh approvals before import. The current backend fingerprints the full evidence manifest, so even an unrelated source edit can invalidate another row's approval. |
+
+**Backend review finding.** The import gate currently verifies that every discrepancy ID is listed as resolved and that reviewed fields have valid case references. It does not establish that confirmation of a disputed identity is independent of the challenged label. Until a resolution carries its own checked evidence, the reviewer must inspect that confirmation. An acceptance case for the gate is to reject an identity resolution supported solely by the disputed label, including another crop of the same label. [Import eligibility implementation](../../backend/app/services/import_eligibility.py)
 
 ### Fixed fields for directions
 
