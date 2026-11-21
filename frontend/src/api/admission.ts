@@ -7,6 +7,7 @@ export interface AdmissionRow {
   id: string
   package_id?: string
   capture_item_id?: string
+  unknown_capture_attachments?: string[]
   imported_at?: string
   entries: Array<SourceEntry & { product?: string; label_overrides?: string[] }>
   superseded: string[]
