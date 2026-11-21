@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { Interview } from '../../api/contracts'
+import type { InterviewAnswers as Answers, InterviewDraft, UpdateInterviewDraft } from './interviewDraft'
 import type { Encounter } from '../../api/admission'
 import {
   active,
@@ -12,38 +12,51 @@ import {
   type ReviewRow,
 } from './review'
 
-type Answers = Omit<Interview, 'action' | 'row_id'>
 export function InterviewForm({
   row,
   encounter,
   save,
   t,
+  draft,
+  onDraft,
 }: {
   row: ReviewRow
   encounter: Encounter
   save: Save
   t: Say
+  draft?: InterviewDraft
+  onDraft: (update: UpdateInterviewDraft) => void
 }) {
   const sources = active(row).filter(interviewSource)
-  const [source, setSource] = useState(row.interview?.source_id || sources[0]?.source.id || '')
-  const [kind, setKind] = useState<'patient_report' | 'caregiver_report'>('patient_report')
-  const [wording, setWording] = useState('')
-  const [answers, setAnswers] = useState<Answers>(
-    () => row.interview || { ownership: 'uncertain', current_use: 'uncertain', source_id: '' },
-  )
-  const [newId, setNewId] = useState(() => crypto.randomUUID())
-  const [saved, setSaved] = useState(false)
-  const update = (patch: Partial<Answers>) => {
-    setSaved(false)
-    setAnswers((a) => ({ ...a, ...patch }))
+  const current: InterviewDraft = draft ?? {
+    source: row.interview?.source_id || sources[0]?.source.id || '',
+    kind: 'patient_report',
+    wording: '',
+    answers: row.interview || { ownership: 'uncertain', current_use: 'uncertain', source_id: '' },
   }
+  const { source, kind, wording, answers, newId } = current
+  const [saved, setSaved] = useState(false)
+  const edit = (patch: Partial<InterviewDraft>) => {
+    setSaved(false)
+    onDraft((latest) => ({ ...(latest ?? current), ...patch }))
+  }
+  const update = (patch: Partial<Answers>) => edit({ answers: { ...answers, ...patch } })
   const chosen = sources.find((e) => e.source.id === source)
   async function submit(event: React.FormEvent) {
     event.preventDefault()
     let caseState = encounter
-    let sourceId = source
+    const previousLink = sources.find((entry) => entry.source.id === newId)
+    const sameAccount = previousLink?.source.kind === kind && previousLink.wording.trim() === wording.trim()
+    let sourceId = source || (sameAccount ? previousLink.source.id : '')
+    let submitted = draft
+    function replaceSubmitted(next?: InterviewDraft) {
+      const expected = submitted
+      onDraft((latest) => latest === expected ? next : latest)
+      submitted = next
+    }
     if (!sourceId) {
-      sourceId = newId
+      sourceId = !previousLink && newId ? newId : crypto.randomUUID()
+      if (sourceId !== newId) replaceSubmitted({ ...current, newId: sourceId })
       const linked = await save(
         {
           action: 'link',
@@ -55,9 +68,18 @@ export function InterviewForm({
       )
       if (!linked) return
       caseState = linked
-      setSource(sourceId)
-      setWording('')
-      setNewId(crypto.randomUUID())
+      const linkedSource = sourceId
+      const expected = submitted
+      const next = { ...current, source: linkedSource, wording: '', newId: undefined }
+      onDraft((latest) => {
+        if (latest === expected) return next
+        if (!latest || latest.newId !== linkedSource) return latest
+        if (latest.source || latest.kind !== kind || latest.wording.trim() !== wording.trim()) {
+          return { ...latest, newId: undefined }
+        }
+        return { ...latest, source: linkedSource, wording: '', newId: undefined }
+      })
+      submitted = next
     }
     const result = await save(
       {
@@ -74,7 +96,10 @@ export function InterviewForm({
       },
       caseState,
     )
-    if (result) setSaved(true)
+    if (result) {
+      replaceSubmitted()
+      setSaved(true)
+    }
   }
   return (
     <form className="clinical-form" onSubmit={submit}>
@@ -86,13 +111,12 @@ export function InterviewForm({
           value={source}
           onChange={(e) => {
             const selected = e.target.value
-            setSource(selected)
-            setSaved(false)
-            setAnswers(
-              row.interview?.source_id === selected
+            edit({
+              source: selected,
+              answers: row.interview?.source_id === selected
                 ? row.interview
                 : { ownership: 'uncertain', current_use: 'uncertain', source_id: selected },
-            )
+            })
           }}
         >
           <option value="">{t('Record a new account', 'บันทึกคำบอกเล่าใหม่')}</option>
@@ -112,7 +136,7 @@ export function InterviewForm({
             <select
               aria-label={t('Account from', 'ผู้ให้ข้อมูล')}
               value={kind}
-              onChange={(e) => setKind(e.target.value as typeof kind)}
+              onChange={(e) => edit({ kind: e.target.value as typeof kind })}
             >
               <option value="patient_report">{t('Patient', 'ผู้ป่วย')}</option>
               <option value="caregiver_report">{t('Caregiver', 'ผู้ดูแล')}</option>
@@ -120,7 +144,7 @@ export function InterviewForm({
           </label>
           <label>
             {t('Original interview wording', 'คำบอกเล่าตามจริง')}
-            <textarea required value={wording} onChange={(e) => setWording(e.target.value)} />
+            <textarea required value={wording} onChange={(e) => edit({ wording: e.target.value })} />
           </label>
         </>
       )}
