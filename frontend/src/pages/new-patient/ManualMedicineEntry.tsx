@@ -1,10 +1,10 @@
 import { InputField } from '../../components/ui/InputField'
 import { Button } from '../../components/ui/Button'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { LuPlus } from 'react-icons/lu'
 import type { IntakeText } from '../../i18n/intake'
-import { searchProducts } from '../../api/reconciliation'
-import { newNote, type CatalogueMatch, type Medicine, type Product } from './draft'
+import { MedicinePicker } from './MedicinePicker'
+import { newNote, type CatalogueMatch, type Medicine } from './draft'
 
 export function ManualMedicineEntry({
   t,
@@ -13,34 +13,11 @@ export function ManualMedicineEntry({
   t: IntakeText
   onAdd: (medicine: Medicine) => void
 }) {
-  const [results, setResults] = useState<{ products: Product[]; tmt_release: string } | null>(null)
   const [selected, setSelected] = useState<CatalogueMatch>()
   const [name, setName] = useState('')
   const [strength, setStrength] = useState('')
   const [form, setForm] = useState('')
   const [source, setSource] = useState('')
-  const [status, setStatus] = useState<'idle' | 'searching' | 'error'>('idle')
-  useEffect(() => {
-    const term = name.trim()
-    if (!term || selected) return
-    const controller = new AbortController()
-    const timer = window.setTimeout(async () => {
-      setStatus('searching')
-      try {
-        const found = await searchProducts(term, controller.signal)
-        if (controller.signal.aborted) return
-        setResults(found)
-        setStatus('idle')
-      } catch {
-        if (!controller.signal.aborted) setStatus('error')
-      }
-    }, 250)
-    return () => {
-      window.clearTimeout(timer)
-      controller.abort()
-    }
-  }, [name, selected])
-
   function add() {
     const note = { ...newNote('other_record'), text: source.trim() }
     const evidence = { source_id: note.id }
@@ -69,53 +46,19 @@ export function ManualMedicineEntry({
     setForm('')
     setStrength('')
     setSource('')
-    setResults(null)
-    setStatus('idle')
   }
   return (
     <div className="stack">
       <p className="hint">{t.manualHint}</p>
-      <InputField
-        label={t.query}
-        type="search"
-        autoComplete="off"
-        maxLength={120}
-        value={name}
-        onChange={(e) => {
-          setName(e.target.value)
-          setSelected(undefined)
-          setResults(null)
-          setStatus('idle')
+      <MedicinePicker t={t} name={name} selected={selected}
+        onChange={value => { setName(value); setSelected(undefined) }}
+        onSelect={match => {
+          setSelected(match)
+          setName(match.product.label)
+          setStrength('')
+          setForm('')
         }}
       />
-      {status === 'searching' && <p role="status">{t.searching}</p>}
-      {status === 'error' && <p role="alert">{t.catalogFail}</p>}
-      {results &&
-        (results.products.length ? (
-          <ul className="product-list">
-            {results.products.map((p) => (
-              <li key={p.tpu}>
-                <button
-                  onClick={() => {
-                    setSelected({ product: p, release: results.tmt_release })
-                    setName(p.label)
-                    setStrength('')
-                    setForm('')
-                    setResults(null)
-                  }}
-                >
-                  <strong>{p.label}</strong>
-                  <small>
-                    TPU {p.tpu}
-                    {p.active_tmt ? '' : ' · ' + t.historical}
-                  </small>
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p role="status">{t.noProducts}</p>
-        ))}
       <form
         className="stack"
         onSubmit={(e) => {
