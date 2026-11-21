@@ -1,9 +1,11 @@
 import MedicationListApp from './pages/medication-list/MedicationListApp'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, Navigate, Route, Routes, useMatch, useNavigate } from 'react-router-dom'
 import { HomePage } from './pages/home/HomePage'
 import { NewPatientLayout } from './pages/new-patient/NewPatientLayout'
 import { InputPage } from './pages/new-patient/InputPage'
+import { createManualEntryDraft, hasManualEntryWork } from './pages/new-patient/manualEntryDraft'
+import type { InterviewDraft, UpdateInterviewDraft } from './pages/clinical/interviewDraft'
 import { scanActions } from './pages/new-patient/scanActions'
 import { createClient } from './api/client'
 import { AnalysisPreview, DraftReview } from './pages/new-patient/AnalysisPreview'
@@ -33,6 +35,13 @@ function StaffApp() {
     try { return localStorage.getItem('medrec.language') === 'th' ? 'th' : 'en' } catch { return 'en' }
   })
   const [draft,setDraft] = useState(createDraft)
+  const [manualEntry, setManualEntry] = useState(createManualEntryDraft)
+  const [interviewDrafts, setInterviewDrafts] = useState<Record<string, InterviewDraft>>({})
+  const latestDraft = useRef({ draft, manualEntry, interviewDrafts })
+  useLayoutEffect(() => {
+    latestDraft.current = { draft, manualEntry, interviewDrafts }
+  }, [draft, manualEntry, interviewDrafts])
+  const hasUnfinishedEntry = hasManualEntryWork(manualEntry) || Object.keys(interviewDrafts).length > 0
   const [session,setSession] = useState<StaffSession | null>(null)
   const [demoFailed, setDemoFailed] = useState(false)
   const [demoAttempt, setDemoAttempt] = useState(0)
@@ -83,44 +92,65 @@ function StaffApp() {
     }))
   }
 
+  function resetDraft() {
+    setDraft(createDraft())
+    setManualEntry(createManualEntryDraft())
+    setInterviewDrafts({})
+  }
+
   function startFreshCase() {
     generation.current++
     openRequest.current++
     setRecord(null)
     setRequestError(false)
-    setDraft(createDraft())
+    resetDraft()
     setLastStage('input')
     navigate('/new-patient/input',{replace:true})
   }
   function changeSession(next:StaffSession | null) {
-    if (!next && (record || draft.medicines.length || draft.evidence.photos.length || draft.evidence.notes.some(n=>n.text.trim())) && !window.confirm(w.leave)) return
+    if (!next && (record || hasUnfinishedEntry || draft.medicines.length || draft.evidence.photos.length || draft.evidence.notes.some(n=>n.text.trim())) && !window.confirm(w.leave)) return
     generation.current++
     setRequestError(false)
     setSession(next)
-    if (!next) {setRecord(null);setDraft(createDraft());setLastStage('input')}
+    if (!next) {setRecord(null);resetDraft();setLastStage('input')}
   }
   async function openEncounter(id:string, reloadSaved = false) {
     if(!session) return
     const replacing=record?.encounter.id!==id
-    const unsaved=(!record || (record.synced && record.synced!==draft)) &&
-      (draft.medicines.length || draft.evidence.photos.length || draft.evidence.notes.some(n=>n.text.trim()))
+    const unsaved=hasUnfinishedEntry || ((!record || (record.synced && record.synced!==draft)) &&
+      (draft.medicines.length || draft.evidence.photos.length || draft.evidence.notes.some(n=>n.text.trim())))
     if (reloadSaved && !window.confirm(w.discardLocal)) return
     if (!reloadSaved && replacing && unsaved && !window.confirm(w.changeCase)) return
+    const requestedDraft = latestDraft.current
     const token=++openRequest.current, before=generation.current
     setRequestError(false)
     try {
       const encounter=await session.client.encounter(id)
       if (token!==openRequest.current || before!==generation.current) return
       const remoteIntake = record && encounter.events.some(event => event.revision > record.encounter.revision && event.action === 'intake')
-      if (!replacing && !reloadSaved && remoteIntake && unsaved && !window.confirm(w.discardLocal)) return
       if(replacing || reloadSaved || remoteIntake) {
+        const draftChanged = requestedDraft !== latestDraft.current
+        const refreshedWithUnsavedWork = !replacing && !reloadSaved && unsaved
+        if ((draftChanged || refreshedWithUnsavedWork)
+            && !window.confirm(replacing && !reloadSaved ? w.changeCase : w.discardLocal)) return
         generation.current++
-        setDraft(createDraft());setRecord({encounter,synced:null})
+        resetDraft();setRecord({encounter,synced:null})
       } else setRecord(prev => prev && encounter.revision>=prev.encounter.revision ? {...prev,encounter} : prev)
       navigate('/new-patient/review')
     } catch { if (before===generation.current && token===openRequest.current) setRequestError(true) }
   }
   const generationAtRender=generation.current
+  function updateInterviewDraft(id: string, update: UpdateInterviewDraft) {
+    if (generation.current !== generationAtRender) return
+    setInterviewDrafts(current => {
+      const next = update(current[id])
+      if (next === current[id]) return current
+      const drafts = { ...current }
+      if (next) drafts[id] = next
+      else delete drafts[id]
+      return drafts
+    })
+  }
   function onEncounter(encounter:Encounter) {
     if (generation.current!==generationAtRender) return
     setRecord(prev=>prev && prev.encounter.id===encounter.id && encounter.revision>=prev.encounter.revision ? {...prev,encounter}:prev)
@@ -151,11 +181,11 @@ function StaffApp() {
       <Route path="/" element={<><HomePage language={language}/><div className="staff-desk intake stack">
         {access}{error}{session && <EncounterQueue key={session.actor.id} session={session} language={language} onOpen={id=>void openEncounter(id)}/>}
       </div></>}/>
-      <Route path="/new-patient" element={<NewPatientLayout key={draft.caseId} language={language} hasWork={Boolean(record)||hasCaseWork(draft)} onStartFresh={startFreshCase}/>}>
+      <Route path="/new-patient" element={<NewPatientLayout key={draft.caseId} language={language} hasWork={Boolean(record) || hasCaseWork(draft) || hasUnfinishedEntry} onStartFresh={startFreshCase}/>}>
         <Route index element={<Navigate to={lastStage} replace/>}/>
         <Route path="input" element={(record?.synced===null && !record.captureOnly) ?
           <div className="intake stack"><h1>{t.input}</h1><p>{w.syncedInput}</p><Link className="text-action" to="/new-patient/review">{w.goReview}</Link></div> :
-          <>{localDemo ? access : <details className="input-access"><summary>{session ? session.actor.name : language==='th'?'สิทธิ์เจ้าหน้าที่':'Staff access'}</summary>{access}</details>}<InputPage key={draft.caseId} draft={draft} setDraft={setDraft} language={language} proposePhoto={session?proposePhoto:undefined}/></>}/>
+          <>{localDemo ? access : <details className="input-access"><summary>{session ? session.actor.name : language==='th'?'สิทธิ์เจ้าหน้าที่':'Staff access'}</summary>{access}</details>}<InputPage key={draft.caseId} draft={draft} setDraft={setDraft} manualEntry={manualEntry} setManualEntry={setManualEntry} language={language} proposePhoto={session?proposePhoto:undefined}/></>}/>
         <Route path="review" element={<div className="connected-workspace stack">
           <h1 className="page-heading">{t.review}</h1>
           {draft.preview?.rows.length ? <AnalysisPreview draft={draft} language={language} {...scanActions(setDraft)}/> : null}
@@ -165,7 +195,7 @@ function StaffApp() {
           </Link>}
           {(draft.medicines.length > 0 || record || demoFailed) && access}{error}
           {!current && (!localDemo || session) && (draft.medicines.length > 0 || record?.synced) && <CaseHandoff key={draft.caseId} draft={draft} language={language} session={session} record={record} onSaved={onSaved} onRefresh={id => openEncounter(id, true)}/>}
-          {session && record && current && <ClinicalReview key={record.encounter.id+session.actor.id} language={language} client={session.client} actor={session.actor} encounter={record.encounter} onEncounter={onEncounter}/>}
+          {session && record && current && <ClinicalReview key={record.encounter.id+session.actor.id} language={language} client={session.client} actor={session.actor} encounter={record.encounter} onEncounter={onEncounter} interviewDrafts={interviewDrafts} onInterviewDraft={updateInterviewDraft}/>}
           {current && record?.synced && <details className="intake intake-panel"><summary>{language==='th'?'ดูฉบับร่างและหลักฐานต้นทาง':'Intake draft and source evidence'}</summary><DraftReview onSave={saveDraftValues} embedded draft={draft} language={language} onCatalogue={confirmCatalogue}/></details>}
         </div>}/>
         <Route path="output" element={<div className="connected-workspace stack">

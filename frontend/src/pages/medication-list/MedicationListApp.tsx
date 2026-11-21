@@ -13,6 +13,7 @@ import { analysisErrorMessage, analysisProviderMessage } from '../new-patient/an
 import { createDraft, newNote, replacePhoto, type Photo, type PhotoKind } from '../new-patient/draft'
 import { FacilityDetails } from '../new-patient/FacilityDetails'
 import { ManualMedicineEntry } from '../new-patient/ManualMedicineEntry'
+import { createManualEntryDraft, hasManualEntryWork } from '../new-patient/manualEntryDraft'
 import { NewPatientLayout } from '../new-patient/NewPatientLayout'
 import { PhotoSlot } from '../new-patient/PhotoSlot'
 import { canShare, exportRows, listName, manualRow, say, scannedRows, scheduleSummary, values, type ListRow } from './listData'
@@ -32,7 +33,7 @@ export default function MedicationListApp() {
   const [selection, setSelection] = useState<string[]>([])
   const [exported, setExported] = useState<ListRow[] | null>(null)
   const [historyUnavailable, setHistoryUnavailable] = useState(false)
-  const [hasManualWork, setHasManualWork] = useState(false)
+  const [manualDraft, setManualDraft] = useState(createManualEntryDraft)
   const [inputMode, setInputMode] = useState<'photo' | 'manual' | 'text'>('photo')
   const [extraPhotos, setExtraPhotos] = useState(false)
   const [status, setStatus] = useState<'idle' | 'scanning'>('idle')
@@ -57,7 +58,7 @@ export default function MedicationListApp() {
     setRows([])
     setSelection([])
     setExported(null)
-    setHasManualWork(false)
+    setManualDraft(createManualEntryDraft())
     setInputMode('photo')
     setExtraPhotos(false)
     setScanError('')
@@ -156,7 +157,7 @@ export default function MedicationListApp() {
   const hasEvidence = hasPhotos || hasText
   const canScan = hasEvidence && evidence.photos.length <= 16
     && evidence.photos.reduce((sum, photo) => sum + photo.file.size, 0) < 16_000_000
-  const hasWork = rows.length > 0 || hasEvidence || hasManualWork
+  const hasWork = rows.length > 0 || hasEvidence || hasManualEntryWork(manualDraft)
 
   return <>
     <TopBar language={language} onLanguage={setLanguage} listWorkspace />
@@ -197,7 +198,7 @@ export default function MedicationListApp() {
             </div></div>
             <div id="manual-input" hidden={inputMode !== 'manual'}>
               <ManualMedicineEntry t={labels} rt={regimenText[language]} caseId={draft.caseId} handoff
-                onWorkChange={setHasManualWork}
+                draft={manualDraft} setDraft={setManualDraft}
                 onAdd={(medicine, statements) => {
                   setRows(current => [...current, manualRow(medicine, statements)])
                   setExported(null)

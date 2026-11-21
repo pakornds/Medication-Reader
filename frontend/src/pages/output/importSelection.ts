@@ -1,4 +1,4 @@
-import type { AdmissionRow } from '../../api/admission'
+import type { AdmissionRow, Encounter } from '../../api/admission'
 import type { ImportReceipt } from '../../api/contracts'
 import { recordImportReceipt } from '../../../../src/lib/history/import-history'
 
@@ -22,6 +22,14 @@ export async function importRequestId(caseId: string, actorId: string, revision:
   const data = new TextEncoder().encode(JSON.stringify(['admission-import', caseId, actorId, revision, sortedRows]))
   const hash = await crypto.subtle.digest('SHA-256', data)
   return Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join('')
+}
+
+export function receiptForApproval(encounter: Encounter, revision: number, actorId: string, selectedIds: string[]) {
+  const event = encounter.events.find(event => event.action === 'import' && event.revision === revision + 1)
+  if (event?.action !== 'import' || event.actor.id !== actorId) return undefined
+  return encounter.receipts.find(receipt => receipt.imported_at === event.imported_at
+    && receipt.imported_row_ids.length === selectedIds.length
+    && selectedIds.every(id => receipt.imported_row_ids.includes(id)))
 }
 
 export function saveReceipt(receipt: ImportReceipt) {

@@ -7,7 +7,7 @@ import { InputField } from '../../components/ui/InputField'
 import { Button } from '../../components/ui/Button'
 import { useEffect, useRef, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
-import { Link, useOutletContext } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import {
   LuArrowRight,
   LuFileText,
@@ -23,6 +23,7 @@ import { intake } from '../../i18n/intake'
 import type { Language } from '../../i18n/messages'
 import { AnalysisPreview } from './AnalysisPreview'
 import { ManualMedicineEntry } from './ManualMedicineEntry'
+import type { ManualEntryDraft } from './manualEntryDraft'
 import { LabelTranscription } from './LabelTranscription'
 import { PhotoSlot } from './PhotoSlot'
 import {
@@ -43,14 +44,17 @@ export function InputPage({
   setDraft,
   language,
   proposePhoto,
+  manualEntry,
+  setManualEntry,
 }: {
   draft: Draft
   setDraft: Dispatch<SetStateAction<Draft>>
   language: Language
+  manualEntry: ManualEntryDraft
+  setManualEntry: Dispatch<SetStateAction<ManualEntryDraft>>
   proposePhoto?: (photo:Photo)=>Promise<RegionBounds[]>
 }) {
   const t = intake[language]
-  const setHasManualWork = useOutletContext<(hasWork: boolean) => void>()
   const [mode, setMode] = useState<'evidence' | 'manual'>('evidence')
   const [editingSources, setEditingSources] = useState(false)
   const [addSlot, setAddSlot] = useState(false)
@@ -309,7 +313,8 @@ export function InputPage({
             <div hidden={mode !== 'manual'}>
               <ManualMedicineEntry caseId={draft.caseId} rt={regimenText[language]}
                 t={t}
-                onWorkChange={setHasManualWork}
+                draft={manualEntry}
+                setDraft={setManualEntry}
                 onAdd={(medicine) => setDraft((d) => ({ ...d, medicines: [...d.medicines, medicine] }))}
               />
             </div>
