@@ -77,6 +77,13 @@ The reviewer can request either a drug–drug interaction (DDI) summary or a dru
 
 Demonstrate one transfer case with the label-side and reverse-side photos of the same items. Read a Thai/English label into the draft, leave an unreadable field blank, and show an unlabeled item with its reverse-side crop in both review formats. Include a difference between printed directions and what the patient reports. Verify that the reviewer can record actual use and that one approved row can be imported while a pending row stays out. With both summaries off, the review still works. A synthetic partial-coverage example shows a checked pair or rule, an omitted item, and the reason for the omission. Use synthetic fixtures throughout. Production authentication and hospital connectivity, clinic-specific rule sets, live DDI and DRP integrations, automated urgency assessment, symptom-based identification, and longitudinal medication histories are future work.
 
+## Post-hackathon roadmap
+
+1. **Improve two-photo intake.** Test the current workflow with synthetic cases first. Evaluate the Decisions API for flagging blurry labels and possible mismatches between the two photos. Let staff retake a photo or continue with manual review. Keep uncertain matches pending and attach a pill crop only when the evidence supports the match.
+2. **Add push-to-talk dictation.** If staff spend meaningful time typing patient reports, let them dictate what the patient says they actually take. Show the editable transcript before saving it as patient-reported use, separate from printed directions and reviewer-verified use. Test Thai speech mixed with English medication names, doses, and units before piloting dictation.
+3. **Pilot guided voice interviews.** If dictation saves staff time, try GPT-Live for short follow-up questions about missing or conflicting information. A pharmacist or doctor reviews the captured answers and confirms any updates to the medication list.
+4. **Evaluate clinical data separately.** Assess coverage of validated DDI references and DRP rules for the medications and patient context encountered in the intended setting. Offer optional checks where the team can establish and disclose coverage. Show what was checked and skipped, and leave clinical decisions with the reviewer.
+
 ## Hackathon judging and demo acceptance
 
 Use the working prototype to show how a pharmacist or doctor prepares and verifies a transfer medication list from incomplete evidence. Prioritize the complete two-photo workflow and printable handoff within the 12-hour demo budget. Show the optional DDI/DRP example after the core workflow.
