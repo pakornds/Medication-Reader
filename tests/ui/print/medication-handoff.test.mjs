@@ -115,3 +115,14 @@ test("an optional superseded screening report does not leak earlier findings int
   assert.match(stale, /Stale. Rerun this check/);
   assert.doesNotMatch(stale, /Evaluated 1 of 2 medication pairs/);
 });
+
+test("an unresolved stopped item retains both statuses in the history", () => {
+  const data = snapshot();
+  const pending = data.rows[2];
+  pending.verification = { status: "no_longer_current", reviewer: { name: "Demo nurse", role: "nurse" },
+    verified_at: datedAt, evidence: pending.sources };
+  const handoff = render(data);
+  const [active, history] = handoff.childNodes.filter(item => item.tag === "section");
+  assert.doesNotMatch(text(active), /Unknown medication A/);
+  assert.match(text(history), /Unknown medication A[\s\S]*Identity unresolved[\s\S]*No longer current/);
+});

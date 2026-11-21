@@ -150,9 +150,14 @@ function renderRow(document, row, options) {
   const discrepancies = row.discrepancies ?? [];
   const pendingIdentity = discrepancies.some(item => item.field === "identity" && !resolved.has(item.id)) ||
     (row.identity_status !== "named" && !(verification?.identity && cite(verification.identity.evidence)));
-  const status = pendingIdentity ? "Identity unresolved" : verification?.status === "no_longer_current" ?
-    "No longer current" : verification?.status === "current" ? "Verified current" : "Verification pending";
-  article.append(node(document, "p", status));
+  if (pendingIdentity) article.append(node(document, "p", "Identity unresolved"));
+  if (verification) {
+    const status = verification.status === "no_longer_current" ? "No longer current" :
+      verification.status === "current" ? "Verified current" : "Current use uncertain";
+    article.append(node(document, "p", status));
+  } else if (!pendingIdentity) {
+    article.append(node(document, "p", "Verification pending"));
+  }
 
   const crop = cropAvailable(row.reverse_crop) ? cropUrl(row.reverse_crop) : null;
   if (crop) {
