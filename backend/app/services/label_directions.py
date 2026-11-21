@@ -69,6 +69,7 @@ Repeated wording for a choice you already represented is covered.
 For explicit oral use quote รับประทาน or by mouth. For a printed เม็ด/แคปซูล,
 select "tablet or capsule", without resolving the form. For วันละ 3 ครั้ง select
 frequency, count 3, period 1, period_unit day. Map เที่ยง and กลางวัน to noon.
+Normalize explicit clock times to 24-hour HH:MM and quote the AM/PM marker when present.
 For หลังอาหารทันที choose "immediately after meals" and quote that full phrase, even
 if หลังอาหาร also appears separately. As needed is null unless explicitly printed.
 """
@@ -114,6 +115,11 @@ NAMED_DAILY = re.compile(
     r"(?:(?:once\s+)?(?:each|every)\s+(?:morning|noon|afternoon|evening|night)|"
     r"ทุก(?:วันตอน|ตอน)?(?:เช้า|เที่ยง|กลางวัน|เย็น))", re.I,
 )
+MERIDIEM = r"[ap]\.?m\.?(?![a-z])"
+CLOCK = re.compile(
+    rf"(?<![0-9:])(?P<hour>(?:[01]?[0-9]|2[0-3])):(?P<minute>[0-5][0-9])"
+    rf"(?:\s*(?P<meridiem>{MERIDIEM}))?(?![0-9:])", re.I,
+)
 # A single schedule cannot safely represent these qualifications.
 COMPLEX_DIRECTIONS = re.compile(
     r"ห้าม|งด(?:ยา|ใช้|รับประทาน)|ไม่(?:ควร|ต้อง|ให้|รับประทาน|กิน|ใช้|เกิน)|"
@@ -121,7 +127,8 @@ COMPLEX_DIRECTIONS = re.compile(
     r"\b(?:not|except|unless|if|taper|increase|decrease|maximum|up to|at most)\b", re.IGNORECASE,
 )
 NUMERIC_QUALIFIER = re.compile(
-    rf"{NUMBER}\s*(?:[-–—−~/⁄]|\bto\b|ถึง)\s*{NUMBER}|[0-9]+,[0-9]+",
+    rf"(?:{NUMBER}|ครึ่ง|\bhalf)\s*(?:[-–—−~/⁄]|\b(?:to|or)\b|ถึง|หรือ)\s*(?:{NUMBER}|ครึ่ง|half\b)|"
+    rf"{NUMBER}\s*(?:(?:and|กับ)\s*)?(?:ครึ่ง|half\b)|[0-9]+,[0-9]+",
     re.IGNORECASE,
 )
 
@@ -163,9 +170,21 @@ def _schedule_fields(schedule: Schedule, quote: str) -> dict:
             "period_unit": schedule.period_unit}
 
 
+def _time_tokens(quote: str) -> list[tuple[str, tuple[int, int]]]:
+    words = [(name, match.span()) for name, pattern in TIME_WORDS.items()
+             for match in re.finditer(pattern, quote, re.IGNORECASE)]
+    for match in CLOCK.finditer(quote):
+        hour = int(match["hour"])
+        if marker := match["meridiem"]:
+            if not 1 <= hour <= 12:
+                continue
+            hour = hour % 12 + (12 if marker.lower().startswith("p") else 0)
+        words.append((f"{hour:02}:{match['minute']}", match.span()))
+    return words
+
+
 def _times_fields(times: Times, quote: str) -> dict:
-    observed = {name for name, pattern in TIME_WORDS.items() if re.search(pattern, quote, re.IGNORECASE)}
-    observed.update(re.findall(r"(?<!\d)(?:[01][0-9]|2[0-3]):[0-5][0-9](?!\d)", quote))
+    observed = {value for value, _ in _time_tokens(quote)}
     return {"time_of_day": times.values} if len(times.values) == len(observed) and set(times.values) == observed else {}
 
 
@@ -175,8 +194,9 @@ def _quote_spans(text: str, anchor: str) -> list[tuple[int, int]]:
     english_start = r"(?<![a-zA-Z])" if re.match(r"[a-zA-Z]", anchor[0]) else ""
     english_end = r"(?![a-zA-Z])" if re.match(r"[a-zA-Z]", anchor[-1]) else ""
     thai_end = r"(?!คืน)" if anchor.endswith("เที่ยง") else ""
+    clock_end = rf"(?!\s*(?i:{MERIDIEM}))" if re.search(r":[0-9๐-๙]{2}$", anchor) else ""
     pattern = (rf"(?<![0-9๐-๙./เแโใไ]){english_start}{re.escape(anchor)}"
-               rf"{english_end}{thai_end}(?![0-9๐-๙]|\.[0-9๐-๙]|\s*/|ทันที)")
+               rf"{english_end}{thai_end}{clock_end}(?![0-9๐-๙]|\.[0-9๐-๙]|\s*/|ทันที)")
     return [match.span() for match in re.finditer(pattern, text)]
 
 
@@ -218,9 +238,13 @@ def label_regimen(choices: LabelDirectionsChoices, text: str, ref: EvidenceRef) 
             continue
         anchor = group.quote.strip()
         spans = _quote_spans(text, anchor)
-        supported = check(group, anchor.translate(THAI_DIGITS)) if spans else {}
+        normalized = anchor.translate(THAI_DIGITS)
+        supported = check(group, normalized) if spans else {}
         partial |= not supported
         if supported:
+            if isinstance(group, Times):
+                spans = [(offset + start, offset + end) for offset, _ in spans
+                         for _, (start, end) in _time_tokens(normalized)]
             covered_spans.extend(spans)
         fields.update(supported)
     if fields.get("schedule_type") == "frequency" and fields.get("period_unit") == "day" and fields.get("time_of_day"):

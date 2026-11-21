@@ -161,8 +161,10 @@ def test_label_choices_reject_unsubstantiated_values_and_keep_original():
 @pytest.mark.parametrize(("text", "quote", "amount", "unit"), [
     ("Take 1–2 tablets twice daily", "2 tablets", 2, "tablet"),
     ("Take 1 1/2 tablets daily", "2 tablets", 2, "tablet"),
+    ("Take 1 or 2 tablets twice daily", "2 tablets", 2, "tablet"),
     ("Take 0,5 mL twice daily", "5 mL", 5, "mL"),
     ("รับประทานครั้งละ ๑–๒ เม็ด วันละ ๒ ครั้ง", "๒ เม็ด", 2, "tablet"),
+    ("รับประทานครั้งละ 1 หรือ 2 เม็ด", "2 เม็ด", 2, "tablet"),
     ("ไม่ควรรับประทานครั้งละ 1 เม็ด", "ครั้งละ 1 เม็ด", 1, "tablet"),
 ])
 def test_label_choices_cannot_select_part_of_a_dose_range_or_negation(text, quote, amount, unit):
@@ -198,6 +200,34 @@ def test_label_choices_keep_unrepresented_qualifications_even_if_model_omits_fla
     result = label_regimen(choices, text, EvidenceRef(source_id="label"))
     assert result.parse_status == "partial" and result.unparsed_text == text
     assert result.as_needed and result.period_value == 8
+
+
+def test_time_quote_cannot_hide_course_duration():
+    from app.schemas.evidence import EvidenceRef
+    from app.services.label_directions import LabelDirectionsChoices, label_regimen
+
+    text = "Take 1 tablet at bedtime for 5 days"
+    choices = LabelDirectionsChoices.model_validate({
+        "dose": {"amount": 1, "unit": "tablet", "quote": "Take 1 tablet"},
+        "times": {"values": ["bedtime"], "quote": "at bedtime for 5 days"},
+    })
+    result = label_regimen(choices, text, EvidenceRef(source_id="label"))
+    assert result.time_of_day == ["bedtime"]
+    assert result.parse_status == "partial" and result.unparsed_text == text
+
+
+@pytest.mark.parametrize(("quote", "value", "normalized"), [
+    ("08:00", "08:00", None),
+    ("08:00 PM", "08:00", None),
+    ("08:00 PM", "20:00", ["20:00"]),
+])
+def test_clock_choice_respects_the_printed_meridiem(quote, value, normalized):
+    from app.schemas.evidence import EvidenceRef
+    from app.services.label_directions import LabelDirectionsChoices, label_regimen
+
+    choices = LabelDirectionsChoices.model_validate({"times": {"values": [value], "quote": quote}})
+    result = label_regimen(choices, "Take 1 tablet at 08:00 PM", EvidenceRef(source_id="label"))
+    assert (result.time_of_day if result else None) == normalized
 
 
 def test_per_crop_failure_does_not_erase_readable_sibling():
