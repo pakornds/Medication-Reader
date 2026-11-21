@@ -10,6 +10,7 @@ const blank = { name: '', strength: '', form: '', dose: '', directions: '', indi
 type Props = {
   client: ReturnType<typeof createClient>; encounter: Encounter; manifest: PackageCapture; packageId: string
   link: RegionLink; original: Blob; onEncounter: (encounter: Encounter) => void
+  onRetaken: (rowId: string) => void
   bind: (encounter: Encounter, sourceId: string, kind: 'label' | 'appearance', rowId: string, itemId: string) => Promise<void>
 }
 async function imageData(file: Blob): Promise<string> {
@@ -21,11 +22,11 @@ async function imageData(file: Blob): Promise<string> {
   })
 }
 
-export function CaptureRow({ client, encounter, manifest, packageId, link, original, onEncounter, bind }: Props) {
+export function CaptureRow({ client, encounter, manifest, packageId, link, original, onEncounter, onRetaken, bind }: Props) {
   const pkg = manifest.packages!.find(p => p.id === packageId)!
   const located = pkg.items?.filter(item => item.evidence.some(e => e.region.side === link.side && e.region.region_id === link.region_id)) || []
   const [target, setTarget] = useState(located.length === 1 ? encounter.capture_rows?.[located[0].row_id] || '' : '')
-  const [kind, setKind] = useState<'label' | 'appearance'>('label')
+  const [kind, setKind] = useState<'label' | 'appearance'>(located.length === 1 && located[0].kind === 'pending_appearance' ? 'appearance' : 'label')
   const [sourceId] = useState(() => crypto.randomUUID())
   const [itemId] = useState(() => crypto.randomUUID())
   const [values, setValues] = useState(blank)
@@ -36,6 +37,8 @@ export function CaptureRow({ client, encounter, manifest, packageId, link, origi
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [retake, setRetake] = useState<File | null>(null)
+  const [replacementUrl, setReplacementUrl] = useState('')
+  useEffect(() => () => { if (replacementUrl) URL.revokeObjectURL(replacementUrl) }, [replacementUrl])
   const [replaces, setReplaces] = useState('')
   const [savedRow, setSavedRow] = useState('')
   const request = useRef<{ key: string; id: string } | null>(null)
@@ -57,7 +60,14 @@ export function CaptureRow({ client, encounter, manifest, packageId, link, origi
   const rows = Object.values(encounter.rows).filter(row => !row.package_id || row.package_id === packageId)
   const row = encounter.rows[target]
   const currentPhotos = row?.entries.filter(entry => entry.photo && entry.source.kind === source.kind &&
-    !row.superseded.includes(entry.source.id)) || []
+    !row.superseded.includes(entry.source.id)).map(entry => ({ id: entry.source.id, bag: entry.photo!.bag, wording: entry.wording })) || []
+  for (const item of located.filter(item => item.row_id === row?.capture_item_id)) {
+    for (const evidence of item.evidence) {
+      if (evidence.region.side !== link.side || evidence.region.region_id !== link.region_id ||
+        row!.superseded.includes(evidence.source_id) || currentPhotos.some(photo => photo.id === evidence.source_id)) continue
+      currentPhotos.push({ id: evidence.source_id, bag: packageId, wording: link.side + ' ' + evidence.kind + ' · ' + link.region_id })
+    }
+  }
   const attached = row?.capture_item_id
   async function work(operation: () => Promise<void>) {
     setBusy(true); setError('')
@@ -101,7 +111,7 @@ export function CaptureRow({ client, encounter, manifest, packageId, link, origi
     if (retake && !replaces) throw new Error('Select the original item evidence to replace.')
     const file = retake || original
     const entry: SourceEntry = { source, wording: values.wording, scan_fields: observations,
-      photo: { bag: retake ? currentPhotos.find(e => e.source.id === replaces)!.photo!.bag : packageId,
+      photo: { bag: retake ? currentPhotos.find(e => e.id === replaces)!.bag : packageId,
         data: await imageData(file), media_type: file.type as NonNullable<SourceEntry['photo']>['media_type'],
         region: coordinates, front_attributed: link.side === 'front' && kind === 'label',
         pairing: link.side === 'reverse' ? 'matched' : 'uncertain', appearance: kind === 'appearance' ? values.wording : null } }
@@ -117,10 +127,13 @@ export function CaptureRow({ client, encounter, manifest, packageId, link, origi
     onEncounter(current)
     setSavedRow(changed.id)
     if (!retake) await bind(current, sourceId, kind, changed.id, attached || itemId)
-    else setError('Item retake saved on ' + changed.id + '.')
+    else onRetaken(changed.id)
   }
   return <fieldset disabled={busy}><legend>Review selected region</legend>
-    {crop && <img src={crop} alt={'Selected ' + link.side + ' region for ' + packageId} style={{ maxWidth: '16rem', maxHeight: '12rem' }} />}
+    {(replacementUrl || crop) && <figure><img src={replacementUrl || crop}
+      alt={(replacementUrl ? 'Replacement item photo' : 'Selected ' + link.side + ' region') + ' for ' + packageId}
+      style={{ maxWidth: '16rem', maxHeight: '12rem' }} />
+      {replacementUrl && <figcaption>Replacement item photo for this retake</figcaption>}</figure>}
     <label>Admission row<select aria-label="Admission row" value={target} disabled={!!savedRow || !!retake} onChange={e => setTarget(e.target.value)}>
       <option value="">New medication or pending appearance</option>
       {rows.map(row => <option key={row.id} value={row.id}>{row.id} · {row.verified?.identity?.name || row.entries.find(e => e.name)?.name || 'Pending identity'}</option>)}
@@ -131,11 +144,11 @@ export function CaptureRow({ client, encounter, manifest, packageId, link, origi
     {!!currentPhotos.length && <label>Targeted retake (same item and side)<input type="file" accept="image/png,image/jpeg,image/webp"
       disabled={!!savedRow} onChange={e => { const file = e.target.files?.[0]; if (!file) return
         if (file.size > 4_000_000) { setError('Choose a photo under 4 MB.'); return }
-        setRetake(file); setReplaces(currentPhotos.length === 1 ? currentPhotos[0].source.id : '')
+        setRetake(file); setReplacementUrl(URL.createObjectURL(file)); setReplaces(currentPhotos.length === 1 ? currentPhotos[0].id : '')
         setValues(blank); edited.current.clear(); setObservations({}); setNames([])
       }} /></label>}
     {retake && <label>Item evidence to replace<select value={replaces} onChange={e => setReplaces(e.target.value)}>
-      <option value="">Select the previous photo</option>{currentPhotos.map(e => <option key={e.source.id} value={e.source.id}>{e.source.id} · {e.wording}</option>)}
+      <option value="">Select the previous photo</option>{currentPhotos.map(e => <option key={e.id} value={e.id}>{e.id} · {e.wording}</option>)}
     </select></label>}
     {kind === 'label' && <>
       <button type="button" disabled={!!savedRow} onClick={() => void work(scan)}>Scan selected label region</button>

@@ -168,7 +168,7 @@ function Output({ language, client, actor, encounter, onEncounter, onReviewRow }
               </span>
             </label>
               {v.regimens?.map(component => <RegimenReadback key={component.component_id} component={component} t={regimenText[language]} />)}
-              {onReviewRow && <Button variant="text" onClick={() => onReviewRow(encounter.id, row.id)}>
+              {onReviewRow && <Button className="ms-2" variant="text" onClick={() => onReviewRow(encounter.id, row.id)}>
                 {t.goReview} · {v.identity!.name}</Button>}
             </div>
           })}
@@ -176,7 +176,7 @@ function Output({ language, client, actor, encounter, onEncounter, onReviewRow }
         {excluded.length > 0 && <div><h3>{t.excluded} · {excluded.length}</h3>
           <ul className="divide-y divide-line">{excluded.map(row => <li className="py-2" key={row.id}>
             <strong>{medicineName(row) || t.unknown}</strong> · {t[exclusion(row)!]}
-            {onReviewRow && <Button variant="text" onClick={() => onReviewRow(encounter.id, row.id)}>
+            {onReviewRow && <Button className="ms-2" variant="text" onClick={() => onReviewRow(encounter.id, row.id)}>
               {t.goReview} · {medicineName(row) || row.id}</Button>}
           </li>)}</ul>
         </div>}

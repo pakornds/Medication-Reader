@@ -2,6 +2,7 @@
 // Use a synthetic FastAPI server without a provider key to exercise the real recoverable detector/scan failures.
 const assert = require('node:assert/strict')
 const path = require('node:path')
+const { readFileSync } = require('node:fs')
 const { randomUUID } = require('node:crypto')
 const { chromium } = require('playwright')
 const ui = process.env.TEST_UI_URL, api = process.env.TEST_API_URL, token = process.env.MEDICATION_READER_DEMO_NURSE_TOKEN
@@ -43,6 +44,13 @@ async function run() {
     const front = oraclePhoto || path.resolve(__dirname, '../ui/intake/table-front-orientation-6.jpg')
     const back = path.resolve(__dirname, '../ui/intake/table-reverse.png')
     const replacement = path.resolve(__dirname, '../../backend/tests/fixtures/package_regions/empty.png')
+    async function verifyReplacementPreview(expectedFile) {
+      const preview = panel.getByRole('img', { name: /Replacement item photo for/ })
+      await preview.waitFor()
+      const bytes = await preview.evaluate(async img =>
+        Array.from(new Uint8Array(await (await fetch(img.src)).arrayBuffer())))
+      assert.deepEqual(Buffer.from(bytes), readFileSync(expectedFile))
+    }
     const button = name => panel.getByRole('button', { name, exact: true })
     async function saveClick(name) {
       const response = page.waitForResponse(r => r.url().endsWith(route + '/capture') && r.request().method() === 'POST')
@@ -114,6 +122,7 @@ async function run() {
     await panel.getByText(/Paired with Back 1/).waitFor()
     await button('Review front region ' + frontLink.region_id).click()
     await panel.getByLabel('Targeted retake (same item and side)').setInputFiles(replacement)
+    await verifyReplacementPreview(replacement)
     await panel.getByLabel('Documented name').fill('Demo Slate')
     await panel.getByLabel('Original wording or appearance').fill('Demo Slate replacement label.')
     await button('Save item retake').click()
@@ -122,6 +131,45 @@ async function run() {
     assert.ok(record.rows[rowId].superseded.includes(firstSource))
     assert.equal(record.rows[rowId].capture_item_id, itemId)
     assert.deepEqual(record.rows[siblingId], sibling)
+    await draw('front', [.55, .1], [.9, .6])
+    record = await saveClick('Save regions and matches')
+    const secondLink = record.capture.packages[1].front_regions[0]
+    const reviewSecond = () => button('Review front region ' + secondLink.region_id).click()
+    await reviewSecond()
+    await panel.getByLabel('Region contains', { exact: true }).selectOption('appearance')
+    record = await saveClick('Link selected region to row')
+    const pending = Object.values(record.rows).find(r => r.package_id === record.capture.packages[1].id)
+    assert.ok(pending.unknown && !pending.entries.length)
+    const oldAppearance = record.capture.packages[1].items[0].evidence[0].source_id
+    await reviewSecond()
+    const appearanceRetake = path.resolve(__dirname, '../../backend/tests/fixtures/package_regions/clear.png')
+    await panel.getByLabel('Targeted retake (same item and side)').setInputFiles(appearanceRetake)
+    await verifyReplacementPreview(appearanceRetake)
+    await panel.getByLabel('Original wording or appearance').fill('Synthetic round tablet')
+    await button('Save item retake').click()
+    await panel.getByText('Item retake saved on ' + pending.id + '.').waitFor()
+    record = await request(route)
+    assert.equal(record.rows[pending.id].capture_item_id, pending.capture_item_id)
+    assert.ok(record.rows[pending.id].superseded.includes(oldAppearance))
+    assert.equal(record.rows[pending.id].entries[0].photo.appearance, 'Synthetic round tablet')
+    assert.equal(record.events.at(-1).replaces, oldAppearance)
+    // Add a separately sourced label on this bag, then move its region onto the neighboring label.
+    await reviewSecond()
+    await panel.getByLabel('Admission row', { exact: true }).selectOption('')
+    await panel.getByLabel('Region contains', { exact: true }).selectOption('label')
+    await panel.getByLabel('Documented name').fill('Synthetic Third')
+    await panel.getByLabel('Original wording or appearance').fill('Synthetic Third label')
+    record = await saveClick('Link selected region to row')
+    const third = Object.values(record.rows).find(r => r.entries.some(e => e.name === 'Synthetic Third'))
+    const stable = structuredClone(record.rows[rowId])
+    await side.getByLabel('Region', { exact: true }).selectOption(secondLink.region_id)
+    await side.getByText('Edit region coordinates').click()
+    for (const [field, value] of Object.entries({ x: '0', y: '0', width: '0.25', height: '1' }))
+      await side.getByLabel(field, { exact: true }).fill(value)
+    await side.getByRole('button', { name: 'Resize region' }).click()
+    record = await saveClick('Save regions and matches')
+    assert.ok(record.rows[third.id].superseded.includes(third.entries[0].source.id))
+    assert.deepEqual(record.rows[rowId], stable)
     record = await upload('Label-side original', replacement)
     assert.equal(record.capture.reverse.attachment_id, reverseId)
     assert.equal(record.capture.reverse_matches.length, 0)
@@ -132,6 +180,7 @@ async function run() {
     console.log(JSON.stringify({ encounter: record.id, rowId, siblingId, frontOnly: true,
       scan: oraclePhoto ? { fixtureName: 'Fictional A', strength: '5 mg', directions: 'Once each morning' }
         : { detector: 503, failurePreservedName: true }, confirmedReverse: true, itemRetakeSuperseded: true,
+      replacementPreviewBytesMatched: true, manifestOnlyAppearanceRetake: pending.id, movedRegionSourceWithdrawn: true,
       wholeRetakeClearedMatch: true, siblingUnchanged: true }))
   } catch (error) {
     console.error({ errors, capture: (await page.locator('[aria-label="Whole-table photos"]').allTextContents()).join('').slice(-1400) })

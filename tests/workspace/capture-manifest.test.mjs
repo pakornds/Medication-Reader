@@ -15,8 +15,21 @@ test('restoring and saving the mixed package keeps distinct clinical items and t
   assert.equal(layout.frontOwner('front-b-oval').id, 'package-b')
   layout.edit('front', 'front-b-oval', { x: .51, y: .13, width: .13, height: .08 })
   const edited = preserveCapture(layout.snapshot(), fixture)
-  assert.deepEqual(edited.packages[1].items.map(item => item.row_id), ['pending-b-round', 'pending-b-oval'])
+  assert.deepEqual(edited.packages[1].items.map(item => item.row_id), ['pending-b-round'])
+  assert.ok(edited.sources.some(source => source.id === 'bag-b'))
   assert.ok(edited.packages[1].items.every(item => item.evidence.every(e => e.region.revision === edited.front.revision)))
+})
+
+test('moving a transcribed region onto a neighboring bag withdraws only the changed attribution', () => {
+  const layout = new PackageLayout(fixture.case_id)
+  layout.restore(fixture)
+  layout.edit('front', 'front-a', fixture.front.regions.find(region => region.id === 'front-c').bounds)
+  const edited = preserveCapture(layout.snapshot(), fixture)
+  assert.equal(edited.packages[0].items.length, 0)
+  assert.ok(!edited.sources.some(source => source.id === 'clinic-a' || source.id === 'clinic-a-reverse'))
+  const sibling = edited.packages.find(pkg => pkg.id === 'package-c')
+  assert.equal(sibling.items[0].evidence[0].source_id, 'clinic-c')
+  assert.equal(sibling.items[0].evidence[0].region.revision, edited.front.revision)
 })
 
 test('a reverse retake preserves front attribution and requires a new match for reverse evidence', () => {

@@ -156,7 +156,8 @@ function SceneWorkspace({ client, encounter, onEncounter, onReload }: Props & { 
       </div>)}
       {selected && saved && !dirty && <CaptureRow key={JSON.stringify(selected)} client={client} encounter={encounter}
         manifest={saved} packageId={selected.packageId} link={selected.link} original={selected.original}
-        onEncounter={onEncounter} bind={async (current, sourceId, kind, rowId, itemId) => {
+        onEncounter={onEncounter} onRetaken={rowId => { select(null); setStatus('Item retake saved on ' + rowId + '.') }}
+        bind={async (current, sourceId, kind, rowId, itemId) => {
           const next = bindCaptureRegion(saved, selected.packageId, selected.link, kind, sourceId, itemId)
           const result = await persist(next, current, rowId ? { [itemId]: rowId } : {})
           setStatus('Region linked to ' + result.capture_rows?.[itemId] + '.')

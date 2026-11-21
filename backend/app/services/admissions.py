@@ -16,6 +16,7 @@ from pydantic import ValidationError
 
 from app.ai.client import EvidenceImage
 from app.schemas.package_capture import PackageCapture
+from app.services.capture_attribution import capture_retake_origin, changed_attributions
 from app.services.admission_intake_readback import active_intake_corrections, carry_intake, intake_discrepancies
 from app.services.labels import LabelPhotoError, crop_label
 
@@ -547,12 +548,18 @@ class AdmissionStore:
                         "Original orientation differs from the manifest.")
                 view.exif_orientation = orientation
 
+            changed_rows, withdrawn, restricted = changed_attributions(original, originals, previous, manifest) if previous else ({}, set(), set())
+            retired_sources.update(withdrawn)
+            manifest.sources = [source for source in manifest.sources if source.id not in withdrawn]
             case = deepcopy(original)
-            if replaced:
+            if restricted or "restricted_capture_sources" in case:
+                case["restricted_capture_sources"] = sorted(restricted)
+            if replaced or changed_rows or withdrawn:
                 for row in case["rows"].values():
-                    retire_sources(row, [e["source"]["id"] for e in active(row)
-                                         if e["source"]["id"] in retired_sources])
+                    invalid = retired_sources | changed_rows.get(row["id"], set())
+                    retire_sources(row, [entry["source"]["id"] for entry in active(row) if entry["source"]["id"] in invalid])
                 case["retired_capture_sources"] = sorted(retired_sources)
+            if replaced:
                 case["retired_capture_attachments"] = [*case.get("retired_capture_attachments", ()),
                                                         replaced.attachment_id]
             links = case.setdefault("capture_rows", {})
@@ -592,7 +599,8 @@ class AdmissionStore:
                          revision=case["revision"], rows=list(links.values()), sources=[s.id for s in manifest.sources])
             if replaced:
                 event["replaces_view"] = replaced.model_dump()
-                event["superseded_sources"] = sorted(retired_sources.difference(original.get("retired_capture_sources", ())))
+            if replaced or changed_rows or withdrawn:
+                event["superseded_sources"] = sorted(retired_sources.difference(original.get("retired_capture_sources", ())).union(*changed_rows.values()))
             case["events"].append(event)
             self.records[case_id] = case
             self.originals[case_id] = originals
@@ -700,7 +708,10 @@ class AdmissionStore:
                 row = self.row(rows, cmd.row_id)
                 require(all(e["source"]["id"] != sid for e in row["entries"]), "Source already linked to this item.")
                 if cmd.replaces:
-                    old = entry_for(row, cmd.replaces)
+                    old = next((e for e in active(row) if e["source"]["id"] == cmd.replaces), None)
+                    if not old:
+                        old = capture_retake_origin(case, self.originals.get(case["id"], {}), row, cmd.replaces)
+                    require(old is not None, "Select an active source linked to this item.")
                     validate_item_retake(case, row, old, entry, capture_attachment)
                     retire_sources(row, [cmd.replaces])
             if unresolved_photo(entry):

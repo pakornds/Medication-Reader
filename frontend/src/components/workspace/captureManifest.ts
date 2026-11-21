@@ -19,6 +19,7 @@ export function regionBounds(scene: PackageCapture, link: RegionLink) {
 export function preserveCapture(geometry: PackageCapture, previous?: PackageCapture): PackageCapture {
   if (!previous) return structuredClone(geometry)
   const result = structuredClone(geometry)
+  const removed = new Set(previous.packages?.flatMap(pkg => pkg.items?.flatMap(item => item.evidence.map(e => e.source_id)) || []))
   for (const pkg of result.packages || []) {
     const before = previous.packages?.find(value => value.id === pkg.id)
     const links = packageLinks(result, pkg.id)
@@ -26,7 +27,12 @@ export function preserveCapture(geometry: PackageCapture, previous?: PackageCapt
       const evidence = item.evidence.flatMap(value => {
         const link = links.find(link => link.side === value.region.side &&
           link.attachment_id === value.region.attachment_id && link.region_id === value.region.region_id)
-        return link && regionBounds(result, link) ? [{ ...value, region: link }] : []
+        const before = regionBounds(previous, value.region)
+        const after = link && regionBounds(result, link)
+        if (!before || !after || before.x !== after.x || before.y !== after.y ||
+            before.width !== after.width || before.height !== after.height) return []
+        removed.delete(value.source_id)
+        return [{ ...value, region: link! }]
       })
       return evidence.length ? [{ ...item, evidence }] : []
     })
@@ -37,7 +43,7 @@ export function preserveCapture(geometry: PackageCapture, previous?: PackageCapt
     for (const pkg of previous.packages || []) for (const item of pkg.items || [])
       for (const evidence of item.evidence) if (evidence.region.side === 'reverse') invalidatedReverse.add(evidence.source_id)
   }
-  result.sources = previous.sources?.filter(source => !invalidatedReverse.has(source.id) &&
+  result.sources = previous.sources?.filter(source => !removed.has(source.id) && !invalidatedReverse.has(source.id) &&
     (!source.attachment_id || currentAttachments.includes(source.attachment_id)))
   return result
 }

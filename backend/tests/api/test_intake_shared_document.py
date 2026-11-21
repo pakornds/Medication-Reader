@@ -86,3 +86,10 @@ def test_overlapping_names_and_previously_registered_document(client):
     updated = submit(client, {**request, "rows": rows, "revision": case["revision"]})
     assert updated["rows"]["xr"]["entries"][0]["wording"] == full_text.splitlines()[1]
     assert list(updated["documents"]) == ["ward-list"]
+
+
+def test_document_without_original_wording_rejects_the_entire_intake(client):
+    row = documented("amber", "Demo Amber", "each morning")
+    row["notes"].clear()
+    assert "original wording" in submit(client, submission(row), 422)["detail"]
+    assert client.get("/admissions", headers=headers("nurse")).json() == []

@@ -43,6 +43,7 @@ def intake_documents(case, submitted, prepared, reserved):
         for rid in row_ids:
             combined, fields, names = prepared[rid]
             source = next(s for s in combined.sources if s.id == sid).model_dump(mode="json")
+            require(sid in combined.notes, "Provide the original wording for this document.")
             full_text = combined.notes[sid]
             record = {"source": source, "wording": full_text}
             existing = documents.get(sid)

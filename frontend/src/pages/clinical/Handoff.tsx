@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { renderMedicationHandoff } from '../../../../src/components/print/medication-handoff.mjs'
 import '../../../../src/components/print/medication-handoff.css'
 import { entryCrop, rowRegions } from './locatedEvidence'
+import { handoffFields } from './handoffFields'
 import type { Encounter } from '../../api/admission'
 import type { EvidenceItem, EvidenceRef, RegimenComponent } from '../../api/contracts'
 import {
@@ -91,13 +92,7 @@ export function Handoff({ encounter, client, t }: { encounter: Encounter; client
             if (!refs.has(source.id)) refs.set(source.id, { source_id: source.id, item_id: link.item_id })
           }
           const fact = (value: string, source: string) => ({ value, evidence: refs.get(source) })
-          const fields = { ...row.intake?.label_fields }
-          for (const e of entries) {
-            for (const k of ['strength', 'form', 'dose', 'directions', 'indication'] as const) {
-              if (e[k] && !fields[k])
-                fields[k] = { value: e[k], status: 'readable', evidence: refs.get(e.source.id) }
-            }
-          }
+          const fields = handoffFields(row, entries, refs, items)
           const v = row.verified as (typeof row.verified & { regimens?: RegimenComponent[] }) | null
           const verified = v && {
             reviewer: v.actor,
