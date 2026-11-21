@@ -41,6 +41,7 @@ async function addDocumentedProduct(page, { separateSchedules = false } = {}) {
   const manual = page.locator('form').filter({ has: button(page, 'Add to draft') })
   await manual.locator('summary').filter({ hasText: 'Organization (if known)' }).click()
   await label(manual, 'Organization (if known)').fill('Synthetic transfer clinic')
+  await manual.locator('input[type=date]').fill('2026-11-20')
   await manual.getByText('Facility contact details', { exact: true }).click()
   await manual.getByRole('combobox', { name: /^Facility type/ }).selectOption('clinic')
   await label(manual, 'Facility address').fill('100 Fictional Test Road')
@@ -112,6 +113,8 @@ async function verifyProduct(page, rowId, { verifyFreeText = false, separateSche
   await readback.getByText(/Directions recorded as free text only.*1 tablet.*oral.*each evening/).waitFor()
   assert.equal(await readback.locator('.regimen-readback').count(), 0)
   const identitySource = await label(verify, 'Supported medicine identity').inputValue()
+  await readback.getByText(/Identity source.*2026-11-20/).waitFor()
+  await label(verify, 'Supported medicine identity').locator('option:checked').filter({ hasText: '2026-11-20' }).waitFor({ state: 'attached' })
   assert.match(await readback.innerText(), /Identity source.*ZOCOR[\s\S]*Current-use source.*Patient report/)
   if (verifyFreeText) {
     const ordinary = await submit()
