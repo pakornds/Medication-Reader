@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from app.api import checks, local_screening
 from app.regimen_demo import create_app as create_regimen_demo
 from test_admission_package_capture import picture, submit
+from test_admissions import photo
 from test_local_screening import refs
 from test_review_reports import Encounter, _DOCTOR, _NURSE, _PHARMACIST, _source, client, fixture_case
 
@@ -202,3 +203,27 @@ def test_capture_only_pending_rows_remain_in_mixed_report_with_item_specific_cit
                 assert sorted(cited) == sorted([e["source_id"], e["item_id"]] for e in item["evidence"])
         if kind == "DRP":
             assert report["coverage"]["evaluated_scopes"] == 1
+
+
+@pytest.mark.parametrize(("name", "path"), [("Demo A", "/checks"), ("Demo Blue tablet", "/checks/local")])
+def test_same_row_matched_reverse_label_supports_verified_identity(client, refs, name, path):
+    encounter = Encounter(client)
+    encounter.apply("add", entry=photo("reverse", "Synthetic package", name=name))
+    rid = next(iter(encounter.case["rows"]))
+    encounter.apply("link", row_id=rid, confirmed=True, entry=_source(
+        "interview", "Synthetic reported current use from the package", kind="patient_report",
+    ))
+    encounter.apply("interview", row_id=rid, source_id="interview", ownership="patient", current_use="current",
+                    dose="fixture", route="oral", schedule="scheduled")
+    encounter.apply("verify", row_id=rid, source_id="interview")
+    target = {"case_id": encounter.case["id"], "admission_revision": encounter.case["revision"]}
+    if path == "/checks":
+        target.update(kind="DRP", context={"fixture_context": "present"})
+    response = client.post(path, headers=_DOCTOR, json=target)
+    assert response.status_code == 200
+    report = response.json()
+    if path == "/checks":
+        assert report["evaluated"][0]["row_ids"] == [rid]
+    else:
+        assert report["rows"][0]["tpu"] == "101"
+        assert {"source_id": "reverse", "item_id": rid} in report["rows"][0]["evidence"]

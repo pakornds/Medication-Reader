@@ -12,7 +12,7 @@ from app.schemas.checks import (
     CheckSummary,
     ReferenceVersion,
 )
-from app.schemas.evidence import PHOTO_KINDS, CaseEvidence, EvidenceRef, SourceKind
+from app.schemas.evidence import PHOTO_KINDS, CaseEvidence, EvidenceRef
 from app.schemas.review import ReviewRow
 
 REFERENCE = ReferenceVersion(name="Synthetic coverage rules", version="demo-v1")
@@ -46,7 +46,7 @@ class CoverageRequest(CheckRequest):
 
 def _traceable(reference: EvidenceRef, row_id: str, evidence: CaseEvidence) -> bool:
     source = next((item for item in evidence.sources if item.id == reference.source_id), None)
-    if source is None or source.availability != "available" or source.kind == SourceKind.REVERSE_PHOTO:
+    if source is None or source.availability != "available":
         return False
     if reference.item_id is None:
         return source.kind not in PHOTO_KINDS
@@ -54,7 +54,7 @@ def _traceable(reference: EvidenceRef, row_id: str, evidence: CaseEvidence) -> b
         item.id == reference.item_id
         and item.source_id == reference.source_id
         and item.row_id == row_id
-        and item.kind != "pill_crop"
+        and (source.kind not in PHOTO_KINDS or item.supports_label(source.kind))
         for item in evidence.items
     )
 
