@@ -1,4 +1,5 @@
 """Revisioned, encounter-scoped mock review records shared by demo staff sessions."""
+from collections import defaultdict
 from copy import deepcopy
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -57,10 +58,29 @@ def shares_origin(entry, other):
 DOCUMENTED_FIELDS = ("strength", "form", "dose", "directions", "indication")
 
 
+def entry_observations(entry):
+    scan = entry.get("scan_fields", {})
+    # The editable fields on the saved entry supersede the scan's suggestions.
+    observations = {
+        key: (field["status"], field["value"])
+        for key, field in scan.items()
+        if key not in DOCUMENTED_FIELDS or field["status"] != "readable"
+    }
+    for key in DOCUMENTED_FIELDS:
+        if entry[key]:
+            observations[key] = ("readable", entry[key])
+    if "directions" in scan and not entry["directions"]:
+        observations["directions"] = (entry["directions_status"], None)
+    return observations
+
+
 def conflicting_fields(row):
-    entries = active(row)
-    return [key for key in DOCUMENTED_FIELDS
-            if len({e[key].casefold() for e in entries if e[key]}) > 1]
+    values = defaultdict(set)
+    for entry in active(row):
+        for key, (status, value) in entry_observations(entry).items():
+            if status == "readable":
+                values[key].add(value.casefold())
+    return [key for key, seen in values.items() if len(seen) > 1]
 
 
 def reviewable_entry(entry):
@@ -315,21 +335,26 @@ class AdmissionStore:
             conflicts = conflicting_fields(row)
             regimens = []
             manifest = CaseEvidence(case_id=case["id"], sources=sources, items=items)
+            observations_by_source = {}
             for entry in active(row):
                 source_id = entry["source"]["id"]
                 citation = refs[source_id]
+                observations = entry_observations(entry)
+                observations_by_source[source_id] = observations
                 reported = entry["source"]["kind"] in REPORT_KINDS
                 if reported:
                     reports.append(SourcedValue(value=entry["wording"], evidence=citation))
-                for key in DOCUMENTED_FIELDS:
+                for key, (status, value) in observations.items():
                     if key in {"strength", "form"} and source_id != identity["source_id"]:
                         same_product = not entry["name"] or entry["name"].casefold() == identity_entry["name"].casefold()
                         if identity_entry[key] or key in conflicts or not same_product:
                             continue
                     if key in conflicts and key not in {"strength", "form"}:
                         continue
-                    if entry[key]:
-                        label_fields[key] = Observation(status="readable", value=entry[key], evidence=citation)
+                    previous = label_fields.get(key)
+                    if previous and (status == "missing" or (status == "unreadable" and previous.status == "readable")):
+                        continue
+                    label_fields[key] = Observation(status=status, value=value, evidence=citation)
                 wording = entry["wording"] if reported else entry["directions"]
                 if wording:
                     regimens.extend(parse_directions(RegimenParseRequest(
@@ -338,8 +363,11 @@ class AdmissionStore:
                         source=citation)).regimens)
             discrepancies = [Discrepancy(
                 id=key, field=key, question="Which documented value applies to this item?",
-                observed_values=[SourcedValue(value=e[key], evidence=refs[e["source"]["id"]])
-                                 for e in active(row) if e[key]]) for key in conflicts]
+                observed_values=[
+                    SourcedValue(value=observations[key][1], evidence=refs[source_id])
+                    for source_id, observations in observations_by_source.items()
+                    if key in observations and observations[key][0] == "readable"
+                ]) for key in conflicts]
             verification.resolved_discrepancies = conflicts
             importable.append(ReviewRow(
                 id=row["id"], identity_status="unlabeled" if row["unknown"] else "named",
