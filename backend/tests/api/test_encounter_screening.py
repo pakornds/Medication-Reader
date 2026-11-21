@@ -1,5 +1,14 @@
 """Run each public screening entry point against real assigned admission state."""
 
+import sqlite3
+from contextlib import closing
+
+import pytest
+
+from fastapi.testclient import TestClient
+
+from app.api import checks, local_screening
+from app.regimen_demo import create_app as create_regimen_demo
 from test_local_screening import refs
 from test_review_reports import Encounter, _DOCTOR, _NURSE, _PHARMACIST, _source, client, fixture_case
 
@@ -93,3 +102,48 @@ def test_empty_encounter_keeps_disabled_check_available(client):
     assert client.post("/checks", json=target, headers=_DOCTOR).status_code == 422
     report = client.post("/checks", json={**target, "enabled": False}, headers=_DOCTOR)
     assert report.status_code == 200 and report.json()["status"] == "not_run"
+
+
+@pytest.mark.parametrize(("module", "engine", "path"), [
+    (checks, "run_checks", "/checks"),
+    (local_screening, "screen_local", "/checks/local"),
+])
+def test_encounter_edit_during_calculation_rejects_late_result(client, refs, monkeypatch, module, engine, path):
+    encounter = seed(client, _DOCTOR, ["nurse"])
+    original = getattr(module, engine)
+
+    def edit_during_check(*args, **kwargs):
+        result = original(*args, **kwargs)
+        encounter.apply("add", entry=_source("late", "Unidentified synthetic item"))
+        return result
+
+    monkeypatch.setattr(module, engine, edit_during_check)
+    target = {"case_id": encounter.case["id"], "admission_revision": encounter.case["revision"]}
+    if path == "/checks":
+        target["kind"] = "DDI"
+    assert client.post(path, json=target, headers=_DOCTOR).status_code == 409
+
+
+def test_ambiguous_product_label_cannot_choose_a_tpu(client, refs):
+    encounter = seed(client, _DOCTOR, ["nurse"])
+    with closing(sqlite3.connect(refs[0])) as db:
+        db.execute("UPDATE product SET label = 'Demo Blue tablet' WHERE tpu = '303'")
+        db.commit()
+    path, target = next(requests(encounter))
+    response = client.post(path, json=target, headers=_DOCTOR)
+    assert response.status_code == 200
+    blue = next(row for row in response.json()["rows"] if row["row_id"] == "item-3")
+    assert blue["tpu"] is None and blue["reason"]
+
+
+def test_regimen_demo_applies_same_local_screening_boundary(client, refs):
+    with TestClient(create_regimen_demo()) as demo:
+        encounter = Encounter(demo, _PHARMACIST, assigned_roles=["nurse"])
+        entry = _source("example", "Documented interview about Demo Blue tablet.", "Demo Blue tablet")
+        encounter.apply("add", entry=entry)
+        target = {"case_id": encounter.case["id"], "admission_revision": encounter.case["revision"]}
+        for headers, expected in [({}, 403), (_NURSE, 403), (_DOCTOR, 404), (_PHARMACIST, 200)]:
+            assert demo.post("/checks/local", json=target, headers=headers).status_code == expected
+        assigned = Encounter(demo, _DOCTOR)
+        target.update(case_id=assigned.case["id"], admission_revision=assigned.case["revision"])
+        assert demo.post("/checks/local", json=target, headers=_DOCTOR).status_code == 200
