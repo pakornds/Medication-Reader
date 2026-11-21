@@ -1,0 +1,26 @@
+export const caseText = {
+  en: {
+    heading: 'Clinical review', start: 'Save draft and open clinical review', update: 'Save revised draft',
+    needsLogin: 'Sign in to verify medicines and save this encounter.',
+    empty: 'Add a medicine to the draft to start clinical review.', input: 'Go to Input',
+    goReview: 'Open Review', needsReview: 'Save and review the medicine list before import.',
+    dirty: 'The intake draft has changes. Save it to continue clinical review.',
+    saveFailed: 'Could not save the draft. Your entries are still here.', stale: 'Another staff member updated this encounter. Open the latest saved encounter to review the changes.',
+    discardLocal: 'Discard your unsaved intake edits and open the latest saved encounter?', reload: 'Open latest saved encounter', queueError: 'Could not open this encounter.',
+    saved: 'This encounter is open for clinical review.', changeCase: 'Leave this draft and open the selected encounter?',
+    leave: 'Sign out and clear this case from the screen?', syncedInput: 'You reopened a saved encounter. Its recorded sources and medicines are available in Review.',
+    pending: 'There are still unconfirmed scan suggestions in Input.', saving: 'Saving…',
+  },
+  th: {
+    heading: 'ทบทวนทางคลินิก', start: 'บันทึกฉบับร่างและเปิดทบทวน', update: 'บันทึกฉบับร่างที่แก้ไข',
+    needsLogin: 'เข้าสู่ระบบเพื่อยืนยันรายการยาและบันทึกเคสนี้',
+    empty: 'เพิ่มรายการยาในฉบับร่างเพื่อเริ่มทบทวน', input: 'ไปที่ป้อนข้อมูล',
+    goReview: 'เปิดทบทวน', needsReview: 'บันทึกและทบทวนรายการยาก่อนนำเข้า',
+    dirty: 'ฉบับร่างมีการแก้ไข กรุณาบันทึกก่อนทบทวนต่อ',
+    saveFailed: 'บันทึกไม่สำเร็จ ข้อมูลที่กรอกยังอยู่', stale: 'เจ้าหน้าที่คนอื่นอัปเดตเคสนี้แล้ว กรุณาโหลดข้อมูลล่าสุดก่อนลองอีกครั้ง',
+    discardLocal: 'ละทิ้งการแก้ไขที่ยังไม่บันทึกแล้วเปิดเคสล่าสุดหรือไม่', reload: 'เปิดเคสล่าสุด', queueError: 'เปิดเคสนี้ไม่ได้', saved: 'เคสนี้เปิดสำหรับการทบทวนแล้ว',
+    changeCase: 'ออกจากฉบับร่างนี้และเปิดเคสที่เลือกหรือไม่', leave: 'ออกจากระบบและนำข้อมูลเคสออกจากหน้าจอหรือไม่',
+    syncedInput: 'คุณเปิดเคสที่บันทึกไว้ ดูแหล่งข้อมูลและรายการยาได้ที่หน้าทบทวน',
+    pending: 'ยังมีรายการจากการสแกนที่รอยืนยันในหน้าป้อนข้อมูล', saving: 'กำลังบันทึก…',
+  },
+}

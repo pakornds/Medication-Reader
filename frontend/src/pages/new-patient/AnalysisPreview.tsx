@@ -1,3 +1,4 @@
+import { ScanCatalogue } from './ScanCatalogue'
 import { regimenText, type RegimenText } from '../../i18n/regimen'
 import { RegimenReadback } from './RegimenReadback'
 import { Button } from '../../components/ui/Button'
@@ -8,7 +9,6 @@ import type { RegimenComponent } from '../../api/contracts'
 import { intake, type IntakeText } from '../../i18n/intake'
 import type { Language } from '../../i18n/messages'
 import { EvidenceCrop, EvidenceImage } from './EvidenceImage'
-import { ScanCatalogue } from './ScanCatalogue'
 import {
   draftValues,
   hasEarlierEvidence,
@@ -37,7 +37,7 @@ function Citation({ reference, evidence, t }: { reference: Ref; evidence: Eviden
       <details className="citation">
         <summary>{t[note.kind]}</summary>
         <blockquote>{note.text}</blockquote>
-        <small>{[note.author, note.date].filter(Boolean).join(' · ')}</small>
+        <small>{[note.author, note.facilityContact?.department_or_ward, note.facilityContact?.organization_address, note.facilityContact?.organization_phone, note.facilityContact?.organization_phone_extension, note.facilityContact?.organization_email, note.date].filter(Boolean).join(' · ')}</small>
       </details>
     )
   const resolved = photoCitation(evidence, reference)
@@ -55,7 +55,7 @@ function Citation({ reference, evidence, t }: { reference: Ref; evidence: Eviden
             : <EvidenceImage file={photo.file} />}
         </div>
       )}
-      <small>{[photo.file.name, region?.organization, photo.date].filter(Boolean).join(' · ')}</small>
+      <small>{[photo.file.name, region?.organization, region?.facilityContact?.department_or_ward, region?.facilityContact?.organization_address, region?.facilityContact?.organization_phone, region?.facilityContact?.organization_phone_extension, region?.facilityContact?.organization_email, photo.date].filter(Boolean).join(' · ')}</small>
     </details>
   )
 }
@@ -308,23 +308,28 @@ function DraftEditor({ medicine, t, onSave }: { medicine: Medicine; t: IntakeTex
   )
 }
 
-export function DraftReview({ draft, language, onSave, onConfirmCatalogue }: {
+export function DraftReview({ draft, language, onSave, onCatalogue, embedded = false }: {
+  embedded?: boolean
+  onCatalogue?: (id: string, match?: CatalogueMatch) => void
   draft: Draft
   language: Language
   onSave: (id: string, values: DraftValues) => void
-  onConfirmCatalogue: (id: string, match: CatalogueMatch) => void
 }) {
   const t = intake[language]
   return (
     <div className="intake stack">
-      <h1>{language === 'th' ? 'ทบทวน' : 'Review'}</h1>
+      {!embedded && <h1>{language === 'th' ? 'ทบทวน' : 'Review'}</h1>}
       {!draft.medicines.length && <p>{t.noMedicines}</p>}
       {draft.medicines.map((medicine) => {
         const { row, catalogue, corrections, linkedScans } = medicine
-        const compare = (scan: MedicineEvidence) => !hasEarlierEvidence(scan, draft.evidence) && (
+        const compare = (scan: MedicineEvidence) => onCatalogue && !hasEarlierEvidence(scan, draft.evidence) && (
           <ScanCatalogue scan={scan} language={language} current={catalogue}
-            onConfirm={match => onConfirmCatalogue(row.id, match)} />
+            onConfirm={match => onCatalogue(row.id, match)} />
         )
+        const catalogueEvidence = catalogue?.evidence
+        const confirmationSource = catalogueEvidence && [medicine, ...(linkedScans ?? [])].find(scan =>
+          scan.row.observed_names.some(fact => fact.evidence.source_id === catalogueEvidence.source_id
+            && fact.evidence.item_id === catalogueEvidence.item_id))
         return (
           <article className="intake-panel stack" key={row.id}>
             <div className="spread">
@@ -335,11 +340,16 @@ export function DraftReview({ draft, language, onSave, onConfirmCatalogue }: {
               <p role="status">{t.earlier}</p>
             )}
             {catalogue && (
-              <small className="selected-trade-product">
-                TPU {catalogue.product.tpu} · {catalogue.release}
-              </small>
+              <div className="stack">
+                <small className="selected-trade-product">{catalogue.product.label} · TPU {catalogue.product.tpu} · {catalogue.release}</small>
+                {catalogueEvidence && confirmationSource && <Citation reference={catalogueEvidence} evidence={confirmationSource.evidence} t={t} />}
+                {catalogueEvidence && onCatalogue && <Button variant="text" onClick={() => onCatalogue(row.id)}>
+                  {language === 'th' ? 'ยกเลิกผลิตภัณฑ์ที่เลือก' : 'Remove catalogue selection'}
+                </Button>}
+              </div>
             )}
-            {medicine.originalCatalogue && medicine.originalCatalogue.product.tpu !== catalogue?.product.tpu && (
+            {medicine.originalCatalogue && (medicine.originalCatalogue.product.tpu !== catalogue?.product.tpu
+              || medicine.originalCatalogue.release !== catalogue?.release) && (
               <small>{language === 'th' ? 'ผลิตภัณฑ์ที่เลือกเมื่อกรอกข้อมูล' : 'Original manual selection'} ·
                 {' '}{medicine.originalCatalogue.product.label} · TPU {medicine.originalCatalogue.product.tpu}
                 {' · '}{medicine.originalCatalogue.release}</small>

@@ -1,11 +1,12 @@
-import type { AnalysisPreview, DispensingFacility, EvidenceRef, RegimenComponent, SourcedValue } from '../../api/contracts'
+import type { AnalysisPreview, EvidenceSource, DispensingFacility, EvidenceRef, RegimenComponent, SourcedValue } from '../../api/contracts'
 import type { PercentBox } from '../../components/ui/RegionOutline'
 import type { Language } from '../../i18n/messages'
 
 export type PhotoKind = 'label_photo' | 'reverse_photo' | 'additional_photo'
 export type NoteKind = 'patient_report' | 'caregiver_report' | 'other_record'
 export type Box = PercentBox
-export type Region = { id: string; rowId: string; box: Box; organization: string }
+export type FacilityContact = Pick<EvidenceSource, 'organization_type'|'organization_address'|'organization_phone'|'organization_phone_extension'|'organization_email'|'department_or_ward'>
+export type Region = { facilityContact?: FacilityContact; id: string; rowId: string; box: Box; organization: string }
 export type Photo = {
   id: string
   kind: PhotoKind
@@ -13,7 +14,7 @@ export type Photo = {
   regions: Region[]
   date: string
 }
-export type Note = { id: string; kind: NoteKind; text: string; author: string; date: string }
+export type Note = { facilityContact?: FacilityContact; id: string; kind: NoteKind; text: string; author: string; date: string }
 export type Ref = EvidenceRef
 export type Fact = SourcedValue
 export type RegimenField = Exclude<keyof RegimenComponent['evidence'], 'directions_text'>
@@ -35,6 +36,7 @@ export type Preview = Omit<AnalysisPreview, 'rows' | 'unassigned_reports'> & {
   unassigned_reports: Fact[]
 }
 export type Product = {
+  source_generic?: string
   tpu: string
   label: string
   active_tmt: boolean

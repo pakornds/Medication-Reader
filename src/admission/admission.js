@@ -1,3 +1,13 @@
+import {
+  admissionReview,
+  canAttestCurrentUse,
+  namedIdentityOptions,
+  renderAdmissionReview,
+  requiresPharmacyIdentity,
+} from "/regimen-review/admission-review.mjs";
+import { openRegimenVerification, verifiedRegimenSummary } from "/regimen-review/admission-regimens.mjs";
+import { renderUnavailableSources } from "/regimen-review/unavailable-sources.mjs";
+
 const $ = (id) => document.getElementById(id);
 let token = "",
   actor,
@@ -6,6 +16,7 @@ let token = "",
   pending,
   saveForm;
 const form = $("editform");
+let reviewRead;
 let scanDraft;
 const clean = (value) => value?.trim() || null;
 const human = (value) => (value || "").replaceAll("_", " ");
@@ -151,6 +162,7 @@ $("signin").onsubmit = async (event) => {
   }
 };
 $("signout").onclick = () => {
+  reviewRead?.abort();
   token = "";
   actor = null;
   encounter = null;
@@ -326,7 +338,7 @@ function evidenceForm(row, retake) {
         "unreadable",
       ]) +
       field("Documented indication", "indication") +
-      (row?.unknown
+      (row
         ? select(
             "Independent identity evidence, if documented",
             "identity_basis",
@@ -691,11 +703,21 @@ function crop(canvas, photo) {
   img.src = "data:" + photo.media_type + ";base64," + photo.data;
 }
 function render() {
+  reviewRead?.abort();
+  reviewRead = new AbortController();
+  const reviewCase = encounter.id;
+  const { signal } = reviewRead;
   const sourceNames = new Map();
+  const rowSourceNames = new Map();
   for (const row of Object.values(encounter.rows)) {
-    row.entries.forEach((entry, i) =>
-      sourceNames.set(entry.source.id, row.id + " / source " + (i + 1)),
-    );
+    const names = new Map();
+    row.entries.forEach((entry, i) => {
+      const sid = entry.source.id;
+      const label = row.id + " / source " + (i + 1);
+      names.set(sid, label);
+      sourceNames.set(sid, sourceNames.has(sid) ? sid : label);
+    });
+    rowSourceNames.set(row.id, sid => names.get(sid) || sid);
   }
   const sourceName = (sid) => sourceNames.get(sid) || sid;
   const rows = Object.values(encounter.rows),
@@ -719,6 +741,7 @@ function render() {
       ? "Reviewed medication handoff"
       : "Admission interview worksheet") +
     "</h2>";
+  renderUnavailableSources($("summary"), encounter);
   $("start").hidden = !writable || !rows.length;
   $("print").hidden = !rows.length;
   $("print").textContent = finished
@@ -726,22 +749,27 @@ function render() {
     : "Print worksheet";
   $("rows").innerHTML = rows
     .map((row) => {
+      const sourceName = rowSourceNames.get(row.id);
       const answer = row.interview,
         verification = row.verified;
+      const awaitingIdentity = requiresPharmacyIdentity(row);
       const state = row.confirmed
         ? "Identity confirmed by pharmacist"
         : row.proposal
           ? "Proposed identity — pharmacist review required"
           : row.unknown
             ? "Unresolved identity"
-            : "Documented identity";
+            : row.disputed_identity_source_ids?.length && !verification
+              ? "Disputed documented identity"
+              : "Documented identity";
       const sources = row.entries
         .map(
           (e, i) =>
             '<div class="source"><strong>' +
             esc(human(e.source.kind)) +
             "</strong> · " +
-            esc(e.source.reporter || "") +
+            (e.record_basis ? esc(human(e.record_basis)) + " · " : "") +
+            esc(e.source.organization || e.source.reporter || "") +
             " " +
             esc(e.source.source_date || "") +
             (row.superseded.includes(e.source.id)
@@ -821,6 +849,7 @@ function render() {
             )
           : "") +
         "</p>" +
+        '<div class="screen" data-review-item="' + esc(row.id) + '"></div>' +
         sources +
         (anotherStrength
           ? "<p>Suggested follow-up · Clarify how the patient currently uses each strength, including any as-needed use.</p>"
@@ -849,11 +878,14 @@ function render() {
           ? "<p><strong>Verified use</strong> · " +
             esc(human(verification.answer.current_use)) +
             " · " +
-            esc(verification.actor.name) +
+            esc(verification.actor.name + " (" + human(verification.actor.role) + ")") +
             " · " +
             esc(new Date(verification.at).toLocaleString()) +
             " · " +
             esc(sourceName(verification.source_id)) +
+            (verification.answer.current_use === "current"
+              ? verifiedRegimenSummary(verification, row.entries.map(entry => entry.source), esc)
+              : "") +
             (verification.identity
               ? "<br>Verified identity · " +
                 esc(verification.identity.name) +
@@ -879,7 +911,10 @@ function render() {
             (row.unknown && role()
               ? button("Review identity", "decide", row.id)
               : "") +
-            (answer ? button("Verify current use", "verify", row.id) : "")
+            (answer && !awaitingIdentity ? button("Verify current use", "verify", row.id) : "") +
+            (canAttestCurrentUse(row, actor)
+              ? button("Attest current use for screening", "attest_current_use", row.id)
+              : "")
           : "") +
         "</div>" +
         (!finished
@@ -889,7 +924,37 @@ function render() {
       );
     })
     .join("");
-  for (const canvas of document.querySelectorAll(".crop"))
+  for (const root of $("rows").querySelectorAll("[data-review-item]")) {
+    const row = encounter.rows[root.dataset.reviewItem];
+    renderAdmissionReview(root, admissionReview(encounter, row), {
+      loadRegimens: body => api("/regimens/parse", body),
+      sourceName: rowSourceNames.get(row.id),
+      assessIncident: role() ? (incident) => edit(
+        "Pharmacy assessment",
+        select("Assessment outcome", "outcome", [
+          ["needs_review", "Needs review"],
+          ["not_confirmed", "Medication error not confirmed"],
+          ["confirmed_medication_error", "Confirmed medication error"],
+        ]) + area("Pharmacy finding", "assessment", "", true),
+        (f) => action({
+          action: "assess_identity_incident", incident_id: incident.id,
+          outcome: f.get("outcome"), assessment: get(f, "assessment"),
+        }),
+      ) : null,
+      async loadCrop(link) {
+        const response = await fetch("/admissions/" + reviewCase + "/capture/region", {
+          method: "POST",
+          cache: "no-store",
+          signal,
+          headers: { "Content-Type": "application/json", "X-Demo-Reviewer-Token": token },
+          body: JSON.stringify(link),
+        });
+        if (!response.ok) throw new Error("Region unavailable.");
+        return response.blob();
+      },
+    });
+  }
+  for (const canvas of $("rows").querySelectorAll("canvas.crop"))
     crop(
       canvas,
       encounter.rows[canvas.dataset.item].entries[Number(canvas.dataset.index)]
@@ -898,6 +963,7 @@ function render() {
   $("controls").innerHTML =
     '<div class="bar">' +
     (writable ? button("Add medication or unknown item", "add") : "") +
+    (writable ? button("Record unavailable source", "record_unavailable_source") : "") +
     (writable && rows.length ? button("Finish reconciliation", "finish") : "") +
     (encounter.status === "In progress" &&
     rows.some((r) => r.unknown && !r.confirmed)
@@ -960,6 +1026,30 @@ document.addEventListener("click", async (ev) => {
     row = encounter?.rows[b.dataset.row];
   try {
     if (op === "open") return await openCase(b.dataset.row);
+    if (op === "record_unavailable_source") {
+      const sourceId = id();
+      return edit(
+        "Record unavailable source",
+        select("Source type", "kind", [
+          "transfer_record", "prescription", "reviewer_record", "other_record", "patient_report",
+          "caregiver_report", "label_photo", "reverse_photo", "additional_photo",
+        ]) +
+        field("Organization", "organization") + field("Department or ward", "department_or_ward") +
+        field("Reporter", "reporter") + field("Contact", "contact") +
+        field("Source date, if known", "source_date", "", "date") +
+        area("Reason unavailable", "unavailable_reason", "", true) + area("Follow-up", "follow_up"),
+        data => action({
+          action: op,
+          source: {
+            id: sourceId, kind: get(data, "kind"), availability: "unavailable",
+            organization: get(data, "organization"), department_or_ward: get(data, "department_or_ward"),
+            reporter: get(data, "reporter"), contact: get(data, "contact"),
+            source_date: get(data, "source_date"), unavailable_reason: get(data, "unavailable_reason"),
+          },
+          follow_up: get(data, "follow_up"),
+        }),
+      );
+    }
     if (op === "scan") {
       b.disabled = true;
       try {
@@ -972,8 +1062,29 @@ document.addEventListener("click", async (ev) => {
     if (op === "add" || op === "link" || op === "retake")
       return evidenceForm(row, op === "retake");
     if (op === "interview") return interview(row);
-    if (op === "verify")
+    if (op === "attest_current_use") {
+      const source = active(row).find(entry => entry.source.id === row.interview.source_id);
       return edit(
+        "Attest current use for screening · " + title(row),
+        "<p>" + esc(source.wording) + "</p>" +
+          "<p>Verify the complete regimen separately before approving this row for import.</p>",
+        () => action({ action: op, row_id: row.id, source_id: source.source.id }),
+      );
+    }
+    if (op === "verify") {
+      const verify = regimens => {
+        const fields = new FormData(form);
+        return action({
+          action: op,
+          row_id: row.id,
+          source_id: row.interview.source_id,
+          identity_source_id: get(fields, "identity_source_id"),
+          resolution: get(fields, "resolution"),
+          ...(regimens.length ? { regimens } : {}),
+        });
+      };
+      let structured;
+      edit(
         "Verify current use · " + title(row),
         "<p>" +
           esc(
@@ -992,23 +1103,28 @@ document.addEventListener("click", async (ev) => {
             : select(
                 "Identity evidence",
                 "identity_source_id",
-                active(row)
-                  .filter((e) => e.name)
-                  .map((e) => [e.source.id, e.product + " · " + e.source.id]),
+                namedIdentityOptions(row),
+                row.verified?.identity?.source_id,
               )) +
           area(
             "Resolution of conflicting sources, if applicable",
             "resolution",
+            row.verified?.resolution || "",
+            Boolean(row.disputed_identity_source_ids?.length),
           ),
-        (f) =>
-          action({
-            action: op,
-            row_id: row.id,
-            source_id: row.interview.source_id,
-            identity_source_id: get(f, "identity_source_id"),
-            resolution: get(f, "resolution"),
-          }),
+        () => {
+          if (structured?.editing()) throw new Error("Use Verify actual use to save the structured regimen.");
+          return verify([]);
+        },
       );
+      if (row.interview.current_use === "current") {
+        structured = openRegimenVerification({
+          form, review: admissionReview(encounter, row), entries: active(row), actor, verify,
+          parse: statement => api("/regimens/parse", statement),
+        });
+      }
+      return;
+    }
     if (op === "propose") {
       const records = await api("/admissions/" + encounter.id + "/candidates");
       const choices = [

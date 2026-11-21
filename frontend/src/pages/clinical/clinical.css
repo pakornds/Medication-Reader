@@ -1,0 +1,180 @@
+.clinical-workspace {
+  display: grid;
+  gap: 1rem;
+  margin-block: 2rem;
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+}
+.clinical-workspace h2 {
+  font-size: 1.45rem;
+  font-weight: 700;
+}
+.clinical-workspace h3 {
+  font-size: 1.13rem;
+  font-weight: 650;
+}
+.clinical-workspace h4,
+.clinical-workspace summary {
+  font-weight: 600;
+}
+.clinical-workspace summary {
+  cursor: pointer;
+  padding-block: 0.4rem;
+}
+.clinical-workspace small,
+.clinical-heading p {
+  color: var(--text-2);
+}
+.clinical-heading,
+.clinical-actions,
+.clinical-print-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+.clinical-actions {
+  justify-content: flex-start;
+}
+.clinical-columns {
+  display: grid;
+  align-items: start;
+  gap: 1rem;
+  grid-template-columns: minmax(10rem, 1fr) minmax(0, 2.5fr);
+}
+.clinical-list {
+  display: grid;
+  align-content: start;
+  gap: 0.3rem;
+}
+.clinical-list button {
+  display: grid;
+  gap: 0.2rem;
+  text-align: start;
+  padding: 0.65rem 0.8rem;
+  border-inline-start: 3px solid transparent;
+  border-radius: 0.35rem;
+  min-height: 46px;
+}
+.clinical-list button[aria-current='true'] {
+  background: var(--bg-selected);
+  border-inline-start-color: var(--accent);
+}
+.clinical-list button:hover {
+  background: var(--bg-hover);
+}
+.clinical-card {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  background: var(--bg-2);
+  padding: 1rem;
+}
+.clinical-form {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+}
+.clinical-form .btn,
+.clinical-form .primary-btn,
+.clinical-form .text-action {
+  justify-self: start;
+}
+.clinical-form > label,
+.clinical-fields label {
+  display: grid;
+  gap: 0.25rem;
+}
+.clinical-form :is(input:not([type='checkbox']), textarea, select) {
+  width: 100%;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  color: var(--text-1);
+  background: var(--bg-2);
+}
+.clinical-form textarea {
+  min-height: 4rem;
+}
+.clinical-form .clinical-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.clinical-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  gap: 0.65rem;
+}
+.clinical-evidence section,
+.clinical-inset,
+.clinical-schedule {
+  padding: 0.65rem 0.8rem;
+  border-inline-start: 2px solid var(--line);
+  margin-block: 0.5rem;
+}
+.clinical-workspace blockquote {
+  white-space: pre-wrap;
+}
+.clinical-source-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
+  gap: 0.4rem 0.7rem;
+}
+.clinical-source-fields:not(:empty) {
+  margin-block: 0.5rem;
+}
+.clinical-source-fields dt {
+  font-size: 0.8rem;
+  color: var(--text-2);
+}
+.clinical-crop {
+  display: block;
+  max-width: 14rem;
+  max-height: 9rem;
+  margin-block: 0.5rem;
+}
+.clinical-error {
+  border-inline-start: 3px solid #bd7223;
+  padding: 0.6rem 0.8rem;
+}
+.clinical-print {
+  margin: auto;
+  width: min(94vw, 55rem);
+  max-height: 92dvh;
+  overflow: auto;
+  padding: 1rem;
+  background: white;
+  color: #162536;
+  border-radius: 0.8rem;
+}
+.clinical-print::backdrop {
+  background: #17212e80;
+}
+@media (max-width: 700px) {
+  .clinical-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .clinical-list {
+    max-height: 12rem;
+    overflow: auto;
+  }
+}
+@media print {
+  body:has(.clinical-print[open]) > :not(.clinical-print) {
+    display: none !important;
+  }
+  .clinical-print[open] {
+    position: static;
+    max-height: none;
+    overflow: visible;
+    width: 100%;
+    padding: 0;
+    border: 0;
+  }
+  .clinical-print-tools,
+  .clinical-print::backdrop {
+    display: none;
+  }
+}

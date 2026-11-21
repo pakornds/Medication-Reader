@@ -16,6 +16,7 @@ from pydantic import ValidationError
 
 from app.ai.client import EvidenceImage
 from app.schemas.package_capture import PackageCapture
+from app.services.admission_intake_readback import active_intake_corrections, carry_intake, intake_discrepancies
 from app.services.labels import LabelPhotoError, crop_label
 
 from app.schemas.analysis import Discrepancy
@@ -256,7 +257,7 @@ def label_overrides(entry):
 def entry_observations(entry):
     observations = {
         key: (field["status"], field["value"])
-        for key, field in entry.get("scan_fields", {}).items()
+        for key, field in {**entry.get("intake_observations", {}), **entry.get("scan_fields", {})}.items()
     }
     overrides = entry.get("label_overrides", LABEL_OVERRIDE_FIELDS)
     for key in DOCUMENTED_FIELDS:
@@ -283,7 +284,7 @@ def conflicting_fields(row):
 def reviewable_entry(entry):
     photo = entry["photo"]
     front = entry["source"]["kind"] == "label_photo" and photo and photo.get("front_attributed")
-    return not photo or ((front or photo["pairing"] == "matched") and not photo["appearance"])
+    return not photo or ((front or entry.get("intake_additional_label") or photo["pairing"] == "matched") and not photo["appearance"])
 
 
 def unresolved_photo(entry):
@@ -302,8 +303,9 @@ def hold_report_identity(case, row):
 
     entry = named[0]
     source_id = entry["source"]["id"]
-    added = next(event for event in reversed(case["events"])
-                 if event["action"] in {"add", "link"} and source_id in event["sources"])
+    added = next((event for event in reversed(case["events"]) if event["action"] in {"add", "link", "intake"}
+                  and row["id"] in event["rows"] and source_id in event["sources"]), None)
+    require(added is not None, "The origin of the reported identity is unavailable.")
     row["unknown"] = True
     row["verified"] = None
     row.pop("imported_at", None)
@@ -314,6 +316,16 @@ def hold_report_identity(case, row):
 def new_row(row_id, unknown):
     return dict(id=row_id, unknown=unknown, entries=[], superseded=[], proposal=None,
                 confirmed=None, referred=False, interview=None, verified=None)
+
+
+def next_row_id(case):
+    # Intake may assign its own IDs, including a previously removed item number.
+    occupied = set(case["rows"])
+    occupied.update(rid for event in case["events"] for rid in event["rows"])
+    number = len(case["rows"]) + 1
+    while f"item-{number}" in occupied:
+        number += 1
+    return f"item-{number}"
 
 
 def import_snapshot_key(row):
@@ -343,7 +355,7 @@ def entry_evidence(row_id, entry):
         kind = "label_region" if reviewable_entry(entry) else "pill_crop"
         if kind == "label_region" and source.kind == "reverse_photo":
             kind = "matched_reverse_label"
-    return source, EvidenceItem(id=row_id, source_id=source.id, row_id=row_id, kind=kind)
+    return source, EvidenceItem(id=entry.get("intake_item_id") or row_id, source_id=source.id, row_id=row_id, kind=kind)
 
 
 def verified_regimen_fields(verified, interview_ref):
@@ -369,6 +381,13 @@ def capture_orientation(media_type, data):
         raise HTTPException(422, "Invalid capture image.") from None
 
 
+def new_encounter(case_id, actor, request, revision=1):
+    assigned = {actor.id, "demo-pharmacist", *("demo-" + role for role in request.assigned_roles)}
+    return dict(id=case_id, patient_alias=request.patient_alias,
+                assigned=sorted(assigned), revision=revision, status="In progress", created_at=now(),
+                rows={}, events=[], receipts=[], identity_incidents={}, unavailable_sources={})
+
+
 class AdmissionStore:
     def __init__(self, hospital):
         self.records = {}
@@ -380,10 +399,7 @@ class AdmissionStore:
 
     def create(self, actor, request: NewEncounter):
         require(actor.role in {"nurse", "doctor", "pharmacist"}, "Clinical reviewer required.", 403)
-        assigned = {actor.id, "demo-pharmacist", *("demo-" + role for role in request.assigned_roles)}
-        case = dict(id="admission-" + uuid4().hex, patient_alias=request.patient_alias,
-                    assigned=sorted(assigned), revision=1, status="In progress", created_at=now(),
-                    rows={}, events=[], receipts=[], identity_incidents={}, unavailable_sources={})
+        case = new_encounter("admission-" + uuid4().hex, actor, request)
         with self.lock:
             self.records[case["id"]] = case
         return case
@@ -551,7 +567,7 @@ class AdmissionStore:
                             "Keep separate capture items on separate rows.")
                 if item_id not in links:
                     if not target:
-                        target = "item-" + str(len(case["rows"]) + 1)
+                        target = next_row_id(case)
                         case["rows"][target] = new_row(target, unknown=True)
                     links[item_id] = target
                 row = case["rows"][links[item_id]]
@@ -609,7 +625,7 @@ class AdmissionStore:
             return None
         source = entry["source"]
         data = b64decode(entry["photo"]["data"], validate=True)
-        capture = case["capture"]
+        capture = case.get("capture", {})
         view_attachments = {
             view["attachment_id"]: kind
             for side, kind in (("front", "label_photo"), ("reverse", "reverse_photo"))
@@ -671,7 +687,7 @@ class AdmissionStore:
             targeted_retake = isinstance(cmd, AddEvidence) and cmd.replaces is not None
             capture_attachment = self.photo_origin(case, entry, targeted_retake=targeted_retake)
             if isinstance(cmd, AddRow):
-                rid = "item-" + str(len(rows) + 1)
+                rid = next_row_id(case)
                 row = new_row(rid, unknown=not bool(entry["name"]))
                 rows[rid] = row
             else:
@@ -817,7 +833,8 @@ class AdmissionStore:
             require(row["unknown"] or named, "Review the current identity evidence.")
             variants = {e["product"].casefold() for e in named}
             conflicts = conflicting_fields(row)
-            require((len(variants) <= 1 and not conflicts) or cmd.resolution,
+            require((len(variants) <= 1 and not conflicts and not intake_discrepancies(row)
+                     and not active_intake_corrections(row)) or cmd.resolution,
                     "Document the resolution of conflicting evidence.")
             verified_at = now()
             identity = row["confirmed"]
@@ -908,7 +925,7 @@ class AdmissionStore:
                 observations = entry_observations(entry)
                 observations_by_source[source_id] = observations
                 reported = entry["source"]["kind"] in REPORT_KINDS
-                if reported:
+                if reported and source_id not in row.get("intake_entry_ids", []):
                     reports.append(SourcedValue(value=entry["wording"], evidence=citation))
                 for key, (status, value) in observations.items():
                     if key in {"strength", "form"} and source_id != identity["source_id"]:
@@ -924,7 +941,9 @@ class AdmissionStore:
                     label_fields[key] = Observation(status=status, value=value, evidence=citation)
                 _, directions = observations.get("directions", (None, None))
                 wording = entry["wording"] if reported else directions
-                if wording:
+                captured = any(c["evidence"]["directions_text"]["source_id"] == source_id
+                               for c in (row.get("intake") or {}).get("regimens", []))
+                if wording and not captured:
                     regimens.extend(parse_directions(RegimenParseRequest(
                         evidence=manifest, row_id=row["id"], component_id=source_id,
                         basis="reported" if reported else "documented", directions_text=wording,
@@ -936,7 +955,8 @@ class AdmissionStore:
                     for source_id, observations in observations_by_source.items()
                     if key in observations and observations[key][0] == "readable"
                 ]) for key in conflicts]
-            verification.resolved_discrepancies = conflicts
+            carry_intake(row, refs, regimens, discrepancies, reports, label_fields)
+            verification.resolved_discrepancies = [d.id for d in discrepancies]
             importable.append(ReviewRow(
                 id=row["id"], identity_status="unlabeled" if row["unknown"] else "named",
                 unknown_label=row["id"] if row["unknown"] else None,

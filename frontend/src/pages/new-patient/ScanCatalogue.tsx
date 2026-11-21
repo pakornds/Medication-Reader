@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { ProductOption, ProductOptions } from '../../api/contracts'
 import { searchProducts } from '../../api/reconciliation'
@@ -13,7 +13,7 @@ const copy = {
     query: 'Observed name or TPU code', strength: 'Strength', form: 'Form', ingredients: 'Ingredients',
     release: 'Catalogue release', empty: 'No matching trade products', loading: 'Searching…',
     error: 'Catalogue unavailable. Retry the search.', candidates: 'Trade products',
-    mismatch: 'Wording differs from the label', confirm: 'Confirm trade product',
+    mismatch: 'Wording differs from the label', unmatched: 'The observed name does not appear in this catalogue label or ingredient text.', confirm: 'Confirm this catalogue product',
     replace: 'Replace confirmed TPU', confirmed: 'Confirmed trade product', missingCrop: 'Crop unavailable',
   },
   th: {
@@ -21,10 +21,13 @@ const copy = {
     query: 'ชื่อบนฉลากหรือรหัส TPU', strength: 'ความแรง', form: 'รูปแบบยา', ingredients: 'ตัวยาสำคัญ',
     release: 'รุ่นบัญชียา', empty: 'ไม่พบผลิตภัณฑ์ที่ตรงกัน', loading: 'กำลังค้นหา…',
     error: 'ไม่สามารถเปิดบัญชียาได้ กรุณาค้นหาอีกครั้ง', candidates: 'ผลิตภัณฑ์ยา',
-    mismatch: 'ข้อความต่างจากฉลาก', confirm: 'ยืนยันผลิตภัณฑ์ยา',
+    mismatch: 'ข้อความต่างจากฉลาก', unmatched: 'ไม่พบชื่อที่อ่านได้ในชื่อผลิตภัณฑ์หรือข้อความตัวยาสำคัญ', confirm: 'ยืนยันผลิตภัณฑ์ยา',
     replace: 'แทนที่ TPU ที่ยืนยันแล้ว', confirmed: 'ผลิตภัณฑ์ยาที่ยืนยันแล้ว', missingCrop: 'ไม่มีภาพส่วนที่เลือก',
   },
 }
+
+const wording = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase()
+const normalizeName = (value: string) => value.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]+/gu, ' ').trim()
 
 type LocatedName = { fact: Fact; photo: Photo; region: Region }
 type Props = {
@@ -40,8 +43,8 @@ function Search({ scan, language, current, onConfirm, name }: Props & { name: Lo
   const [query, setQuery] = useState(fact.value)
   const [result, setResult] = useState<ProductOptions>()
   const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('idle')
+  const debounce = useRef<number | undefined>(undefined)
   const active = useRef<AbortController | undefined>(undefined)
-  useEffect(() => () => active.current?.abort(), [])
 
   function observed(field: 'strength' | 'form') {
     const value = scan.row.label_fields[field]
@@ -51,8 +54,7 @@ function Search({ scan, language, current, onConfirm, name }: Props & { name: Lo
   const strength = observed('strength')
   const form = observed('form')
 
-  async function search(event: FormEvent) {
-    event.preventDefault()
+  const lookup = useCallback(async () => {
     const term = query.trim()
     if (!term) return
     active.current?.abort()
@@ -78,9 +80,16 @@ function Search({ scan, language, current, onConfirm, name }: Props & { name: Lo
     } catch {
       if (!controller.signal.aborted) setStatus('error')
     }
+  }, [query, strength, form])
+  useEffect(() => {
+    debounce.current = window.setTimeout(() => void lookup(), 200)
+    return () => { window.clearTimeout(debounce.current); active.current?.abort() }
+  }, [lookup])
+  function search(event: FormEvent) {
+    event.preventDefault()
+    window.clearTimeout(debounce.current)
+    void lookup()
   }
-
-  const normalize = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase()
   return <div className="field-pair scan-comparison">
     <div className="stack">
       <strong>{t.observed}</strong>
@@ -108,9 +117,13 @@ function Search({ scan, language, current, onConfirm, name }: Props & { name: Lo
           <br />{t.release} · {result.tmt_release}</p>
         {result.products.map(product => {
           const differences = [
-            strength && product.strength && normalize(strength) !== normalize(product.strength) && t.strength,
-            form && product.dose_form && normalize(form) !== normalize(product.dose_form) && t.form,
+            strength && product.strength && wording(strength) !== wording(product.strength) && t.strength,
+            form && product.dose_form && wording(form) !== wording(product.dose_form) && t.form,
           ].filter(Boolean)
+          const observedName = normalizeName(fact.value)
+          const nameMismatch = observedName && ![product.label, product.source_generic ?? ''].some(
+            value => (' ' + normalizeName(value) + ' ').includes(' ' + observedName + ' '),
+          )
           const sameProduct = current?.product.tpu === product.tpu && current.release === result.tmt_release
           const selected = sameProduct && current.evidence?.source_id === fact.evidence.source_id
             && current.evidence.item_id === fact.evidence.item_id
@@ -120,6 +133,7 @@ function Search({ scan, language, current, onConfirm, name }: Props & { name: Lo
             {product.source_generic && <span>{t.ingredients} · {product.source_generic}</span>}
             {product.strength && <span>{t.strength} · {product.strength}</span>}
             {product.dose_form && <span>{t.form} · {product.dose_form}</span>}
+            {nameMismatch && <span>{t.unmatched}</span>}
             {differences.length > 0 && <span>{t.mismatch} · {differences.join(', ')}</span>}
             {selected ? <strong>{t.confirmed}</strong> :
               <Button onClick={() => onConfirm({ product, release: result.tmt_release, evidence: fact.evidence })}>
@@ -140,7 +154,7 @@ export function ScanCatalogue(props: Props) {
   const names: LocatedName[] = []
   for (const fact of props.scan.row.observed_names) {
     const located = photoCitation(props.scan.evidence, fact.evidence)
-    if (fact.evidence.item_id && located?.region && located.region.rowId === props.scan.row.id
+    if (fact.evidence.item_id && located?.region && located.photo.kind !== 'reverse_photo' && located.region.rowId === props.scan.row.id
       && !(props.scan.row.reverse_crop?.source_id === fact.evidence.source_id
         && props.scan.row.reverse_crop.item_id === fact.evidence.item_id)) {
       names.push({ fact, photo: located.photo, region: located.region })
@@ -148,7 +162,7 @@ export function ScanCatalogue(props: Props) {
   }
   const name = names[index] ?? names[0]
   if (!name) return null
-  return <details className="citation" onToggle={event => setOpen(event.currentTarget.open)}>
+  return <details className="citation scan-catalogue" onToggle={event => setOpen(event.currentTarget.open)}>
     <summary>{t.compare}</summary>
     {open && <>
       {names.length > 1 && <label>{t.observed}

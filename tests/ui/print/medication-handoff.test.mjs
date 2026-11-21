@@ -43,6 +43,18 @@ function text(element) {
   return all(element).filter(item => !item.hidden).map(item => item.textContent).filter(Boolean).join("\n");
 }
 
+test("a verified medicine belonging to someone else is excluded from the patient's active list", () => {
+  const data = snapshot();
+  const row = data.rows[0];
+  row.verification = { status: "not_owned", identity: row.observed_names[0],
+    reviewer: { name: "Demo nurse", role: "nurse" }, verified_at: datedAt, evidence: row.sources };
+  const sheet = render({ ...data, rows: [row] });
+  const active = sheet.childNodes.find(section => section.childNodes[0]?.textContent === "Active review list");
+  const other = sheet.childNodes.find(section => section.childNodes[0]?.textContent === "Medicines belonging to someone else");
+  assert.equal(all(active).filter(item => item.tag === "article").length, 0);
+  assert.match(text(other), /Verified as belonging to someone else/);
+});
+
 test("two-row worksheet retains the clinic contact and the unresolved item's own source", t => {
   const data = snapshot();
   data.rows = [data.rows[0], data.rows[2]];
