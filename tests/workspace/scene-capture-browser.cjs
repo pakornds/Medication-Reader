@@ -140,6 +140,7 @@ async function run() {
     record = await saveClick('Link selected region to row')
     const pending = Object.values(record.rows).find(r => r.package_id === record.capture.packages[1].id)
     assert.ok(pending.unknown && !pending.entries.length)
+    assert.ok(!record.capture.reverse_matches.some(match => match.package_id === pending.package_id && match.status === 'confirmed'))
     const oldAppearance = record.capture.packages[1].items[0].evidence[0].source_id
     await reviewSecond()
     const appearanceRetake = path.resolve(__dirname, '../../backend/tests/fixtures/package_regions/clear.png')
@@ -153,6 +154,45 @@ async function run() {
     assert.ok(record.rows[pending.id].superseded.includes(oldAppearance))
     assert.equal(record.rows[pending.id].entries[0].photo.appearance, 'Synthetic round tablet')
     assert.equal(record.events.at(-1).replaces, oldAppearance)
+    const selectRow = id => page.getByRole('navigation', { name: 'Medicines to review' })
+      .getByRole('button').nth(Object.keys(record.rows).indexOf(id)).click()
+    const compare = page.getByText('Compare pill appearance', { exact: true })
+    await selectRow(pending.id)
+    await compare.click()
+    const observed = page.getByRole('img', { name: 'Matched crop of the observed item' })
+    const matchesReplacement = await observed.evaluate(async (img, encoded) => {
+      await img.decode()
+      const expected = new Image()
+      expected.src = 'data:image/png;base64,' + encoded
+      await expected.decode()
+      const scale = Math.min(1, 640 / Math.max(expected.naturalWidth, expected.naturalHeight))
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.round(expected.naturalWidth * scale)
+      canvas.height = Math.round(expected.naturalHeight * scale)
+      if (canvas.width !== img.naturalWidth || canvas.height !== img.naturalHeight) return false
+      const context = canvas.getContext('2d')
+      const pixels = image => {
+        context.clearRect(0, 0, canvas.width, canvas.height)
+        context.drawImage(image, 0, 0, canvas.width, canvas.height)
+        return canvas.toDataURL()
+      }
+      return pixels(img) === pixels(expected)
+    }, readFileSync(appearanceRetake).toString('base64'))
+    assert.ok(matchesReplacement, 'Candidate comparison shows the selected replacement pixels')
+    await page.getByLabel('Shape', { exact: true }).fill('round')
+    const lookup = page.waitForResponse(r => r.url().endsWith('/pill-candidates') && r.request().method() === 'POST')
+    await page.getByRole('button', { name: 'Refresh candidates' }).click()
+    const response = await lookup
+    assert.equal(response.status(), 200, await response.text())
+    const replacementId = record.rows[pending.id].entries[0].source.id
+    const payload = response.request().postDataJSON()
+    assert.equal(payload.observation.row_id, pending.id)
+    assert.deepEqual(payload.observation.crop, { source_id: replacementId, item_id: pending.id })
+    assert.deepEqual(payload.observation.shape.evidence, payload.observation.crop)
+    assert.deepEqual(payload.evidence.sources.map(source => source.id), [replacementId])
+    assert.equal((await response.json()).status, 'unresolved')
+    await selectRow(siblingId)
+    await compare.waitFor({ state: 'detached' })
     // Add a separately sourced label on this bag, then move its region onto the neighboring label.
     await reviewSecond()
     await panel.getByLabel('Admission row', { exact: true }).selectOption('')
@@ -170,6 +210,22 @@ async function run() {
     record = await saveClick('Save regions and matches')
     assert.ok(record.rows[third.id].superseded.includes(third.entries[0].source.id))
     assert.deepEqual(record.rows[rowId], stable)
+    // The same pixels on an opaque reverse cannot serve as pill evidence.
+    const reverseLink = record.capture.reverse_matches[0].region
+    await button('Review reverse region ' + reverseLink.region_id).click()
+    await panel.getByLabel('Admission row', { exact: true }).selectOption('')
+    await panel.getByLabel('Region contains', { exact: true }).selectOption('appearance')
+    record = await saveClick('Link selected region to row')
+    const reverseItem = record.capture.packages.flatMap(pkg => pkg.items).find(item =>
+      item.evidence.some(e => e.kind === 'appearance' && e.region.region_id === reverseLink.region_id))
+    const reverseRow = record.capture_rows[reverseItem.row_id]
+    await selectRow(reverseRow)
+    await compare.waitFor()
+    const reverseSide = panel.locator('[data-side="reverse"]')
+    await reverseSide.getByLabel('Region', { exact: true }).selectOption(reverseLink.region_id)
+    await reverseSide.getByRole('button', { name: 'Mark opaque' }).click()
+    record = await saveClick('Save regions and matches')
+    await compare.waitFor({ state: 'detached' })
     record = await upload('Label-side original', replacement)
     assert.equal(record.capture.reverse.attachment_id, reverseId)
     assert.equal(record.capture.reverse_matches.length, 0)
@@ -181,6 +237,7 @@ async function run() {
       scan: oraclePhoto ? { fixtureName: 'Fictional A', strength: '5 mg', directions: 'Once each morning' }
         : { detector: 503, failurePreservedName: true }, confirmedReverse: true, itemRetakeSuperseded: true,
       replacementPreviewBytesMatched: true, manifestOnlyAppearanceRetake: pending.id, movedRegionSourceWithdrawn: true,
+      candidateReplacementPixelsMatched: true, candidateCropSource: replacementId, opaqueComparisonWithdrawn: true,
       wholeRetakeClearedMatch: true, siblingUnchanged: true }))
   } catch (error) {
     console.error({ errors, capture: (await page.locator('[aria-label="Whole-table photos"]').allTextContents()).join('').slice(-1400) })

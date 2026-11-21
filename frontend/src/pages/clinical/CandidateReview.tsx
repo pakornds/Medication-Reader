@@ -11,12 +11,29 @@ export function CandidateReview({ encounter, row, client, t }: {
   const [opened, setOpened] = useState(false)
   const [error, setError] = useState('')
   const root = useRef<HTMLDivElement>(null)
-  const appearance = rowRegions(encounter, row).find(e => e.kind === 'appearance')
-  const entry = active(row).find(e => e.photo?.appearance && e.photo.pairing === 'matched')
   const capture = encounter.capture
-  const view = appearance && capture?.[appearance.region.side]
-  const bounds = view?.regions?.find(r => r.id === appearance?.region.region_id)
-  const visible = bounds && view?.visibility !== 'opaque' && bounds.visibility !== 'opaque'
+  const appearance = rowRegions(encounter, row).find(e => {
+    const view = capture?.[e.region.side]
+    const region = view?.regions?.find(value => value.id === e.region.region_id)
+    return e.kind === 'appearance' && view?.attachment_id === e.region.attachment_id &&
+      view.revision === e.region.revision && view.visibility !== 'opaque' && region && region.visibility !== 'opaque'
+  })
+  // An assigned front retake has a row-specific replacement event even when the package has no reverse match.
+  const retakes = new Set(encounter.events.flatMap(event =>
+    event.action === 'link' && event.replaces && event.rows.includes(row.id) ? event.sources : []))
+  const entries = active(row).filter(e => {
+    const photo = e.photo
+    if (!photo?.appearance) return false
+    const view = [capture?.front, capture?.reverse].find(v => v && v.attachment_id === e.source.attachment_id)
+    if (view?.visibility === 'opaque') return false
+    const [x, y, width, height] = photo.region
+    if (view?.regions?.some(r => r.visibility === 'opaque' && x < r.bounds.x + r.bounds.width &&
+      x + width > r.bounds.x && y < r.bounds.y + r.bounds.height && y + height > r.bounds.y)) return false
+    return photo.pairing === 'matched' || (e.source.kind === 'label_photo' &&
+      (photo.front_attributed || retakes.has(e.source.id)))
+  })
+  const replacement = entries.findLast(e => retakes.has(e.source.id))
+  const entry = replacement || entries[0]
   useEffect(() => {
     if (!opened || !root.current) return
     const panel = root.current
@@ -25,7 +42,7 @@ export function CandidateReview({ encounter, row, client, t }: {
     let url: string | undefined
     async function load() {
       let source: EvidenceSource | undefined, itemId = row.id, cropUrl: string | null
-      if (appearance && visible) {
+      if (!replacement && appearance) {
         source = capture?.sources?.find(s => s.id === appearance.source_id)
         itemId = appearance.item_id
         const blob = await client.region(encounter.id, appearance.region)
@@ -49,8 +66,8 @@ export function CandidateReview({ encounter, row, client, t }: {
     }
     void load().catch(e => { if (!disposed) setError(e instanceof Error ? e.message : String(e)) })
     return () => { disposed = true; release?.(); if (url) URL.revokeObjectURL(url) }
-  }, [appearance, capture, client, encounter.id, entry, opened, row.id, visible])
-  if (!entry && !visible) return null
+  }, [appearance, capture, client, encounter.id, entry, opened, replacement, row.id])
+  if (!entry && !appearance) return null
   return <details className="clinical-card" onToggle={e => setOpened(e.currentTarget.open)}>
     <summary>{t('Compare pill appearance', 'เปรียบเทียบลักษณะเม็ดยา')}</summary>
     <div ref={root}/>{error && <p role="alert">{error}</p>}
