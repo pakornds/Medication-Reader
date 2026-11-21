@@ -1,4 +1,5 @@
 """Revisioned, encounter-scoped mock review records shared by demo staff sessions."""
+from base64 import b64decode
 from collections import defaultdict
 from copy import deepcopy
 from datetime import UTC, datetime
@@ -101,6 +102,31 @@ def reviewable_entry(entry):
     photo = entry["photo"]
     front = entry["source"]["kind"] == "label_photo" and photo and photo.get("front_attributed")
     return not photo or ((front or photo["pairing"] == "matched") and not photo["appearance"])
+
+
+def unresolved_photo(entry):
+    return bool(entry["photo"] and (not entry["name"] or not reviewable_entry(entry)))
+
+
+def hold_report_identity(case, row):
+    """Keep a report-based name as a proposal once a physical unknown is linked."""
+    if row["unknown"]:
+        return
+    named = [entry for entry in active(row) if entry["name"] and reviewable_entry(entry)]
+    if not named or named[0]["source"]["kind"] not in REPORT_KINDS:
+        return
+    if any(entry["photo"] or entry["identity_basis"] for entry in named):
+        return
+
+    entry = named[0]
+    source_id = entry["source"]["id"]
+    added = next(event for event in reversed(case["events"])
+                 if event["action"] in {"add", "link"} and source_id in event["sources"])
+    row["unknown"] = True
+    row["verified"] = None
+    row.pop("imported_at", None)
+    row["proposal"] = dict(name=entry["product"], reference=source_id, proposer=added["actor"]["id"],
+                           independent_entry=False)
 
 
 def new_row(row_id, unknown):
@@ -283,6 +309,11 @@ class AdmissionStore:
                 require(row.get("package_id", package_id) == package_id, "An item cannot move between packages.")
                 row["package_id"] = package_id
                 row["capture_item_id"] = item_id
+                if all(evidence.kind == "appearance" for evidence in item.evidence):
+                    hold_report_identity(case, row)
+                    attachments = set(row.get("unknown_capture_attachments", []))
+                    attachments.update(evidence.region.attachment_id for evidence in item.evidence)
+                    row["unknown_capture_attachments"] = sorted(attachments)
 
             case["capture"] = manifest.model_dump(mode="json")
             case["revision"] += 1
@@ -345,6 +376,8 @@ class AdmissionStore:
                     row["superseded"].append(cmd.replaces)
                     if row["confirmed"] and row["confirmed"]["source_id"] == cmd.replaces:
                         row["confirmed"] = None
+            if unresolved_photo(entry):
+                hold_report_identity(case, row)
             if isinstance(cmd, AddEvidence) and row["unknown"] and entry["name"]:
                 if row["confirmed"] and row["confirmed"]["name"].casefold() != entry["product"].casefold():
                     row["confirmed"] = None
@@ -412,13 +445,19 @@ class AdmissionStore:
             require(row["unknown"], "Select an original unknown item.")
             entry = entry_for(row, cmd.source_id)
             if cmd.outcome in {"confirm", "correct"}:
-                challenged = [row["entries"][0]]
+                challenged = [other for other in row["entries"] if unresolved_photo(other)]
                 if row["proposal"] and not row["proposal"].get("independent_entry"):
                     challenged.extend(e for e in row["entries"] if e["source"]["id"] == row["proposal"]["reference"])
-                require(not any(shares_origin(entry, other) for other in challenged),
+                capture_attachments = row.get("unknown_capture_attachments", ())
+                capture_originals = self.originals.get(case["id"], {})
+                photo_bytes = b64decode(entry["photo"]["data"]) if entry["photo"] and capture_attachments else None
+                require(entry["source"]["attachment_id"] not in capture_attachments
+                        and not any(capture_originals[attachment].content == photo_bytes
+                                    for attachment in capture_attachments if attachment in capture_originals)
+                        and not any(shares_origin(entry, other) for other in challenged),
                         "A second crop of the same challenged source cannot confirm identity.")
                 require(cmd.name and entry["name"] and cmd.name.casefold() == entry["product"].casefold()
-                        and entry["identity_basis"] and entry != row["entries"][0] and reviewable_entry(entry)
+                        and entry["identity_basis"] and reviewable_entry(entry)
                         and entry["source"]["kind"] in {"prescription", "reviewer_record", "transfer_record",
                                                       "label_photo", "additional_photo", "reverse_photo"}
                         and (not row["proposal"] or row["proposal"]["reference"] != cmd.source_id
