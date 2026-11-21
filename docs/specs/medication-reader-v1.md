@@ -12,47 +12,29 @@ In the fixture-only, 12-hour Medication Reader demo, community and hospital phar
 
 ```mermaid
 flowchart TD
-    start["1. Open a transient transfer case"]
-    label["Collect Photo 1 with labels facing up"]
-    reverse["2. If available, take Photo 2 with items flipped in place"]
-    text["Add source records, patient reports, or manual entries"]
-    agent["3. Analyze photos, text, or both"]
-    preview["Preview sourced suggestions, discrepancies, and unknown items"]
-    confirm{"Staff confirm suggestions?"}
-    revise["Keep the existing draft and revise inputs if needed"]
-    list["Update the source-linked draft"]
-    handoff["4. Review the printed or digital list"]
-    review{"Can the pharmacist or doctor verify identity and actual use?"}
-    follow["Keep the row pending and obtain more evidence"]
-    verified["Record current-use verification for this encounter"]
-    checks["Show optional DDI and DRP scope and gaps"]
-    approve{"Pharmacist explicitly approves selected rows?"}
-    save["Validate approval and source evidence on the server, then import"]
-    receipt["Save only successful UTC import timestamps locally"]
-
-    start --> label --> reverse --> agent
-    label -->|Photo 1 only| agent
-    start --> text -->|Text with or without photos| agent
-    agent --> preview --> confirm
-    confirm -->|Yes| list --> handoff --> review
-    confirm -->|No| revise
-    review -->|More evidence needed| follow
-    review -->|Verified| verified
-    verified -->|Optional| checks
-    verified --> approve
-    approve -->|Approved| save -->|Successful write| receipt
-
-    classDef evidence fill:#EAF2FF,stroke:#5675AB,color:#172B4D
-    classDef processing fill:#F1EBFF,stroke:#8765BB,color:#30204F
-    classDef human fill:#FFF2D7,stroke:#AF7627,color:#4E3213
-    classDef storage fill:#E5F5EC,stroke:#398367,color:#173D30
-    class start,label,reverse,text evidence
-    class agent,preview,list,checks processing
-    class confirm,revise,handoff,review,follow,verified,approve human
-    class save,receipt storage
+  photo[/"Label and pill photos"/] --> extract["Extract sourced medication rows"]
+  textInput[/"Typed report or record"/] --> extract
+  extract --> product{"Name or product code available?"}
+  product -->|"Yes"| lookup["Find TMT candidates by code or name using observed strength and form"]
+  product -->|"No"| unknown["Keep an unidentified item for follow-up"]
+  extract --> sig["Parse each source's directions into fixed regimen fields"]
+  lookup --> preview["Preview rows, evidence and discrepancies"]
+  unknown --> preview
+  sig --> preview
+  preview --> draft["Staff confirm draft for screen or print"]
+  draft --> handoff(["Provide digital or printed handoff"])
+  draft --> verify{"Can clinician verify identity and actual use?"}
+  verify -->|"More evidence needed"| follow["Keep row pending and request specific evidence"]
+  follow -.-> extract
+  verify -->|"Verified"| record["Record current-use status and verified regimen"]
+  record -->|Selected for import| approve["Pharmacist approves selected rows"]
+  approve --> receipt["Mock hospital imports approved rows and returns a UTC receipt"]
+  record -->|"Optional"| checks["Review supported DDI or DRP checks and coverage"]
+  style verify fill:#FFF0CA,stroke:#AE802A
+  style lookup fill:#E3F2EF,stroke:#428875
 ```
 
-1. A staff member opens a transient case. For **Photo 1**, arrange all the patient's medicines together on a plain background, including bags, boxes, blister packs, and loose or unlabeled items. Face the labels up and make the text readable in the frame. Staff can also add medicines manually during intake, including medicines the patient reports but did not photograph. Record the source and date when available. For **Photo 2**, flip the same bags or packs to show the pills where visible. Keep the items in their original positions so the two photos can be matched. Allow either photo to be retaken. Attach a source to each photo or supplemental manual record. Capture the evidence type, organization or reporter, department or ward, contact, and source date when available. Flag missing source details for follow-up. The demo uses `ศักดาเวชการ` and the masked contact `075-356XXXX`.
+1. A staff member opens a transient case. For **Photo 1**, keep available items in their original packaging or in separate groups on a plain background, including bags, boxes, blister packs, and loose or unlabeled items. Face the labels up and make the text readable in the frame. Staff can also add medicines manually during intake, including medicines the patient reports but did not photograph. Record the source and date when available. For optional **Photo 2**, flip the same bags or packs to show the pills where visible. Keep the items in their original positions so the two photos can be matched. Allow either photo to be retaken. Attach a source to each photo or supplemental manual record. Capture the evidence type, organization or reporter, department or ward, contact, and source date when available. Flag missing source details for follow-up. The demo uses `ศักดาเวชการ` and the masked contact `075-356XXXX`.
 2. Automatically read Thai, English, and bilingual labels from **Photo 1** and suggest one row per item or inseparable group. Capture the medication name, dose, indication, regimen or directions, amount prescribed, prescriber, and prescriber contact when explicitly documented. Also capture strength, dosage form, and expiry when visible. Preserve the original text, numerals, units, and dates and link each field to its evidence. Keep the dose separate from product strength and the amount prescribed separate from the number of pills visible. Leave missing or unreadable fields blank and allow the reviewer to fill them from a documented source. Keep undocumented indication, prescriber identity, and contact details unknown. Preview suggestions for staff confirmation before updating the draft.
 3. Give unlabeled items and items whose identity is unreadable a stable placeholder such as **Unknown medication A**, with an **Unlabeled** or **Unreadable** status. Match the same item across the photos and attach its crop from **Photo 2** when the match is supported. If pills are hidden or the match is uncertain, keep the row pending and ask the reviewer to match the images or retake the photo. A reviewer may inspect loose-pill descriptors and synthetic reference candidates. Require independent evidence to confirm identity.
 4. Show conflicting values side by side with their sources and ask for the specific missing evidence. Provide the same dated draft as a digital review list and a print-friendly list. Both show medication details, evidence references, reported use, discrepancies, follow-up items, and each matched Photo 2 crop beside its unknown item. Show a missing-image note when a crop is unavailable. The print layout includes space for verification and notes. The digital view links back to the photos and supports corrections. Drafts and unresolved rows carry visible status labels in both formats.
@@ -60,6 +42,46 @@ flowchart TD
 6. The mock hospital import requires explicit pharmacist approval and valid source evidence for every selected row. Keep ineligible rows pending and show what remains after a partial import. Return the mock hospital's UTC import timestamp after success and save only that timestamp in local history. Timestamp searches may return multiple results for staff to disambiguate. Reloading restores the history and clears the draft.
 
 If evidence suggests a label may belong to a different medicine, show the original transcription and the conflicting evidence with their sources. Keep the row pending until a clinician verifies identity against independent evidence and documents the resolution. Pharmacist approval is still required before import.
+
+### Fixed fields for directions
+
+The proposed extraction produces one record per medication, source and schedule component. Every record has the same fields. `basis` is `documented` for a label or record, `reported` for a patient or caregiver account, or `verified` after clinician review. Only the first two can be generated during extraction.
+
+| Field | Type | Synthetic label example |
+| --- | --- | --- |
+| `row_id`, `component_id` | case-local identifiers | `med-A`, `schedule-1` |
+| `basis` | enum | `documented` |
+| `parse_status` | complete, partial or unparsed | `complete` |
+| `unparsed_text` | unrepresented wording or null | `null` |
+| `directions_text` | original source text | `1 tablet each morning` |
+| `dose_amount` | decimal or null | `1` per administration |
+| `dose_unit` | normalized unit or null | `tablet` |
+| `schedule_type` | frequency, interval or null | `frequency` |
+| `frequency_count` | positive integer or null | `1` administration per period |
+| `period_value` | positive number or null | `1` |
+| `period_unit` | hour, day, week, month or null | `day` |
+| `time_of_day` | list of named times or explicit clock times | `[morning]` |
+| `route` | normalized route or null | `null` |
+| `meal_relation` | normalized meal instruction or null | `null` |
+| `as_needed` | boolean or null | `null` |
+| `evidence` | source and optional item reference on each populated clinical field | Photo 1, label region A |
+
+“Each morning” supplies once per day and a morning administration. Route, breakfast timing and an exact clock time require separate evidence. If the patient identifies this package and says “I take it in the evening,” create a separate reported record. Fill only the evening timing, link it to the statement and flag the difference. An ambiguous “it” stays unassigned until staff identify the medicine. Verification records actual use at this encounter.
+
+For different morning and evening amounts, create two components with their respective doses and timing. Frequency applies to each component. For “every 8 hours as needed for pain,” use interval mode, an 8-hour period, a blank frequency count and `as_needed = true`. Keep “for pain” in `unparsed_text` and mark the parse partial. Preserve unrepresented ranges, limits and taper phases in the same way. Print the original wording alongside a partial parse and request clarification where needed.
+
+### Outputs through the workflow
+
+| Stage | Output |
+| --- | --- |
+| Intake | A transient case with text evidence, images or both. Label-side and optional reverse-side photos can be paired. A staff question is a request, separate from evidence. |
+| Extraction | Sourced medication names, labeled strengths and forms, directions records and stable placeholders for unknown items. Each populated value links to the source statement or located image region. |
+| Product lookup | Search Thai Medicines Terminology (TMT) using a product code or observed name with strength and form when available. Display the original evidence beside candidate trade names, ingredients, strengths, forms and manufacturers. Preserve zero, multiple or conflicting results for review. A loose pill alone stays unresolved. Show “No match in the February 2020 catalogue” for an empty result. Independent case evidence can still establish identity. Attach a TPU only to a confirmed trade product. |
+| Draft | After staff confirmation, print or display the same dated rows, discrepancies, crops and follow-up questions. |
+| Verification | A pharmacist or doctor records identity, current-use status, actual regimen and supporting evidence. For a confirmed catalogue match, keep the TPU code as a string and the release version. Product strength and dispensing unit describe the reference product. The patient's regimen comes from case evidence. Carry a verified stopped medicine in the history with its status. Exclude it from the active list. |
+| Mock import | A pharmacist explicitly approves selected row revisions. Successful import returns row IDs and a UTC timestamp. Pending rows stay visible. Only the successful import timestamp enters local history. |
+
+**Implementation status.** The fixed regimen fields above extend the current backend schema. Today, documented directions are a sourced text observation and verification contains sourced dose, route and frequency. The local TMT lookup works with release TMTRF20200217. The diagram shows its proposed place in the workflow. Public demo cases use synthetic fixtures. [Analysis schema](../../backend/app/schemas/analysis.py) · [Verification schema](../../backend/app/schemas/review.py) · [Catalogue release and scope](../data/tmt-2020.md)
 
 ## Medication agent analysis form
 
@@ -106,7 +128,7 @@ Demonstrate one transfer case with the label-side and reverse-side photos of the
 2. **Add push-to-talk dictation.** If staff spend meaningful time typing patient reports, let them dictate what the patient says they actually take. Show the editable transcript before saving it as patient-reported use, separate from printed directions and reviewer-verified use. Test Thai speech mixed with English medication names, doses, and units before piloting dictation.
 3. **Pilot guided voice interviews.** If dictation saves staff time, try GPT-Live for short follow-up questions about missing or conflicting information. A pharmacist or doctor reviews the captured answers and confirms any updates to the medication list.
 4. **Evaluate clinical data separately.** Assess coverage of validated DDI references and DRP rules for the medications and patient context encountered in the intended setting. Offer optional checks where the team can establish and disclose coverage. Show what was checked and skipped, and leave clinical decisions with the reviewer.
-5. **Cross-check labels against a medication database.** Evaluate an authoritative, versioned product database with coverage for Thai and English brand and generic names. Query from the transcribed name, strength, and dosage form, using a product identifier when printed. Show the original label and its source alongside matching reference records and their database name, version or lookup date, and record identifier. Flag multiple matches, mismatched strengths or forms, and missing coverage. Leave the original transcription intact and have the reviewer confirm any match. A reference match supports product verification. Actual use still comes from patient or caregiver reports and clinician verification.
+5. **Evaluate product lookup coverage.** Test the lookup step above against labeled Thai and English fixtures. Measure missing products, ambiguous names, and strength or form disagreements before expanding catalogue coverage.
 
 Roadmap issues: [#18](https://github.com/pakornds/Medication-Reader/issues/18), [#19](https://github.com/pakornds/Medication-Reader/issues/19), [#20](https://github.com/pakornds/Medication-Reader/issues/20), [#21](https://github.com/pakornds/Medication-Reader/issues/21), [#23](https://github.com/pakornds/Medication-Reader/issues/23).
 
