@@ -55,9 +55,9 @@ class Encounter:
         self.path = f"/admissions/{self.case['id']}"
         self.snapshot_id = None
 
-    def apply(self, action, **data):
+    def apply(self, action, *, headers=None, **data):
         response = self.http.post(
-            self.path + "/actions", headers=self.headers,
+            self.path + "/actions", headers=headers or self.headers,
             json={"revision": self.case["revision"], "request_id": uuid4().hex, "command": {"action": action, **data}},
         )
         assert response.status_code == 200, response.text
@@ -287,3 +287,39 @@ def test_case_isolation_independent_toggle_and_no_receiving_system_or_browser_ca
     with TestClient(create_app()) as restarted:
         unavailable = restarted.get(first.path + "/review-snapshot", headers=_PHARMACIST)
         assert unavailable.status_code == 404
+
+
+def test_only_doctor_or_pharmacist_verification_can_establish_eligible_current_use(client, fixture_case):
+    encounter = Encounter(client, assigned_roles=["nurse"])
+    encounter.seed(fixture_case)
+    amber = encounter.row_ids["R1"]
+    slate = encounter.row_ids["R2"]
+    encounter.apply("verify", headers=_NURSE, row_id=amber, source_id="E1")
+    encounter.update_snapshot()
+    for kind in ("DDI", "DRP"):
+        report = encounter.run(kind).json()
+        pair = next(scope for scope in report["scopes"] if scope["row_ids"] == [amber, slate])
+        assert pair["reason_code"] == "doctor_or_pharmacist_verification_required"
+        assert report["coverage"]["findings"] == report["coverage"]["evaluated_scopes"] == 0
+        assert report["coverage"]["total_scopes"] == 3
+    nurse = client.post(
+        encounter.path + "/review-reports/DDI", headers=_NURSE, json={"snapshot_id": encounter.snapshot_id}
+    )
+    assert nurse.status_code == 403
+
+    encounter.apply("verify", row_id=amber, source_id="E1")
+    encounter.update_snapshot()
+    assert encounter.run("DRP").json()["coverage"]["findings"] == 1
+
+    encounter.apply(
+        "interview", row_id=amber, source_id="E1", ownership="patient", current_use="reported_stopped"
+    )
+    encounter.apply("verify", row_id=amber, source_id="E1")
+    encounter.update_snapshot()
+    for kind in ("DDI", "DRP"):
+        report = encounter.run(kind).json()
+        pair = next(scope for scope in report["scopes"] if scope["row_ids"] == [amber, slate])
+        assert pair["reason_code"] == "discontinued_medication"
+        assert report["warnings"] == ["Discontinued medicines are not checked for interactions."]
+        assert report["coverage"]["findings"] == report["coverage"]["evaluated_scopes"] == 0
+        assert report["coverage"]["total_scopes"] == 3

@@ -25,6 +25,8 @@ from app.services.admissions import active
 from app.services.fixture_scopes import evaluate_fixture_report
 
 _FIXTURE_PATH = Path(__file__).resolve().parents[3] / "fixtures/checks/demo-overlap-v2/case.json"
+_CLINICAL_SCREENING_ROLES = frozenset({"doctor", "pharmacist"})
+_STOPPED_WARNING = "Discontinued medicines are not checked for interactions."
 
 
 class ReviewSnapshotError(ValueError):
@@ -51,6 +53,7 @@ class SnapshotVersion(ContractModel):
 
 class VersionedScreeningReport(ScreeningReport):
     mapping_version: Text
+    warnings: list[Text] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -159,8 +162,21 @@ class ReviewSnapshotStore:
     ) -> VersionedScreeningReport:
         existing, reference, when = self._require_current(case, snapshot_id)
         report = evaluate_fixture_report(existing.snapshot, reference.release, kind, evaluated_at=when, enabled=enabled)
+        stopped = {row.id for row in existing.snapshot.rows if row.use_status == "stopped"}
+        nurse_only = {
+            row["id"] for row in case["rows"].values()
+            if _current_use_status(row["verified"] or {}) == "nurse_only"
+        }
+        for scope in report.scopes:
+            if scope.reason_code == "use_not_current":
+                if stopped.intersection(scope.row_ids):
+                    scope.reason_code = "discontinued_medication"
+                elif nurse_only.intersection(scope.row_ids):
+                    scope.reason_code = "doctor_or_pharmacist_verification_required"
         versioned = VersionedScreeningReport(
-            **report.model_dump(), mapping_version=existing.version.mapping_version
+            **report.model_dump(),
+            mapping_version=existing.version.mapping_version,
+            warnings=[_STOPPED_WARNING] if enabled and stopped else [],
         )
         existing.reports[kind] = versioned
         return versioned
@@ -250,17 +266,23 @@ def _project_snapshot(
     )
 
 
+def _current_use_status(verification: dict) -> str:
+    answer = verification.get("answer") or {}
+    if answer.get("ownership") != "patient":
+        return "pending"
+    if answer.get("current_use") in {"reported_stopped", "discontinued_order"}:
+        return "stopped"
+    if answer.get("current_use") == "current":
+        return "current" if verification["actor"]["role"] in _CLINICAL_SCREENING_ROLES else "nurse_only"
+    return "pending"
+
+
 def _project_row(row: dict, entries: list[dict], reference: FixtureReference, revision: int) -> ScreeningRow:
     verification = row["verified"] or {}
     identity = verification.get("identity") or {}
     answer = verification.get("answer") or {}
     product = reference.products.get(identity.get("name", "").casefold())
-    use_status = "pending"
-    if answer.get("ownership") == "patient":
-        if answer.get("current_use") == "current":
-            use_status = "current"
-        elif answer.get("current_use") in {"reported_stopped", "discontinued_order"}:
-            use_status = "stopped"
+    use_status = _current_use_status(verification)
 
     entry_ids = [entry["source"]["id"] for entry in entries]
     verified_ids = {identity.get("source_id"), verification.get("source_id")}
@@ -279,7 +301,7 @@ def _project_row(row: dict, entries: list[dict], reference: FixtureReference, re
         ingredient_ids=product.ingredient_ids if mapping_status == "complete" else [],
         mapping_status=mapping_status,
         route=(answer.get("route") or "").strip().casefold() or None,
-        use_status=use_status,
+        use_status="pending" if use_status == "nurse_only" else use_status,
         schedule=schedule if schedule in {"scheduled", "prn"} else None,
         evidence_ids=links,
     )
