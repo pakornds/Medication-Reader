@@ -1,7 +1,7 @@
 import type { createClient } from '../api/client'
 import type { Encounter } from '../api/admission'
 import type { CatalogueIdentity, DispensingFacility, EvidenceItem, EvidenceSource, RegionBounds } from '../api/contracts'
-import { photoCitation, type Draft, type Medicine, type MedicineEvidence, type DraftValues, type CatalogueMatch, type Suggestion } from '../pages/new-patient/draft'
+import { hasEarlierEvidence, photoCitation, type Draft, type Medicine, type MedicineEvidence, type DraftValues, type CatalogueMatch, type Suggestion } from '../pages/new-patient/draft'
 
 type Original = { media_type: string; data: string }
 type IntakePart = {
@@ -38,7 +38,7 @@ function attributedFacility(facility: DispensingFacility | undefined, ref: Sugge
 }
 
 function prepareSnapshot({ row, evidence, facility, catalogueIdentity }: MedicineEvidence, originals: Map<string, File>,
-  origin: Medicine['origin'], catalogue: CatalogueMatch | null): IntakePart {
+  origin: Medicine['origin'], catalogue: CatalogueMatch | null, currentEvidence: Draft['evidence']): IntakePart {
   const sources = new Map<string, EvidenceSource>()
   const items: EvidenceItem[] = []
   const notes: Record<string, string> = {}
@@ -73,13 +73,14 @@ function prepareSnapshot({ row, evidence, facility, catalogueIdentity }: Medicin
     regions[region.id] = { x: region.box.x / 100, y: region.box.y / 100,
       width: region.box.w / 100, height: region.box.h / 100 }
   }
-  return { row, origin, catalogue, catalogue_identity: catalogueIdentity,
+  const earlier = hasEarlierEvidence({ row, evidence }, currentEvidence)
+  return { row, origin, catalogue, catalogue_identity: earlier ? undefined : catalogueIdentity,
     sources: [...sources.values()], items, notes, regions, physical_items: physicalItems }
 }
 
-function prepareMedicine(medicine: Medicine, originals: Map<string, File>): IntakeRow {
-  const primary = prepareSnapshot(medicine, originals, medicine.origin, medicine.catalogue ?? null)
-  const linked = (medicine.linkedScans ?? []).map(snapshot => prepareSnapshot(snapshot, originals, 'analysis', null))
+function prepareMedicine(medicine: Medicine, originals: Map<string, File>, currentEvidence: Draft['evidence']): IntakeRow {
+  const primary = prepareSnapshot(medicine, originals, medicine.origin, medicine.catalogue ?? null, currentEvidence)
+  const linked = (medicine.linkedScans ?? []).map(snapshot => prepareSnapshot(snapshot, originals, 'analysis', null, currentEvidence))
   return { ...primary, linked, corrections: medicine.corrections ?? {} }
 }
 
@@ -101,7 +102,7 @@ export async function admitDraft(client: ReturnType<typeof createClient>, draft:
   if (encounter && encounter.id !== "admission-" + draft.caseId.replaceAll("-", ""))
     throw new Error("Choose the encounter for this draft.")
   const originals = new Map<string, File>()
-  const rows = draft.medicines.map(m => prepareMedicine(m, originals))
+  const rows = draft.medicines.map(m => prepareMedicine(m, originals, draft.evidence))
   const uploads = await Promise.all([...originals].filter(([id]) => !encounter?.intake_attachments?.includes(id))
     .map(async ([id, file]) => [id, await encode(file)] as const))
   const current_views: IntakeCommand['current_views'] = {}

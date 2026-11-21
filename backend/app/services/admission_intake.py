@@ -236,6 +236,9 @@ def save_intake(store, actor, request: IntakeSubmission):
                 row["intake_sources"] = [part.row.model_dump(mode="json") for part in [original, *original.linked]]
                 row["intake_corrections"] = original.corrections.copy()
             case["rows"][rid] = row
+        for rid, display in display_identities.items():
+            if not display:
+                case["rows"][rid].pop("intake_catalogue_identity", None)
         from app.services.admission_intake_capture import sync_capture
         sync_capture(case, medicines, orientations, request.current_views)
         if previous and previous.get("intake_capture_fingerprint"):

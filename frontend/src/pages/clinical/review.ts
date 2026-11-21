@@ -44,12 +44,20 @@ export const supportsIdentity = (e: Entry) =>
 export const interviewSource = (e: Entry) => reported(e) || Boolean(e.record_basis)
 export const entryName = (e: Entry) => e.product || [e.name, e.strength, e.form].filter(Boolean).join(' ')
 export function rowName(row: AdmissionRow, t: Say) {
-  if (row.confirmed) return row.confirmed.name
   if (row.verified?.identity) return row.verified.identity.name
+  if (row.confirmed) return row.confirmed.name
   const hint = row.intake_catalogue_identity
   if (hint) return hint.trade_name && hint.trade_name.toLowerCase() !== hint.ingredient.toLowerCase()
     ? hint.ingredient + ' (' + hint.trade_name + ')' : hint.ingredient
-  if (row.unknown) return t('Unidentified medicine', 'ยาที่ยังระบุไม่ได้')
+  if (row.unknown) {
+    const names = row.intake?.observed_names ?? []
+    const current = active(row)
+    const printed = new Set(names.filter(n => current.some(e => e.source.id === n.evidence.source_id && e.photo)).map(n => n.value))
+    if (printed.size > 1 && !row.proposal && !intakeCorrections(row).some(([key]) => key === 'name')) {
+      return t('Names on label', 'ชื่อบนฉลาก') + ' · ' + [...printed].join(' · ')
+    }
+    return t('Unidentified medicine', 'ยาที่ยังระบุไม่ได้')
+  }
   return (
     active(row).find(supportsIdentity)?.product ||
     active(row).find(supportsIdentity)?.name ||
