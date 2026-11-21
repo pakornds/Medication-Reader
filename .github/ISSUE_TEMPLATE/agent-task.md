@@ -71,7 +71,7 @@ assignees: ""
 
 ### Agent protocol
 1. Only start if the label is `status:todo`, `agent-ready` is present, and all `Depends on` issues are `status:done`.
-2. Swap the status label as work moves: `todo -> in-progress -> in-review -> done` (or `blocked`).
+2. Acquire and confirm the per-issue claim in `docs/RUNNING_TICKET_QUEUE.md` before editing. Recheck for existing work every five minutes while implementing. Swap the status label as work moves: `todo -> in-progress -> in-review -> done` (or `blocked`).
 3. Follow the repository's `AGENTS.md` for branch isolation, verification, and merging. Tick checklist items as you finish them.
 4. Post one comment per state change using the format in `AGENTS.md`.
 5. Never modify files listed under Out of scope.
