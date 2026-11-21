@@ -77,10 +77,17 @@ class EvidenceItem(ContractModel):
         return self.kind == "label_region"
 
 
+class QuotedEvidenceItem(EvidenceItem):
+    """A staff-selected statement kept with its row-specific reference."""
+
+    kind: Literal["record_excerpt"]
+    excerpt: Text
+
+
 class CaseEvidence(ContractModel):
     case_id: Text
     sources: list[EvidenceSource]
-    items: list[EvidenceItem] = Field(default_factory=list)
+    items: list[QuotedEvidenceItem | EvidenceItem] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def check_manifest(self) -> "CaseEvidence":

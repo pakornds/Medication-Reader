@@ -39,20 +39,45 @@ class Photo(ContractModel):
         return self
 
 
-class SourceEntry(ContractModel):
-    source: EvidenceSource
+DOCUMENT_KINDS = frozenset({"prescription", "transfer_record", "reviewer_record", "other_record"})
+
+
+class DocumentStatement(ContractModel):
     wording: Text
     name: Text | None = None
     strength: Text | None = None
     form: Text | None = None
     dose: Text | None = None
     record_basis: Literal["documented_interview", "discontinuation_order"] | None = None
-    scan_fields: dict[LabelField, Observation] = Field(default_factory=dict)
     identity_basis: Literal["matched_original_package", "dispensing_confirmation", "item_specific_record"] | None = None
     label_owner: Text | None = None
     directions: Text | None = None
     indication: Text | None = None
     directions_status: Literal["missing", "unreadable"] = "missing"
+
+
+class DocumentExcerpt(DocumentStatement):
+    """Staff-selected text from a document in this specific admission."""
+
+    case_id: Text
+    source_id: Text
+
+
+class RegisterDocument(ContractModel):
+    action: Literal["register_document"]
+    source: EvidenceSource
+    wording: Text
+
+    @model_validator(mode="after")
+    def available_document(self):
+        if self.source.kind not in DOCUMENT_KINDS or self.source.availability != "available":
+            raise ValueError("Register an available document")
+        return self
+
+
+class SourceEntry(DocumentStatement):
+    source: EvidenceSource
+    scan_fields: dict[LabelField, Observation] = Field(default_factory=dict)
     photo: Photo | None = None
 
     @model_validator(mode="after")
@@ -95,13 +120,13 @@ class SourceEntry(ContractModel):
 
 class AddRow(ContractModel):
     action: Literal["add"]
-    entry: SourceEntry
+    entry: SourceEntry | DocumentExcerpt
 
 
 class AddEvidence(ContractModel):
     action: Literal["link"]
     row_id: Text
-    entry: SourceEntry
+    entry: SourceEntry | DocumentExcerpt
     confirmed: Literal[True]
     replaces: Text | None = None
 
@@ -203,7 +228,7 @@ class Action(ContractModel):
     revision: int = Field(ge=1)
     request_id: Text
     command: Annotated[
-        AddRow | AddEvidence | RecordUnavailableSource | Interview | Verify | Proposal | Decision | Refer | Finish
+        AddRow | AddEvidence | RegisterDocument | RecordUnavailableSource | Interview | Verify | Proposal | Decision | Refer | Finish
         | Import | AttestCurrentUse | AssessIdentityIncident,
         Field(discriminator="action"),
     ]

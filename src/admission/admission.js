@@ -1065,7 +1065,8 @@ document.addEventListener("click", async (ev) => {
         }
       };
       form.elements.candidate.onchange = () => {
-        const c = choices.find((v) => v.id === form.elements.candidate.value);
+        // Multiple medication excerpts can have the same source ID. The first option is free text.
+        const c = choices[form.elements.candidate.selectedIndex - 1];
         if (c) {
           form.elements.name.value = c.name;
           form.elements.reference.value = c.id;
