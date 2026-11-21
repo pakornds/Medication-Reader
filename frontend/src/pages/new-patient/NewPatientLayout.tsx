@@ -1,5 +1,4 @@
 import { useRef } from 'react'
-import { LuRotateCcw } from 'react-icons/lu'
 import { NavLink, Outlet } from 'react-router-dom'
 import { messages, type Language } from '../../i18n/messages'
 import { Button } from '../../components/ui/Button'
@@ -27,7 +26,7 @@ export function NewPatientLayout({ language, hasWork, onStartFresh }: {
         <Button variant="text" className="workspace-reset" onClick={() => {
           if (hasWork) dialog.current?.showModal()
           else onStartFresh()
-        }}><LuRotateCcw aria-hidden="true" />{t.freshCase}</Button>
+        }}>{t.freshCase}</Button>
       </div>
       <dialog ref={dialog} aria-labelledby="discard-case-title" aria-describedby="discard-case-description"
         className="m-auto w-[min(26rem,90vw)] rounded-xl border border-line bg-2 p-6 text-1 shadow-xl backdrop:bg-black/45">

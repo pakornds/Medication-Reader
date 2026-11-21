@@ -71,7 +71,7 @@ async function run() {
     const header = page.getByRole('banner')
     assert.equal(await header.getByRole('link', { name: 'Home', exact: true }).count(), 0)
     await header.getByRole('link', { name: 'MedRec TH', exact: true }).click()
-    await page.getByRole('heading', { name: 'Read and check a medicine list' }).waitFor()
+    await page.getByRole('heading', { name: 'Medication reconciliation' }).waitFor()
     assert.equal(new URL(page.url()).pathname, '/')
     await page.getByRole('link', { name: 'Upload photos', exact: true }).click()
     await page.getByRole('heading', { name: 'Add medicines' }).waitFor()

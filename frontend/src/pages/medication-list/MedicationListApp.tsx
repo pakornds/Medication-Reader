@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useNavigationType } from 'react-router-dom'
-import { LuArrowLeft, LuArrowRight, LuCamera, LuClipboard, LuClipboardList, LuDownload, LuFileText, LuListPlus, LuScanLine } from 'react-icons/lu'
 import { PageContainer } from '../../components/layout/PageContainer'
 import { TopBar } from '../../components/layout/TopBar'
 import { Button } from '../../components/ui/Button'
@@ -170,31 +169,26 @@ export default function MedicationListApp() {
   const canScan = hasEvidence && !tooLarge && !preparingPhotos
   const hasWork = rows.length > 0 || hasEvidence || hasManualEntryWork(manualDraft)
   const modes = [
-    { mode: 'photo', label: t('Upload photos', 'อัปโหลดภาพ'), icon: LuCamera, count: evidence.photos.length },
-    { mode: 'manual', label: labels.manual, icon: LuListPlus, count: 0 },
-    { mode: 'text', label: t('Paste text', 'วางข้อความ'), icon: LuFileText, count: evidence.notes.filter(note => note.text.trim()).length },
+    { mode: 'photo', label: t('Upload photos', 'อัปโหลดภาพ'), count: evidence.photos.length },
+    { mode: 'manual', label: labels.manual, count: 0 },
+    { mode: 'text', label: t('Paste text', 'วางข้อความ'), count: evidence.notes.filter(note => note.text.trim()).length },
   ] as const
 
   return <>
     <TopBar language={language} onLanguage={setLanguage} listWorkspace />
     <main className="med-workspace"><PageContainer><Routes>
       <Route path="/" element={<section className="med-list intake list-home">
-        <div className="list-home-start">
-          <h1>{t('Read and check a medicine list', 'อ่านและตรวจรายการยา')}</h1>
-          <p>{t('Read labels, review directions and check medicines before preparing a hospital handoff.',
-            'อ่านฉลาก ทบทวนวิธีใช้ และตรวจสอบยาก่อนจัดทำรายการส่งต่อให้โรงพยาบาล')}</p>
-          <Link className="primary-btn self-start" to="/new-patient/input">
-            {hasWork ? t('Return to your draft', 'กลับไปที่ฉบับร่าง') : t('Open medication list', 'เปิดรายการยา')}
-            <LuArrowRight aria-hidden="true"/>
-          </Link>
-        </div>
-        <div className="list-home-methods">
-          {modes.map(({ mode, label, icon: Icon }) => <Link key={mode} to="/new-patient/input" onClick={() => setInputMode(mode)}>
-            <span className="list-method-icon"><Icon aria-hidden="true"/></span>
-            <span>{label}</span>
-            <LuArrowRight aria-hidden="true"/>
+        <header className="list-page-heading spread">
+          <h1>{t('Medication reconciliation', 'การทบทวนรายการยา')}</h1>
+          {hasWork && <Link className="primary-btn" to="/new-patient/input">
+            {t('Return to your draft', 'กลับไปที่ฉบับร่าง')}
+          </Link>}
+        </header>
+        <nav className="list-home-methods" aria-label={t('Input method', 'วิธีป้อนข้อมูล')}>
+          {modes.map(({ mode, label }) => <Link key={mode} to="/new-patient/input" onClick={() => setInputMode(mode)}>
+            {label}
           </Link>)}
-        </div>
+        </nav>
       </section>}/>
       <Route path="/new-patient" element={<NewPatientLayout key={draft.caseId} language={language} hasWork={hasWork} onStartFresh={reset}/>}>
         <Route index element={<Navigate to="input" replace/>}/>
@@ -205,9 +199,9 @@ export default function MedicationListApp() {
           <div className="list-input-workspace">
             <section className="intake-panel stack list-input-source" aria-label={t('Add medicines', 'เพิ่มรายการยา')}>
               <div className="input-modes list-input-modes" role="group" aria-label={t('Input method', 'วิธีป้อนข้อมูล')}>
-                {modes.map(({ mode, label, icon: Icon, count }) => <button key={mode} type="button"
+                {modes.map(({ mode, label, count }) => <button key={mode} type="button"
                   aria-pressed={inputMode === mode} aria-controls={`${mode}-input`} onClick={() => setInputMode(mode)}>
-                  <Icon aria-hidden="true"/>{label}{count > 0 && <span className="count">{count}</span>}
+                  {label}{count > 0 && <small>({count})</small>}
                 </button>)}
               </div>
               <div id="photo-input" hidden={inputMode !== 'photo'}><div className="stack">
@@ -256,7 +250,7 @@ export default function MedicationListApp() {
               </div>
               {inputMode !== 'manual' && <div className="actions">
                 <Button variant="primary" disabled={!canScan || status === 'scanning'} aria-busy={status === 'scanning'} onClick={() => void analyzeEvidence()}>
-                  <LuScanLine aria-hidden="true"/>{status === 'scanning' ? labels.analyzing : t('Analyze evidence', 'วิเคราะห์หลักฐาน')}
+                  {status === 'scanning' ? labels.analyzing : t('Analyze evidence', 'วิเคราะห์หลักฐาน')}
                 </Button>
                 {hasPhotos && hasText && <small>{t('Includes photos and text', 'รวมภาพและข้อความ')}</small>}
               </div>}
@@ -272,17 +266,16 @@ export default function MedicationListApp() {
             <section aria-labelledby="draft-list-heading" className="list-draft med-list-rows">
               <header className="list-section-heading">
                 <h2 id="draft-list-heading">{t('Draft medicine list', 'ฉบับร่างรายการยา')}</h2>
-                <span className="count">{rows.length}</span>
+                <small>{rows.length}</small>
               </header>
               {rows.length > 0 ? <>
                 {rows.map(row => <ListMedicine key={row.row.id} row={row} language={language} onChange={changeRow} onRemove={() => removeRow(row.row.id)}/>)}
                 <div className="list-draft-footer">
-                  <Link to="/new-patient/review" className="primary-btn">{t('Continue to Review', 'ไปที่ทบทวน')} <LuArrowRight aria-hidden="true"/></Link>
+                  <Link to="/new-patient/review" className="primary-btn">{t('Continue to Review', 'ไปที่ทบทวน')}</Link>
                   <small>{t('Kept in this tab until you close or reload it', 'เก็บไว้ในแท็บนี้จนกว่าจะปิดหรือโหลดใหม่')}</small>
                 </div>
               </> : <div className="list-empty">
-                <LuClipboardList aria-hidden="true"/>
-                <p>{t('Medicines you add or scan will appear here.', 'รายการยาที่เพิ่มหรือสแกนจะแสดงที่นี่')}</p>
+                <p>{t('No medicines added yet.', 'ยังไม่มีรายการยา')}</p>
               </div>}
             </section>
           </div>
@@ -298,6 +291,11 @@ export default function MedicationListApp() {
               </div>
             </div>
             <section className="med-list-rows">
+              <div className="list-review-columns" aria-hidden="true">
+                <span />
+                <span>{t('Medicine', 'ยา')}</span>
+                <span>{t('Directions', 'วิธีใช้')}</span>
+              </div>
               {rows.map(row => <ListMedicine key={row.row.id} row={row} language={language} onChange={changeRow}
                 selected={selection.includes(row.row.id)} onSelect={() => select(selection.includes(row.row.id)
                   ? selection.filter(id => id !== row.row.id) : [...selection, row.row.id])}/>)}
@@ -305,9 +303,9 @@ export default function MedicationListApp() {
             <ListChecks key={rows.map(row => [row.row.id, row.match?.product.tpu, row.match?.release].join(':')).join('|')}
               rows={rows} language={language}/>
             <div className="spread list-stage-actions">
-              <Link className="text-action" to="/new-patient/input"><LuArrowLeft aria-hidden="true"/>{t('Back to Input', 'กลับไปป้อนข้อมูล')}</Link>
+              <Link className="text-action" to="/new-patient/input">{t('Back to Input', 'กลับไปป้อนข้อมูล')}</Link>
               <Button variant="primary" disabled={!picked.length || status === 'scanning'} onClick={approve}>
-                {t('Prepare handoff', 'จัดทำรายการส่งต่อ')}<LuArrowRight aria-hidden="true"/>
+                {t('Prepare handoff', 'จัดทำรายการส่งต่อ')}
               </Button>
             </div>
           </>}
@@ -369,8 +367,8 @@ function Handoff({ rows, remaining, language, onReset, historyUnavailable }: {
       <p>{t('Copy the list for entry into the hospital system.', 'คัดลอกรายการเพื่อนำไปกรอกในระบบโรงพยาบาล')}</p>
     </header>
     <div className="actions list-handoff-actions">
-      <Button variant="primary" onClick={() => void copyList()}><LuClipboard aria-hidden="true"/>{t('Copy medicine list', 'คัดลอกรายการยา')}</Button>
-      <Button onClick={download}><LuDownload aria-hidden="true"/>{t('Download JSON', 'ดาวน์โหลด JSON')}</Button>
+      <Button variant="primary" onClick={() => void copyList()}>{t('Copy medicine list', 'คัดลอกรายการยา')}</Button>
+      <Button onClick={download}>{t('Download JSON', 'ดาวน์โหลด JSON')}</Button>
     </div>
     {historyUnavailable && <p role="status">{t('This browser could not save a history entry.', 'เบราว์เซอร์บันทึกประวัติไม่ได้')}</p>}
     {copy === 'done' && <p role="status">{t('Copied', 'คัดลอกแล้ว')}</p>}
@@ -386,7 +384,7 @@ function Handoff({ rows, remaining, language, onReset, historyUnavailable }: {
     </section>
     {remaining > 0 && <p>{remaining} {t('rows remain in Review', 'รายการยังอยู่ในหน้าทบทวน')}</p>}
     <div className="spread list-stage-actions">
-      <Link className="text-action" to="/new-patient/review"><LuArrowLeft aria-hidden="true"/>{t('Back to Review', 'กลับไปทบทวน')}</Link>
+      <Link className="text-action" to="/new-patient/review">{t('Back to Review', 'กลับไปทบทวน')}</Link>
       <Button onClick={onReset}>{t('Start next list', 'เริ่มรายการใหม่')}</Button>
     </div>
   </div>

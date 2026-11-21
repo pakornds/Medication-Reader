@@ -1,6 +1,5 @@
 import { Button } from '../ui/Button'
 import { useEffect, useState } from 'react'
-import { LuMoon, LuSun } from 'react-icons/lu'
 import { messages, type Language } from '../../i18n/messages'
 
 type Theme = 'light' | 'dark'
@@ -37,7 +36,7 @@ export function ThemeToggle({ language }: { language: Language }) {
   const label = theme === 'dark' ? messages[language].light : messages[language].dark
   return (
     <Button variant="preference" onClick={toggle} aria-label={label} title={label}>
-      {theme === 'dark' ? <LuSun aria-hidden="true" /> : <LuMoon aria-hidden="true" />}
+      {theme === 'dark' ? (language === 'th' ? 'สว่าง' : 'Light') : (language === 'th' ? 'มืด' : 'Dark')}
     </Button>
   )
 }

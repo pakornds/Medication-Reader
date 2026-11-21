@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { LuFlaskConical } from 'react-icons/lu'
 import { createClient } from '../../api/client'
 import type { LocalScreeningResult, RuleMatch } from '../../api/contracts'
 import { Button } from '../../components/ui/Button'
@@ -113,7 +112,6 @@ export function ListChecks({ rows, language }: { rows: ListRow[]; language: Lang
         <p className="hint">{scope}</p>
       </div>
       <Button onClick={() => void check()} disabled={status === 'busy' || rows.length < 2}>
-        <LuFlaskConical aria-hidden="true"/>
         {status === 'busy' ? t('Checking…', 'กำลังตรวจ…') : result ? t('Check again', 'ตรวจอีกครั้ง') : t('Check medicines', 'ตรวจสอบยา')}
       </Button>
     </div>

@@ -2,7 +2,6 @@ import type { RegionBounds } from '../../api/contracts'
 import { InputField } from '../../components/ui/InputField'
 import { Button } from '../../components/ui/Button'
 import { useEffect, useRef, useState } from 'react'
-import { LuCamera, LuImagePlus, LuUpload } from 'react-icons/lu'
 import { PhotoItems } from './PhotoItems'
 import type { Photo, PhotoKind } from './draft'
 import type { IntakeText } from '../../i18n/intake'
@@ -96,7 +95,6 @@ export function PhotoSlot({ kind, photo, photos, t, onReplace, onEdit, proposePh
         </>
       ) : (
         <div className="drop-area">
-          <LuImagePlus aria-hidden="true" />
           <strong>{t.emptySlot}</strong>
           <small>{t.formats}</small>
         </div>
@@ -105,11 +103,9 @@ export function PhotoSlot({ kind, photo, photos, t, onReplace, onEdit, proposePh
         {filePicker(false)}
         {filePicker(true)}
         <Button disabled={preparing} onClick={() => browse.current?.click()}>
-          <LuUpload />
           {photo ? t.replace : t.browse}
         </Button>
         <Button variant="text" disabled={preparing} onClick={() => camera.current?.click()}>
-          <LuCamera />
           {t.camera}
         </Button>
         {(photo || kind === 'additional_photo') && (

@@ -2,7 +2,6 @@ import { FacilityDetails } from './FacilityDetails'
 import { InputField } from '../../components/ui/InputField'
 import { Button } from '../../components/ui/Button'
 import { useState, type Dispatch, type SetStateAction } from 'react'
-import { LuPlus } from 'react-icons/lu'
 import type { IntakeText } from '../../i18n/intake'
 import { DirectionsEditor } from './DirectionsEditor'
 import { newStatement, toComponents, type Statement } from './regimen'
@@ -152,7 +151,6 @@ export function ManualMedicineEntry({
           className={handoff ? 'list-manual-submit' : undefined}
           disabled={!name.trim() || (!handoff && !source.trim()) || pendingParses > 0}
         >
-          <LuPlus aria-hidden="true" />
           {t.addMedicine}
         </Button>
       </form>

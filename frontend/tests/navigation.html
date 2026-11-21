@@ -58,7 +58,7 @@
     frame.width = '320'
     await expect(() => doc().documentElement.scrollWidth <= 320, 'phone layout fits')
     visible('header a[href="/"]').click()
-    await heading('อ่านและตรวจรายการยา')
+    await heading('การทบทวนรายการยา')
     await expect(() => visible('a[aria-current="page"]').pathname === '/', 'active home link')
     visible('a[href="/new-patient"]').click()
     await heading('เพิ่มรายการยา')

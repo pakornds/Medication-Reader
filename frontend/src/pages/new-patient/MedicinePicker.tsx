@@ -1,6 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
-import { LuCheck, LuSearch } from 'react-icons/lu'
 import { searchProducts } from '../../api/reconciliation'
 import type { IntakeText } from '../../i18n/intake'
 import type { CatalogueMatch, Product } from './draft'
@@ -134,7 +133,6 @@ export function MedicinePicker({ t, name, selected, onChange, onSelect, autoFocu
     <div className="medicine-picker" ref={anchor}>
       <label className="field-label" htmlFor={id}>{t.query}</label>
       <div className="medicine-control">
-        {selected ? <LuCheck aria-hidden="true" /> : <LuSearch aria-hidden="true" />}
         <input id={id} role="combobox" aria-autocomplete="list" aria-expanded={visible}
           aria-controls={visible ? listId : undefined}
           aria-activedescendant={visible && active ? optionId(active.tpu) : undefined}

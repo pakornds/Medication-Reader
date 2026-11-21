@@ -21,14 +21,14 @@ Use numbered background and text tokens, with named tokens for interaction state
 
 | Utility | Light | Dark | Where it belongs |
 | --- | --- | --- | --- |
-| `bg-1` | `#f2f6f5` | `#10201f` | Page canvas |
-| `bg-2` | `#ffffff` | `#172b29` | Top bar, panels and history list |
+| `bg-1` | `#f2f3f5` | `#171b22` | Table headings, selection toolbar and secondary surfaces |
+| `bg-2` | `#ffffff` | `#202631` | Workspace, top bar and forms |
 | `bg-3` | `#eaf0f2` | `#293840` | Inset evidence, quoted text and the area around a photo |
-| `text-1` | `#172c2c` | `#eef7f3` | Headings, names, strengths and field values |
-| `text-2` | `#506766` | `#b4ccc5` | Field labels, supporting descriptions and navigation |
+| `text-1` | `#1b2432` | `#edf0f5` | Headings, names, strengths and field values |
+| `text-2` | `#526070` | `#b7c0ce` | Field labels, supporting descriptions and navigation |
 | `text-3` | `#475d68` | `#b4c5cc` | Captions, hints and timestamps |
-| `border-line` | `#ccd9d6` | `#3b5450` | Dividers and panel boundaries |
-| `text-accent`, `outline-accent` | `#00695b` | `#8ce1c8` | Evidence links, selection markers and keyboard focus |
+| `border-line` | `#cfd5dd` | `#455164` | Dividers and panel boundaries |
+| `text-accent`, `outline-accent` | `#214f85` | `#abcdf3` | Evidence links, active tabs and keyboard focus |
 
 ### Actions and feedback
 
@@ -50,14 +50,14 @@ For each new color, define a light value on `:root`, a dark value on `:root[data
 @source not "../docs";
 
 :root {
-  --bg-1: #f2f6f5;
-  --text-1: #172c2c;
-  --accent: #00695b;
+  --bg-1: #f2f3f5;
+  --text-1: #1b2432;
+  --accent: #214f85;
 }
 :root[data-theme="dark"] {
-  --bg-1: #10201f;
-  --text-1: #eef7f3;
-  --accent: #8ce1c8;
+  --bg-1: #171b22;
+  --text-1: #edf0f5;
+  --accent: #abcdf3;
 }
 @theme inline {
   --background-color-1: var(--bg-1);
@@ -92,6 +92,8 @@ Reserve 700 for brief emphasis. Use body size for source wording that staff must
 
 Import named Lucide icons from `react-icons/lu`. Set size with utilities such as `size-5` and inherit the surrounding text color. Hide decorative icons with `aria-hidden="true"`. Give icon-only controls a localized accessible name. Pair consequential actions with a visible text label.
 
+Use text labels for the workspace navigation, input methods and primary actions. Preserve the native indicators on expandable details and form controls.
+
 Use native links for destinations and buttons for actions. Give enabled buttons a pointer cursor, editable text an I-beam, and disabled buttons a disabled cursor. Put the reason for an unavailable action in nearby visible text. Apply one global keyboard focus treatment.
 
 ```css
@@ -118,6 +120,8 @@ Use a shared `PageContainer` for horizontal gutters and content width. The proje
 | Related controls | `gap-2` between an icon and its label, `gap-3` between a heading and its content |
 
 Use document scrolling on narrow screens. Open a newly chosen stage at its heading. When staff return from a row detail or History, restore their place in the active case. Changing theme or language preserves focus and scroll position.
+
+Use horizontal rules to separate medicine and history entries. Align medicine names and directions in columns when space allows. Stack them on narrow screens with the row's actions beside its contents.
 
 ## Thai and English
 
