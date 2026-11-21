@@ -234,7 +234,7 @@ def _members(
         atcs = set(matches.ingredient_atc.atcs)
         matches.gaps[0] = "Oral ingredient ATCs were checked. Exact product coverage remains incomplete."
         if len(atcs) > 1:
-            matches.alternative_sides = {code: {} for code in atcs}
+            matches.alternative_sides = {code: {} for code in sorted(atcs)}
             matches.notes.append("The selected oral product could have more than one ATC. Product indication is unconfirmed.")
     if product.row.route_note:
         if product.route_gap:
