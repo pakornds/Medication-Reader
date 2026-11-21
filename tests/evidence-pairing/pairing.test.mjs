@@ -72,7 +72,16 @@ test("a hidden item stays pending and a crop already assigned to another row can
   assert.deepEqual(getRow(original, "row-c").reverse_crop, priorCrop);
 });
 
-test("reverse retakes invalidate only dependent approvals and preserve independent verification", () => {
+test("staff can reassign an existing crop after withdrawing its uncertain match", () => {
+  const original = makeDraft();
+  const pending = flag(original, "row-c", "ambiguous");
+  const confirmed = confirm(pending, "row-b", priorCrop);
+  assert.equal(getRow(confirmed, "row-c").reverse_crop, null);
+  assert.deepEqual(getRow(confirmed, "row-b").reverse_crop, priorCrop);
+  assert.equal(confirmed.evidence.items.find(item => item.id === "pill-c").row_id, "row-b");
+});
+
+test("reverse retakes invalidate case approvals and preserve unrelated evidence and verification", () => {
   const original = confirm(makeDraft(), "row-a", firstCrop);
   const rowA = getRow(original, "row-a");
   const rowB = getRow(original, "row-b");
@@ -88,8 +97,27 @@ test("reverse retakes invalidate only dependent approvals and preserve independe
   assert.equal(updated.revision, rowA.revision + 1);
   assert.equal(updated.verification, verifiedWardRecord);
   assert.deepEqual(updated.label_fields, rowA.label_fields);
-  assert.equal(getRow(retaken, "row-b"), rowB);
+  assert.deepEqual(getRow(retaken, "row-b"), { ...rowB, approval: null });
   assert.equal(confirmReverseCrop(original, { rowId: "row-a", revision: rowA.revision, crop: firstCrop }), original);
+});
+
+test("retakes preserve remaining conflicts and remove dangling follow-up source IDs", () => {
+  const original = makeDraft();
+  const rowA = getRow(original, "row-a");
+  const rowC = getRow(original, "row-c");
+  const oldLabel = { value: "5 mg", evidence: ref("label-photo", "label-a") };
+  const ward = { value: "10 mg", evidence: ref("ward-record", "part-a") };
+  const other = { value: "20 mg", evidence: { source_id: "prior-script" } };
+  original.evidence.sources.push({ id: "prior-script", kind: "prescription" });
+  rowA.sources.push(other.evidence);
+  rowA.discrepancies = [{ id: "strength", field: "strength", observed_values: [oldLabel, ward, other] }];
+  rowC.follow_ups = [{ field: "source", question: "Can staff get another photo?", potential_source_id: "label-photo" }];
+  const updated = replacePhoto(original, {
+    sourceId: "label-photo", replacement: { id: "label-retake", kind: "label_photo" },
+  });
+  assert.deepEqual(getRow(updated, "row-a").discrepancies[0].observed_values, [ward, other]);
+  assert.deepEqual(getRow(updated, "row-c").follow_ups, [{ ...rowC.follow_ups[0], potential_source_id: null }]);
+  assert.deepEqual(getRow(updated, "row-c").reverse_crop, priorCrop);
 });
 
 test("a label retake invalidates old row revisions and crops across the same upload", () => {

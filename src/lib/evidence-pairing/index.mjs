@@ -34,10 +34,22 @@ function withPhotoMatch(row, crop, question) {
   };
 }
 
+function revokeApprovals(rows) {
+  // The server fingerprints the full case manifest for every approval.
+  return rows.map(row => row.approval ? { ...row, approval: null } : row);
+}
+
 function withoutEvidence(row, removed) {
   const keep = ref => !removed(ref);
   const keepObservation = observation => keep(observation.evidence);
   const keepRegimen = component => Object.values(component.evidence ?? {}).every(keep);
+  const originalDiscrepancies = row.discrepancies ?? [];
+  const discrepancies = originalDiscrepancies.flatMap(item => {
+    const values = item.observed_values.filter(keepObservation);
+    if (values.length === item.observed_values.length) return [item];
+    if (new Set(values.map(observation => observation.value)).size < 2) return [];
+    return [{ ...item, observed_values: values }];
+  });
   const updated = {
     ...row,
     sources: row.sources.filter(keep),
@@ -46,8 +58,9 @@ function withoutEvidence(row, removed) {
       .filter(([, observation]) => keepObservation(observation))),
     reported_use: (row.reported_use ?? []).filter(keepObservation),
     regimens: (row.regimens ?? []).filter(keepRegimen),
-    discrepancies: (row.discrepancies ?? []).filter(item => item.observed_values.every(keepObservation)),
-    follow_ups: (row.follow_ups ?? []).filter(item => keep({ source_id: item.potential_source_id })),
+    discrepancies,
+    follow_ups: (row.follow_ups ?? []).map(item => keep({ source_id: item.potential_source_id }) ?
+      item : { ...item, potential_source_id: null }),
   };
 
   if (removed({ source_id: row.dispensing_source_id })) updated.dispensing_source_id = null;
@@ -57,7 +70,7 @@ function withoutEvidence(row, removed) {
     ![verification.identity, verification.dose, verification.route, verification.frequency]
       .every(field => !field || keepObservation(field)) ||
     !(verification.regimens ?? []).every(keepRegimen) ||
-    updated.discrepancies.length !== (row.discrepancies ?? []).length
+    originalDiscrepancies.some(item => !discrepancies.includes(item))
   )) {
     updated.verification = null;
   }
@@ -73,17 +86,25 @@ function sameItem(item, ref) {
   return item.source_id === ref.source_id && item.id === ref.item_id;
 }
 
+function offerCrop(candidates, crop) {
+  return candidates.some(ref => sameRef(ref, crop)) ? candidates : [...candidates, crop];
+}
+
 function updateMatch(draft, row, crop, question) {
   const previous = row.reverse_crop;
   const items = (draft.evidence.items ?? []).filter(item => !previous || !sameItem(item, previous));
-  if (crop && !items.some(item => sameItem(item, crop))) {
+  const newItem = crop && !items.some(item => sameItem(item, crop));
+  if (newItem) {
     items.push({ id: crop.item_id, source_id: crop.source_id, row_id: row.id, kind: "pill_crop" });
   }
   const updated = previous ? withoutEvidence(row, ref => sameRef(ref, previous)) : row;
+  const rows = draft.rows.map(candidate => candidate === row ? withPhotoMatch(updated, crop, question) : candidate);
+  const candidates = (draft.reverseCropCandidates ?? []).filter(ref => !sameRef(ref, crop));
   return {
     ...draft,
     evidence: { ...draft.evidence, items },
-    rows: draft.rows.map(candidate => candidate === row ? withPhotoMatch(updated, crop, question) : candidate),
+    rows: previous || newItem ? revokeApprovals(rows) : rows,
+    reverseCropCandidates: previous ? offerCrop(candidates, previous) : candidates,
   };
 }
 
@@ -143,7 +164,8 @@ export function replacePhoto(draft, { sourceId, replacement }) {
   const discardedCrops = [];
   const rows = draft.rows.map(row => {
     if (!affectedRows.has(row.id) && !row.sources.some(isReplaced) && !isReplaced(row.reverse_crop)) {
-      return row;
+      if (!(row.follow_ups ?? []).some(item => removedIds.has(item.potential_source_id))) return row;
+      return { ...withoutEvidence(row, isReplaced), revision: row.revision + 1, approval: null };
     }
     const replacedLabel = row.sources.some(ref => labelSourceIds.has(ref.source_id));
     if (row.reverse_crop && !replacedLabel && !isReplaced(row.reverse_crop)) {
@@ -157,6 +179,7 @@ export function replacePhoto(draft, { sourceId, replacement }) {
 
   for (const id of removedIds) retiredIds.add(id);
   if (photo.attachment_id) retiredAttachments.add(photo.attachment_id);
+  const candidates = (draft.reverseCropCandidates ?? []).filter(ref => !isReplaced(ref));
   return {
     ...draft,
     evidence: {
@@ -165,8 +188,8 @@ export function replacePhoto(draft, { sourceId, replacement }) {
       items: items.filter(item => !removedIds.has(item.source_id) &&
         !discardedCrops.some(ref => sameItem(item, ref))),
     },
-    rows,
-    reverseCropCandidates: (draft.reverseCropCandidates ?? []).filter(ref => !isReplaced(ref)),
+    rows: revokeApprovals(rows),
+    reverseCropCandidates: discardedCrops.filter(ref => !isReplaced(ref)).reduce(offerCrop, candidates),
     retiredPhotoSourceIds: [...retiredIds],
     retiredPhotoAttachmentIds: [...retiredAttachments],
   };
