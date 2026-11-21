@@ -83,6 +83,20 @@ def note_statements(text: str) -> list[str]:
     return [part.strip() for part in re.split(r"[;；。!?！？\r\n]+|\.(?=\s|$)", text) if part.strip()]
 
 
+def directly_attributed(statement: str, name: str, field: str, value: str) -> bool:
+    if field == "identity" and value == name:
+        return True
+    # Keep a quote inside a clause even if the proposal omits the next drug.
+    # Commas between decimal digits remain part of the source number.
+    clauses = re.split(r"(?<!\d),|,(?!\d)|\s+(?:and|but|while)\s+|และ(?=\s)", statement, flags=re.I)
+    field_label = re.escape(field.replace("_", " "))
+    separator = rf"\s*[:=–—-]?\s*(?:(?i:{field_label})\b\s*[:=]?\s*)?"
+    # A label strength can stand between the name and the directions.
+    strength = r"(?:\s+\d+(?:[.,]\d+)?\s*(?i:mg|mcg|g|ml|%|มก\.|กรัม)\s*)?" if field == "directions" else ""
+    phrase = rf"(?i:{quote_pattern(name)}){strength}{separator}{quote_pattern(value)}"
+    return any(re.search(phrase, clause) for clause in clauses)
+
+
 def validate_form_input(
     form: FormAnalysisInput, photos: Sequence[EvidenceImage]
 ) -> dict[str, list[str]]:
@@ -180,14 +194,8 @@ class FormGrounding:
                 # An unreturned medicine may also occur in this sentence.
                 # Require a direct name/value phrase; seeing only one proposed
                 # row is insufficient evidence for the entire sentence.
-                for name in row.observed_names:
-                    if field == "identity" and fact.value == name.value:
-                        return True
-                    field_label = re.escape(field.replace("_", " "))
-                    separator = rf"\s*[:=–—-]?\s*(?:(?i:{field_label})\b\s*[:=]?\s*)?"
-                    phrase = rf"(?i:{quote_pattern(name.value)}){separator}{quoted_value}"
-                    if re.search(phrase, statement):
-                        return True
+                if any(directly_attributed(statement, name.value, field, fact.value) for name in row.observed_names):
+                    return True
             # A single located excerpt may document a different identity from
             # the label. Keep that discrepancy with its original physical row.
             if not mentioned and field == "identity" and len(statements) == 1 and ref.item_id:

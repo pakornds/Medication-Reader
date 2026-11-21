@@ -95,3 +95,12 @@ def test_directions_belong_to_the_named_medicine_even_when_one_row_is_returned()
     assert good["label_fields"]["directions"]["value"] == "once daily"
     assert crossed["label_fields"]["directions"]["status"] == "missing"
     assert not crossed["regimens"]
+    merged, = submit_note(note, ["once daily and Demo B directions: every evening"],
+                          field="directions", names=["Demo A"])
+    assert merged["label_fields"]["directions"]["status"] == "missing"
+
+
+def test_directions_after_a_documented_strength_keep_their_sources():
+    rows = submit_note("Demo A 5 mg once daily. Demo B 10 mg each evening.",
+                       ["once daily", "each evening"], field="directions")
+    assert [r["label_fields"]["directions"]["value"] for r in rows] == ["once daily", "each evening"]
