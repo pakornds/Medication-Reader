@@ -89,7 +89,7 @@ def test_two_originals_across_review_sessions(session, caplog):
     update = submit(http, path, dict(revision=3, request_id="metadata-only", manifest=added))
     assert update.status_code == 200, update.text
     assert len(update.json()["rows"]) == 5
-    assert submit(http, path, command, originals).json() == state
+    assert submit(http, path, command, originals).json() == update.json()
     assert submit(http, path, dict(command, request_id="stale"), originals).status_code == 409
     with caplog.at_level(logging.INFO, logger="uvicorn.access"):
         logging.getLogger("uvicorn.access").info('%s - "%s %s HTTP/%s" %d', "client", "POST", path + "/capture", "1.1", 200)

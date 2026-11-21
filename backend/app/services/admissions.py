@@ -97,7 +97,6 @@ class AdmissionStore:
     def __init__(self, hospital):
         self.records = {}
         self.originals = {}
-        self.capture_results = {}
         self.retries = {}
         self.hospital = hospital
         self.lock = RLock()
@@ -176,7 +175,7 @@ class AdmissionStore:
             digest = fingerprint.hexdigest()
             if key in self.retries:
                 require(self.retries[key] == digest, "Request ID already used.", 409)
-                return self.capture_results[key]
+                return original
             require(original["revision"] == command.revision, "Encounter changed. Reload before saving.", 409)
             require(original["status"] != "Finished", "Review is finished.", 409)
             if original["status"] == "Awaiting pharmacist review":
@@ -244,7 +243,6 @@ class AdmissionStore:
             self.records[case_id] = case
             self.originals[case_id] = originals
             self.retries[key] = digest
-            self.capture_results[key] = case
             return case
 
     def view(self, actor, case_id, ref):
