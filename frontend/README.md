@@ -21,11 +21,11 @@ The development server proxies requests to FastAPI at `http://127.0.0.1:8000`. S
 
 | Page | What staff can do |
 | --- | --- |
-| Input | Upload labels or select a local TMT product. Scan results appear as editable rows with their original sources. |
+| Input | Upload labels, paste a written list or select a local TMT product. Scan results appear as editable rows with their original sources. |
 | Review | Edit the same rows, check interactions and duplicate ingredients, and select the rows for handoff. |
 | Output | Copy a tab-separated list or download structured JSON for entry in the hospital system. |
 
-The list and photos live in tab memory. Use the handoff before closing or refreshing the tab. The analysis and screening services process the submitted evidence and product IDs without creating encounters or hospital records.
+History shows only the times of successful analyses on this device. The list, pasted text and photos live in tab memory. Use the handoff before closing or refreshing the tab. The analysis and screening services process the submitted evidence and product IDs without creating encounters or hospital records.
 
 Run the browser workflow with Playwright, Chromium and a running backend with the local TMT catalogue:
 

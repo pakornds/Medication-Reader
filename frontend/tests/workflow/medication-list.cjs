@@ -17,11 +17,26 @@ async function run() {
       if (path.startsWith('/admissions') || path.startsWith('/imports')) privateRequests.push(path)
     })
     const assertFits = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
+    const pasted = 'Synthetic transfer record. VIGAMOX eye drops. One drop each morning.'
     const dirs = '1 capsule each morning'
     await page.route('**/medication-analysis', async route => {
       const body = route.request().postData()
       const form = JSON.parse(body.match(/name="form"\r\n\r\n(\{.+\})/)[1])
       const photo = form.photo_source_ids[0]
+      if (!photo) {
+        const source = form.other_source_notes[0]
+        assert.equal(source.value, pasted)
+        const ref = source.evidence
+        await route.fulfill({ json: {
+          case_id: form.evidence.case_id, unassigned_reports: [], rows: [{
+            id: 'text-row', identity_status: 'named', sources: [ref],
+            observed_names: [{ value: 'VIGAMOX', evidence: ref }],
+            label_fields: { directions: { status: 'readable', value: 'One drop each morning', evidence: ref } },
+            reported_use: [], discrepancies: [], follow_ups: [],
+          }],
+        } })
+        return
+      }
       const boxes = [
         { id: 'front-one', x: 0.02, caption: 'SIADOCIN' },
         { id: 'front-two', x: 0.35, caption: 'SIADOCIN' },
@@ -67,9 +82,10 @@ async function run() {
     await page.getByRole('button', { name: 'Select all ready' }).click()
     assert.equal(await page.getByRole('checkbox', { checked: true }).count(), 2)
     assert.ok(await assertFits())
-    await page.getByText('Check interactions and duplicate ingredients').click()
-    await page.getByRole('button', { name: 'Run check' }).click()
-    await page.getByText('Duplicate ingredients · Potential finding').waitFor()
+    await page.getByRole('button', { name: 'Check medicines' }).click()
+    await page.getByText('1 pair to review').waitFor()
+    await page.getByText('Shared ingredient', { exact: true }).waitFor()
+    await page.getByText(/pairs with incomplete coverage/).waitFor()
     assert.ok(paths.includes('/checks/local/catalogue'))
     await page.getByRole('button', { name: 'Prepare handoff' }).click()
     await page.getByRole('heading', { name: '2 medicines ready to hand off' }).waitFor()
@@ -90,7 +106,42 @@ async function run() {
     assert.ok(stored.every(value => !/SIADOCIN|441548|14 capsules|synthetic-labels/.test(value)))
     await page.reload()
     await page.getByRole('link', { name: 'Review medicines' }).waitFor()
-    console.log('PASS scan → editable list → bulk selection and local check → copy and JSON handoff without storage or import')
+    await page.evaluate(() => localStorage.setItem(
+      'medication-reader:imported-at:2026-11-20T08:00:00.000000Z', '2026-11-20T08:00:00.000000Z',
+    ))
+    await page.getByRole('link', { name: 'History' }).click()
+    await page.getByRole('heading', { name: 'History' }).waitFor()
+    assert.equal(await page.locator('#analysis-history ~ ol time').count(), 1)
+    assert.equal(await page.locator('#previous-imports ~ ol time').count(), 1)
+    await page.getByRole('link', { name: 'Back to Input' }).click()
+    await page.getByRole('button', { name: 'Paste text' }).click()
+    await page.getByRole('textbox', { name: 'Medication list or record' }).fill(pasted)
+    await page.getByRole('button', { name: 'Analyze evidence' }).click()
+    await page.getByRole('heading', { name: 'VIGAMOX' }).waitFor()
+    await page.getByRole('link', { name: 'History' }).click()
+    await page.locator('#analysis-history ~ ol time').nth(1).waitFor()
+    assert.equal(await page.locator('#analysis-history ~ ol time').count(), 2)
+    assert.equal(await page.getByText('VIGAMOX').count(), 0)
+    const analysisKeys = await page.evaluate(() => Object.keys(localStorage)
+      .filter(key => key.startsWith('medication-reader:analyzed-at:'))
+      .map(key => [key, localStorage.getItem(key)]))
+    assert.equal(analysisKeys.length, 2)
+    assert.ok(analysisKeys.every(([key, value]) =>
+      key === 'medication-reader:analyzed-at:' + value && /^\d{4}-\d{2}-\d{2}T.*Z$/.test(value)))
+    const checks = await context.newPage()
+    await checks.goto(base + '/new-patient/input')
+    for (const code of ['117365', '263158']) {
+      await checks.getByRole('button', { name: 'Add medicine', exact: true }).click()
+      await checks.getByRole('combobox', { name: 'Product name or code' }).fill(code)
+      await checks.getByRole('option').filter({ hasText: code }).first().click()
+    }
+    await checks.getByRole('link', { name: 'Continue to Review' }).click()
+    await checks.getByRole('button', { name: 'Check medicines' }).click()
+    await checks.getByText('FEST flags this combination to avoid').waitFor()
+    const rule = checks.getByText('Source conditions and references')
+    await rule.click()
+    await checks.locator('.check-finding a').first().waitFor()
+    console.log('PASS photo and text input, bulk review, local check, handoff, and timestamp-only history')
   } finally { await browser.close() }
 }
 run().catch(error => { console.error(error); process.exitCode = 1 })

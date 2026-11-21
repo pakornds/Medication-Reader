@@ -72,7 +72,7 @@ candidate suggestions, dosing or directions.
 )
 
 FORM_ANALYSIS = Prompt(
-    version="form-analysis-v5",
+    version="form-analysis-v6",
     instructions=_EVIDENCE_POLICY
     + _LABEL_POLICY
     + """
@@ -98,8 +98,12 @@ with its record citation. Include the exact printed name and the exact
 differing record name as separately cited observed_values. Copy one name per
 value without combining bilingual names or adding explanatory wording to
 the value. Never add a conflicting record name as another printed name or
-merge it with the photo label. For a text-only item, preserve
-the names actually documented or reported with their own sources.
+merge it with the photo label. For each text-only item, use exactly one
+verbatim name in observed_names. Prefer the printed trade name when the same
+text also lists an ingredient, without assuming that the names are equivalent.
+Cite the pasted record source ID. Leave item_id null unless the submitted
+manifest supplies an item for this row. When consecutive lines document
+different medicines, keep a separate row for each medicine.
 Keep unavailable records as
 follow-ups, never as evidence for a populated claim. Attach a reverse crop only
 when its case manifest identifies it for the same row. If the match or

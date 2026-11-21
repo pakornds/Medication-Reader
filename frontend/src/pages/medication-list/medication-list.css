@@ -18,3 +18,8 @@
   .list-medicine-main > div:nth-child(2), .list-medicine-main > div:first-child { flex: 1 1 calc(100% - 2rem); }
   .list-directions { flex: 1 1 100%; }
 }
+.med-list .list-input-modes { padding-bottom: .75rem; margin-bottom: 0; }
+.med-list .list-input-modes .count { padding: .1rem .45rem; min-width: 1.25rem; }
+.check-summary { display: flex; flex-wrap: wrap; gap: .35rem .85rem; align-items: baseline; }
+.check-finding { padding: .85rem 1rem; border-inline-start: .2rem solid var(--accent); background: var(--bg-selected); border-radius: .35rem; }
+.check-unassessed { padding-inline-start: 1.2rem; list-style: disc; }

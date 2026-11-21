@@ -1,13 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
-import { LuArrowRight, LuCamera, LuClipboard, LuDownload, LuPlus, LuScanLine } from 'react-icons/lu'
+import { LuArrowRight, LuCamera, LuClipboard, LuDownload, LuFileText, LuPlus, LuScanLine } from 'react-icons/lu'
 import { PageContainer } from '../../components/layout/PageContainer'
 import { TopBar } from '../../components/layout/TopBar'
 import { Button } from '../../components/ui/Button'
 import { InputField } from '../../components/ui/InputField'
 import { analyze, applyLocatedRegions } from '../../api/reconciliation'
-import { createClient } from '../../api/client'
-import type { LocalScreeningResult } from '../../api/contracts'
 import { intake } from '../../i18n/intake'
 import type { Language } from '../../i18n/messages'
 import { analysisErrorMessage, analysisProviderMessage } from '../new-patient/analysisError'
@@ -17,9 +15,10 @@ import { NewPatientLayout } from '../new-patient/NewPatientLayout'
 import { PhotoSlot } from '../new-patient/PhotoSlot'
 import { canShare, exportRows, listName, manualRow, say, scannedRows, scheduleSummary, values, type ListRow } from './listData'
 import { ListMedicine, PickProduct } from './ListMedicine'
+import { ListChecks } from './ListChecks'
+import { ScanHistory } from './ScanHistory'
+import { recordAnalysis } from '../../../../src/lib/history/import-history'
 import './medication-list.css'
-
-const client = createClient()
 
 export default function MedicationListApp() {
   const [language, setLanguage] = useState<Language>(() => {
@@ -30,6 +29,7 @@ export default function MedicationListApp() {
   const [selection, setSelection] = useState<string[]>([])
   const [exported, setExported] = useState<ListRow[] | null>(null)
   const [adding, setAdding] = useState(false)
+  const [inputMode, setInputMode] = useState<'photo' | 'text'>('photo')
   const [extraPhotos, setExtraPhotos] = useState(false)
   const [status, setStatus] = useState<'idle' | 'scanning'>('idle')
   const [scanError, setScanError] = useState('')
@@ -54,6 +54,7 @@ export default function MedicationListApp() {
     setSelection([])
     setExported(null)
     setAdding(false)
+    setInputMode('photo')
     setExtraPhotos(false)
     setScanError('')
     setStatus('idle')
@@ -76,7 +77,7 @@ export default function MedicationListApp() {
       onEdit={next => updateEvidence(replacePhoto(evidence, next.id, next))}/>
   }
 
-  async function readPhotos() {
+  async function analyzeEvidence() {
     scan.current?.abort()
     const controller = new AbortController()
     scan.current = controller
@@ -88,6 +89,11 @@ export default function MedicationListApp() {
       const found = await scannedRows(preview, located, controller.signal)
       if (controller.signal.aborted) return
       setDraft(current => ({ ...current, evidence: located, preview }))
+      if (found.length) {
+        try {
+          if (recordAnalysis(localStorage, new Date()) === 'saved') window.dispatchEvent(new Event('medication-analyzed'))
+        } catch { /* A browser storage setting must not interrupt analysis. */ }
+      }
       setRows(current => {
         const byId = new Map(found.map(row => [row.row.id, row]))
         const retained = current.map(row => {
@@ -136,18 +142,20 @@ export default function MedicationListApp() {
     nav('/new-patient/output')
   }
 
-  const hasEvidence = evidence.photos.length > 0 || evidence.notes.some(note => note.text.trim())
+  const hasPhotos = evidence.photos.length > 0
+  const hasText = evidence.notes.some(note => note.text.trim())
+  const hasEvidence = hasPhotos || hasText
   const canScan = hasEvidence && evidence.photos.length <= 16
     && evidence.photos.reduce((sum, photo) => sum + photo.file.size, 0) < 16_000_000
   const hasWork = rows.length > 0 || hasEvidence || adding
 
   return <>
-    <TopBar language={language} onLanguage={setLanguage} showHistory={false} />
+    <TopBar language={language} onLanguage={setLanguage} listWorkspace />
     <main className="pt-7"><PageContainer><Routes>
       <Route path="/" element={<section className="med-list intake stack">
         <h1>{t('Read and check a medicine list', 'อ่านและตรวจรายการยา')}</h1>
-        <p>{t('Scan labels or add medicines, check the list, then copy it for the hospital system.',
-          'สแกนฉลากหรือเพิ่มยา ตรวจรายการ แล้วคัดลอกไปใช้ในระบบโรงพยาบาล')}</p>
+        <p>{t('Scan labels, paste a list or add medicines by name. Check the list and copy it for the hospital system.',
+          'สแกนฉลาก วางข้อความ หรือเพิ่มยาตามชื่อ ตรวจรายการแล้วคัดลอกไปใช้ในระบบโรงพยาบาล')}</p>
         <Link className="primary-btn self-start" to="/new-patient/input">{t('Open medication list', 'เปิดรายการยา')}</Link>
       </section>}/>
       <Route path="/new-patient" element={<NewPatientLayout key={draft.caseId} language={language} hasWork={hasWork} onStartFresh={reset}/>}>
@@ -174,12 +182,15 @@ export default function MedicationListApp() {
             }}>{t('Add a row without a catalogue match', 'เพิ่มรายการที่ไม่พบในบัญชียา')}</Button>
           </section>}
           <section className="intake-panel stack">
-            <div className="spread"><h2 className="flex items-center gap-2"><LuCamera aria-hidden="true"/>{labels.photos}</h2>
-              <Button variant="primary" disabled={!canScan || status === 'scanning'} aria-busy={status === 'scanning'} onClick={() => void readPhotos()}>
-                <LuScanLine aria-hidden="true"/>{status === 'scanning' ? labels.analyzing : t('Analyze evidence', 'วิเคราะห์หลักฐาน')}
-              </Button>
+            <div className="input-modes list-input-modes" role="group" aria-label={t('Input method', 'วิธีป้อนข้อมูล')}>
+              <button type="button" aria-pressed={inputMode === 'photo'} aria-controls="photo-input" onClick={() => setInputMode('photo')}>
+                <LuCamera aria-hidden="true"/>{t('Upload photos', 'อัปโหลดภาพ')}{hasPhotos && <span className="count">{evidence.photos.length}</span>}
+              </button>
+              <button type="button" aria-pressed={inputMode === 'text'} aria-controls="text-input" onClick={() => setInputMode('text')}>
+                <LuFileText aria-hidden="true"/>{t('Paste text', 'วางข้อความ')}{hasText && <span className="count">{evidence.notes.filter(note => note.text.trim()).length}</span>}
+              </button>
             </div>
-            {!canScan && hasEvidence && <p role="alert">{labels.tooLarge}</p>}
+            <div id="photo-input" hidden={inputMode !== 'photo'}><div className="stack">
             {!evidence.photos.length && <p className="hint">{t('Put all packages in one photo with labels facing up.', 'ถ่ายยาทั้งหมดในภาพเดียวโดยหันฉลากขึ้น')}</p>}
             {evidence.photos.some(photo => photo.kind === 'label_photo') && rows.length > 0
               ? <details><summary>{t('View or replace label photo', 'ดูหรือเปลี่ยนภาพฉลาก')}</summary>
@@ -190,14 +201,16 @@ export default function MedicationListApp() {
               {photoSlot('reverse_photo', evidence.photos.find(photo => photo.kind === 'reverse_photo'))}</details>
             {evidence.photos.filter(photo => photo.kind === 'additional_photo').map(photo => photoSlot(photo.kind, photo))}
             {extraPhotos ? photoSlot('additional_photo') : <Button variant="text" className="self-start" onClick={() => setExtraPhotos(true)}>{labels.addPhoto}</Button>}
-            <details><summary>{t('Add note or record', 'เพิ่มคำบอกเล่าหรือเอกสาร')}</summary>
-              <div className="stack">{evidence.notes.map(note => {
+            </div></div>
+            <div id="text-input" hidden={inputMode !== 'text'}>
+              <div className="stack">{[...evidence.notes].sort((left, right) => Number(right.kind === 'other_record') - Number(left.kind === 'other_record')).map(note => {
                 function patch(change: Partial<typeof note>) {
                   updateEvidence({ ...evidence, notes: evidence.notes.map(item => item.id === note.id ? { ...item, ...change } : item) })
                 }
                 return <div key={note.id} className="stack">
-                  <label>{note.kind === 'other_record' ? labels.other_record : labels.account}
-                    <textarea value={note.text} rows={2} onChange={e => patch({ text: e.target.value })}/>
+                  <label>{note.kind === 'other_record' ? t('Medication list or record', 'รายการยาหรือเอกสาร') : labels.account}
+                    <textarea value={note.text} rows={note.kind === 'other_record' ? 4 : 2}
+                      placeholder={note.kind === 'other_record' ? t('Paste medication names and directions here.', 'วางชื่อยาและวิธีใช้ที่นี่') : labels.reportHint} onChange={e => patch({ text: e.target.value })}/>
                   </label>
                   {note.kind === 'other_record' && <details><summary>{t('Source details', 'รายละเอียดแหล่งข้อมูล')}</summary>
                     <div className="field-pair">
@@ -212,7 +225,14 @@ export default function MedicationListApp() {
                   ...evidence, notes: [...evidence.notes, newNote('other_record')],
                 })}>{t('Add another record', 'เพิ่มเอกสารอื่น')}</Button>
               </div>
-            </details>
+            </div>
+            <div className="actions">
+              <Button variant="primary" disabled={!canScan || status === 'scanning'} aria-busy={status === 'scanning'} onClick={() => void analyzeEvidence()}>
+                <LuScanLine aria-hidden="true"/>{status === 'scanning' ? labels.analyzing : t('Analyze evidence', 'วิเคราะห์หลักฐาน')}
+              </Button>
+              {hasPhotos && hasText && <small>{t('Includes photos and text', 'รวมภาพและข้อความ')}</small>}
+            </div>
+            {!canScan && hasEvidence && <p role="alert">{labels.tooLarge}</p>}
             {scanError && <p role="alert">{scanError}</p>}
             {draft.preview?.photo_issues?.map(issue => <p role="status" key={[issue.attachment_id, issue.item_id, issue.code].join(':')}>
               {labels[issue.code]} {issue.provider_code && analysisProviderMessage(issue.provider_code, language)}
@@ -262,66 +282,10 @@ export default function MedicationListApp() {
           <Link className="primary-btn self-start" to="/new-patient/review">{t('Review medicines', 'ทบทวนรายการยา')}</Link>
         </div>}/>
       </Route>
-      <Route path="/history" element={<Navigate to="/new-patient/input" replace/>}/>
+      <Route path="/history" element={<ScanHistory language={language}/>}/>
       <Route path="*" element={<Navigate to="/" replace/>}/>
     </Routes></PageContainer></main>
   </>
-}
-
-function ListChecks({ rows, language }: { rows: ListRow[]; language: Language }) {
-  const [result, setResult] = useState<LocalScreeningResult>()
-  const [status, setStatus] = useState<'idle' | 'busy' | 'error'>('idle')
-  const t = (en: string, th: string) => say(language, en, th)
-  async function check() {
-    setResult(undefined)
-    setStatus('busy')
-    try {
-      setResult(await client.checkCatalogueList({ rows: rows.map(row => ({
-        row_id: row.row.id, tpu: row.match?.product.tpu ?? null, release: row.match?.release ?? null,
-      })) }))
-      setStatus('idle')
-    } catch { setStatus('error') }
-  }
-  const named = (id: string) => {
-    const row = rows.find(item => item.row.id === id)
-    return row ? listName(row, language) : id
-  }
-  return <details className="intake-panel">
-    <summary>{t('Check interactions and duplicate ingredients', 'ตรวจยาตีกันและตัวยาซ้ำ')}</summary>
-    <div className="stack">
-      <p className="hint">{t('Compares catalogue products. Actual use, dose and route are outside this check.',
-        'เปรียบเทียบผลิตภัณฑ์ในบัญชียา การตรวจนี้ไม่ประเมินการใช้จริง ขนาดยา หรือทางที่ให้ยา')}</p>
-      <Button className="self-start" onClick={() => void check()} disabled={status === 'busy'}>{status === 'busy'
-        ? t('Checking…', 'กำลังตรวจ…') : t('Run check', 'เริ่มตรวจ')}</Button>
-      {status === 'error' && <p role="alert">{t('The local reference could not be loaded.', 'ไม่สามารถเปิดฐานข้อมูลอ้างอิง')}</p>}
-      {result && <div className="stack" role="status">
-        {result.rows.filter(row => row.reason).map(row => <p key={row.row_id}>
-          {named(row.row_id)} · {t('Unassessed', 'ยังไม่ได้ประเมิน')} · {row.reason}
-        </p>)}
-        {!result.pairs.length && <p>{t('Add at least two medicines for a comparison.', 'เพิ่มยาอย่างน้อยสองรายการเพื่อเปรียบเทียบ')}</p>}
-        {result.pairs.map(pair => <div className="list-check-pair" key={pair.row_ids.join(':')}>
-          <strong>{pair.row_ids.map(named).join(' + ')}</strong>
-          <p>{t('Interactions', 'อันตรกิริยา')} · {screeningStatus(pair.ddi.status, language)}</p>
-          {pair.ddi.interactions?.map(rule => <details key={rule.rule_id}><summary>{rule.relevance} · {rule.rule_id}</summary>
-            <p>{[rule.condition, rule.consequence, rule.source_basis].filter(Boolean).join(' · ')}</p>
-          </details>)}
-          {pair.ddi.status !== 'lookup_complete' && pair.ddi.reasons.map(reason => <small key={reason}>{reason}</small>)}
-          <p>{t('Duplicate ingredients', 'ตัวยาซ้ำ')} · {screeningStatus(pair.duplicate.status, language)}</p>
-          {pair.duplicate.ingredients?.map(ingredient => <p key={ingredient.subs_id}>{ingredient.name}</p>)}
-        </div>)}
-      </div>}
-    </div>
-  </details>
-}
-
-function screeningStatus(status: string, language: Language) {
-  const translation = {
-    potential: ['Potential finding', 'อาจพบปัญหา'],
-    partial: ['Partial coverage', 'ตรวจได้บางส่วน'],
-    lookup_complete: ['No finding in covered scope', 'ไม่พบในขอบเขตที่ตรวจ'],
-    unassessed: ['Unassessed', 'ยังไม่ได้ประเมิน'],
-  }[status]
-  return translation ? say(language, translation[0], translation[1]) : status
 }
 
 function spreadsheetCell(value: string) {

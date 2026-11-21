@@ -167,6 +167,13 @@ def supported_intake_identity(identity, row, items, sources):
 
 def resolve_scan_identities(preview, form, get_provider):
     label_items = _label_items(form.evidence.items, form.evidence.sources)
+    note_ids = {note.evidence.source_id for note in form.other_source_notes}
+    documented_text = {source.id for source in form.evidence.sources
+                       if source.id in note_ids and source.availability == "available"
+                       and source.kind in {"other_record", "prescription", "transfer_record"}}
+    label_items.update((row.id, fact.evidence.source_id, None) for row in preview.rows
+                       for fact in row.observed_names if fact.evidence.item_id is None
+                       and fact.evidence.source_id in documented_text)
     front_attachments = {s.attachment_id or s.id for s in form.evidence.sources
                          if s.kind in {"label_photo", "additional_photo"}}
     label_items.update((r.row_id, r.source_id, r.item_id) for r in preview.located_regions
