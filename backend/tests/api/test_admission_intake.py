@@ -43,7 +43,10 @@ def submit(http, payload, expected=200):
 
 
 def test_admit_sync_verify_and_import_preserve_quantity_and_schedule(client):
-    command = submission(medicine())
+    order = medicine()
+    order["sources"][0]["organization"] = "Synthetic Clinic"
+    order["row"]["dispensing_source_id"] = order["sources"][0]["id"]
+    command = submission(order)
     case = submit(client, command)
     assert case["rows"]["row-a"]["verified"] is None and case["revision"] == 1
     assert submit(client, command)["revision"] == 1
@@ -68,6 +71,7 @@ def test_admit_sync_verify_and_import_preserve_quantity_and_schedule(client):
     receipt = case["receipts"][0]
     records = client.get("/imports", params={"imported_at":receipt["imported_at"]},headers=headers("pharmacist")).json()
     snapshot = records[0]["snapshot"]["rows"][0]
+    assert snapshot["dispensing_source_id"] == "row-a-order"
     assert snapshot["label_fields"]["amount_prescribed"]["value"] == "21 tablets"
     preserved = next(c for c in snapshot["regimens"] if c["component_id"] == "row-a-component")
     assert preserved["dose_amount"] == 1 and preserved["time_of_day"] == ["morning"]
@@ -123,11 +127,15 @@ def test_linked_scan_and_draft_corrections_keep_distinct_provenance(client):
                       organization_phone="000000", organization_type="clinic")], items=[],
         notes={"scan-note": "Synthetic A 10 mg"}, physical_items={}, regions={})],
         corrections={"strength": "5 mg", "directions": ""})
+    second_schedule = deepcopy(primary["row"]["regimens"][0])
+    second_schedule["evidence"] = {key:ref for key in second_schedule["evidence"]}
+    primary["linked"][0]["row"]["regimens"] = [second_schedule]
     command = submission(primary)
     case = submit(client, command)
     row = case["rows"]["row-a"]
     assert len(row["intake_sources"]) == 2 and row["intake_sources"][1]["dispensing_source_id"] == "scan-note"
     entries = {e["source"]["id"]: e for e in row["entries"]}
+    assert len({r["component_id"] for r in row["intake"]["regimens"]}) == 2
     assert entries["scan-note"]["strength"] == "10 mg"
     assert entries["scan-note"]["source"]["organization_phone"] == "000000"
     assert entries["intake-correction-row-a-strength"]["strength"] == "5 mg"

@@ -37,7 +37,8 @@ def test_missing_group_or_its_photo_evidence_rejects_transfer_preview_and_allows
         rows = retry.json()["rows"]
         assert [row["id"] for row in rows] == ["row-a", "row-b", "row-c"]
         assert rows[2]["identity_status"] == "unlabeled"
-        assert rows[2]["reverse_crop"] == {"source_id": "reverse-photo", "item_id": "pill-c"}
+        assert rows[2]["reverse_crop"] is None
+        assert {"source_id": "reverse-photo", "item_id": "pill-c"} in rows[2]["sources"]
 
 
 @pytest.mark.parametrize("sides", [("front",), ("reverse",), ("front", "reverse")])

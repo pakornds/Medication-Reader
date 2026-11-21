@@ -215,7 +215,7 @@ export function AnalysisPreview({
   }
   return (
     <section className="intake-panel stack">
-      <h2>{t.preview}</h2>
+      <h2>{t.preview} · {preview.rows.length}</h2>
       {!preview.rows.length && <p>{t.noRows}</p>}
       {preview.rows.map((row) => {
         const existing = knownOrder(draft.medicines, row.id)

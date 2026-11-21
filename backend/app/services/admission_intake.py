@@ -7,6 +7,7 @@ from hashlib import sha256
 from app.ai.client import EvidenceImage
 from app.schemas.admission import NewEncounter, Photo, SourceEntry
 from app.schemas.admission_intake import IntakeSubmission
+from app.schemas.analysis import FollowUp
 from app.schemas.evidence import EvidenceSource, PHOTO_KINDS, REPORT_KINDS
 from app.services.admission_intake_evidence import prepare_sources
 from app.services.admissions import capture_orientation, new_encounter, new_row, now, require, unresolved_photo
@@ -45,7 +46,7 @@ def _entries(medicine, encoded, images, by_source, names_by_source):
     require(set(medicine.regions) == set(medicine.physical_items) == photo_regions, "Supply the cited image regions.")
     require(set(medicine.notes) == {s.id for s in medicine.sources if s.kind not in PHOTO_KINDS},
             "Preserve the wording of every cited note.")
-    front_ids = {s.id for s in medicine.sources if s.kind == "label_photo"}
+    front_ids = {s.id for s in medicine.sources if s.kind in {"label_photo", "additional_photo"}}
     front = {medicine.physical_items[i.id] for i in medicine.items if i.source_id in front_ids}
     for src in medicine.sources:
         reference = refs[src.id]
@@ -167,6 +168,12 @@ def save_intake(store, actor, request: IntakeSubmission):
                 continue
             medicine, source_fields, source_names = prepared[rid]
             entries = _entries(medicine, encoded, images, source_fields, source_names)
+            crop = medicine.row.reverse_crop
+            if crop and not any(e["source"]["id"] == crop.source_id and e["photo"] and
+                                e["photo"]["pairing"] == "matched" for e in entries):
+                medicine.row.reverse_crop = None
+                medicine.row.follow_ups.append(FollowUp(field="photo_match",
+                    question="Can the reviewer match the reverse photo to this item?"))
             for entry in entries:
                 sid = entry["source"]["id"]
                 require(sid not in reserved, "Use new source IDs for independent, retired or unavailable evidence.", 409)

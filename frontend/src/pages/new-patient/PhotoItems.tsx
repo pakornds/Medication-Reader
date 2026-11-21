@@ -13,6 +13,8 @@ const fullImage = { x: 0, y: 0, w: 100, h: 100 }
 type Props = { photo: Photo; photos: Photo[]; t: IntakeText; onChange: (regions: Region[]) => void; proposePhoto?: (photo: Photo) => Promise<RegionBounds[]> }
 
 export function PhotoItems({ photo, photos, t, onChange, proposePhoto }: Props) {
+  const [advanced, setAdvanced] = useState(false)
+  const pending = photo.regions.filter(region => region.pendingPair).length
   const [suggestions, setSuggestions] = useState<Box[]>([])
   const [detection, setDetection] = useState<'idle' | 'working' | 'empty' | 'error'>('idle')
   const request = useRef(0)
@@ -74,6 +76,15 @@ export function PhotoItems({ photo, photos, t, onChange, proposePhoto }: Props) 
   }
   return (
     <div className="stack">
+      {!advanced && <div className="region-image" style={{cursor:'default'}}>
+        <EvidenceImage file={photo.file} />
+        {photo.regions.map(({id,box}, i) => <RegionOutline key={id} box={box} number={i+1}/>)}
+      </div>}
+      <p className="hint">{photo.regions.length ? t.markedItems + ' · ' + photo.regions.length : photo.kind === 'reverse_photo' ? t.wholeReverse : t.wholeTable}</p>
+      {pending > 0 && <p role="status">{t.pendingReverse} · {pending}</p>}
+      <details className="photo-marking" open={advanced} onToggle={event => setAdvanced(event.currentTarget.open)}>
+        <summary>{t.markManually}</summary>
+        {advanced && <div className="stack">
       {proposePhoto && photo.kind !== 'additional_photo' && <div className="stack">
         <div className="actions">
           <Button disabled={detection === 'working'} aria-busy={detection === 'working'} onClick={() => void detect()}>{t.findRegions}</Button>
@@ -103,7 +114,7 @@ export function PhotoItems({ photo, photos, t, onChange, proposePhoto }: Props) 
           </Button>
         </p>
       )}
-      <Button onClick={() => add(fullImage)}>{t.whole}</Button>
+      {!photo.regions.length && <Button onClick={() => add(fullImage)}>{t.singlePackage}</Button>}
       <details>
         <summary>{t.bounds}</summary>
         <div className="region-coordinates">
@@ -146,7 +157,8 @@ export function PhotoItems({ photo, photos, t, onChange, proposePhoto }: Props) 
           {photo.kind === 'reverse_photo' ? (
             <label>
               {t.match}
-              <select value={r.rowId} onChange={(e) => update(r.id, { rowId: e.target.value })}>
+              <select value={r.pendingPair ? '' : r.rowId} onChange={(e) => update(r.id, { rowId: e.target.value, pendingPair: r.pendingPair===undefined ? undefined : false })}>
+                {r.pendingPair && <option value="" disabled>{t.chooseReverse}</option>}
                 <option value={r.id}>{t.separate}</option>
                 {frontRows.map((row) => (
                   <option key={row.id} value={row.id}>
@@ -164,6 +176,8 @@ export function PhotoItems({ photo, photos, t, onChange, proposePhoto }: Props) 
           )}
         </div>
       ))}
+        </div>}
+      </details>
     </div>
   )
 }

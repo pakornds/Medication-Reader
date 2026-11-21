@@ -957,7 +957,10 @@ class AdmissionStore:
                 ]) for key in conflicts]
             carry_intake(row, refs, regimens, discrepancies, reports, label_fields)
             verification.resolved_discrepancies = [d.id for d in discrepancies]
+            intake = row.get("intake") or {}
+            dispenser = intake.get("dispensing_source_id")
             importable.append(ReviewRow(
+                dispensing_source_id=dispenser if dispenser in refs else None,
                 id=row["id"], identity_status="unlabeled" if row["unknown"] else "named",
                 unknown_label=row["id"] if row["unknown"] else None,
                 observed_names=[] if row["unknown"] else [name], reported_use=reports,

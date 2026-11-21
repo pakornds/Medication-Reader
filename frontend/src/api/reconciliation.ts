@@ -5,7 +5,12 @@ import type { EvidenceItem, FormAnalysisInput } from './contracts'
 const client = createClient(import.meta.env.VITE_API_BASE_URL)
 export function analysisForm(caseId: string, evidence: Evidence): FormData {
   const notes = evidence.notes.filter((note) => note.text.trim())
-  const { photos } = evidence
+  // A detected reverse-side item contributes to a row only after the reviewer places it.
+  const photos = evidence.photos.flatMap(photo => {
+    if (!photo.regions.some(region => region.pendingPair)) return [photo]
+    const regions = photo.regions.filter(region => !region.pendingPair)
+    return regions.length ? [{...photo,regions}] : []
+  })
   const sources = [
     ...photos.flatMap((photo) => [
       { id: photo.id, kind: photo.kind, attachment_id: photo.id, source_date: photo.date || null },
@@ -39,7 +44,7 @@ export function analysisForm(caseId: string, evidence: Evidence): FormData {
       photo.regions.map(({ id, box }) => [
         id,
         {
-          [id]: `Region in uploaded image: x=${box.x}%, y=${box.y}% from top left; width=${box.w}%, height=${box.h}%`,
+          [id]: [box.x, box.y, box.w, box.h].map(value => +value.toFixed(8) + '%').join(','),
         },
       ]),
     ),
@@ -57,11 +62,30 @@ export function analysisForm(caseId: string, evidence: Evidence): FormData {
       other_source_notes: facts(false),
       question: evidence.question.trim() || null,
       photo_source_ids: photos.map((photo) => photo.id),
+      scene_photo_ids: photos.filter(photo => !photo.regions.length).map(photo => photo.id),
       region_locations: locations,
     } satisfies FormAnalysisInput),
   )
   for (const photo of photos) body.append('photos', photo.file)
   return body
+}
+
+export function applyLocatedRegions(evidence: Evidence, preview: Preview): Evidence {
+  const discovered = preview.located_regions
+  if (!discovered?.length) return evidence
+  const hasFront = evidence.photos.some(photo => photo.kind === 'label_photo')
+  const photos = evidence.photos.map(photo => {
+    const located = discovered.filter(item => item.attachment_id === photo.id)
+    if (!located.length) return photo
+    const additions = located.filter(item => !photo.regions.some(region => region.id === item.item_id))
+      .map(({item_id, row_id, bounds}) => ({
+        id: item_id, rowId: row_id, organization: '',
+        pendingPair: photo.kind === 'reverse_photo' && hasFront ? true : undefined,
+        box: { x: bounds.x * 100, y: bounds.y * 100, w: bounds.width * 100, h: bounds.height * 100 },
+      }))
+    return { ...photo, regions: [...photo.regions, ...additions] }
+  })
+  return { ...evidence, photos }
 }
 
 export async function analyze(draft: Draft, signal: AbortSignal): Promise<Preview> {

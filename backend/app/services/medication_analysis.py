@@ -34,15 +34,21 @@ from app.schemas.evidence import (
 from app.schemas.regimen import RegimenComponent, RegimenParseRequest
 from app.services.labels import LabelPhotoError, _matches_media_type, crop_label, read_label
 from app.services.regimens import parse_directions
+from app.services.scene_analysis import LocatedRegion, PhotoIssue, analyze_scenes
 
 
 class FormAnalysisInput(AnalysisRequest):
+    scene_photo_ids: list[Text] = Field(default_factory=list, max_length=16)
     photo_source_ids: list[Text] = Field(default_factory=list, max_length=16)
     region_locations: dict[Text, dict[Text, Text]] = Field(default_factory=dict)
     patient_report_row_ids: dict[Text, Text] = Field(default_factory=dict)
 
 
 class AnalysisPreview(AnalysisResult):
+    located_regions: list[LocatedRegion] = Field(default_factory=list)
+    photo_issues: list[PhotoIssue] = Field(default_factory=list)
+    remaining_evidence_unassessed: bool = False
+    unassessed_question: bool = False
     dispensing_facilities: dict[Text, DispensingFacility] = Field(default_factory=dict)
     unavailable_sources: list[EvidenceSource] = Field(default_factory=list)
     unassigned_reports: list[SourcedValue] = Field(default_factory=list)
@@ -234,6 +240,8 @@ class FormGrounding:
         return (
             source is not None and source.kind == SourceKind.REVERSE_PHOTO
             and item is not None and item.kind == "pill_crop"
+            and any(other.row_id == row_id and self.sources[other.source_id].kind in {"label_photo", "additional_photo"}
+                    for other in self.form.evidence.items)
         )
 
     def supports_disputed_value(
@@ -430,6 +438,8 @@ def analyze_medication_form(
     get_provider: Callable[[], OpenAIClient],
 ) -> AnalysisPreview:
     linked_sources = validate_form_input(form, photos)
+    if form.scene_photo_ids:
+        return analyze_scenes(form, photos, get_provider, linked_sources)
     provider_input = form.model_dump(mode="json")
     provider_input["uploaded_photo_sources"] = linked_sources
     sources = {s.id: s for s in form.evidence.sources}
@@ -458,8 +468,10 @@ def analyze_medication_form(
     provider_input["label_transcripts"] = [
         row.model_dump(mode="json", exclude={"dispensing_facility"}) for row in transcripts.values()
     ]
-    if (len(transcripts) == 1 and len(form.evidence.sources) == 1 and
-            len(form.evidence.items) == 1 and not form.question):
+    all_labels = list(transcripts.values())
+    if (all_labels and len(all_labels) == len(form.evidence.items) and not other_images
+            and len({row.id for row in all_labels}) == len(all_labels)
+            and not form.patient_report and not form.other_source_notes and not form.question):
         proposed = AnalysisResult(case_id=form.evidence.case_id, rows=list(transcripts.values()))
     else:
         proposed = provider.generate(

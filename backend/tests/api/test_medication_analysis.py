@@ -115,11 +115,13 @@ async def test_mixed_form_keeps_unresolved_item_and_sources(client, case):
     assert [item["basis"] for item in named["regimens"]] == ["documented", "reported"]
     assert {item["field"] for item in named["discrepancies"]} == {"identity", "directions"}
     assert unknown["identity_status"] == "unlabeled"
-    assert unknown["reverse_crop"]["item_id"] == "pill-c"
+    assert unknown["reverse_crop"] is None
+    assert {"source_id":"reverse-photo", "item_id":"pill-c"} in unknown["sources"]
     assert unknown["dispensing_source_id"] is None
     assert {item["question"] for item in unknown["follow_ups"]} == {
         "Does the patient have the original labeled package?",
         "Can the dispensing clinic confirm the directions?",
+        "Can the reviewer match the reverse photo to this item?",
     }
     assert unknown["follow_ups"][1]["potential_source_id"] == "prior-clinic"
     assert [source["id"] for source in preview["unavailable_sources"]] == ["prior-clinic"]
@@ -128,7 +130,7 @@ async def test_mixed_form_keeps_unresolved_item_and_sources(client, case):
         "reported_use_source": named["reported_use"][0]["evidence"]["source_id"],
         "printed_directions_source": named["label_fields"]["directions"]["evidence"]["source_id"],
         "unknown": unknown["identity_status"],
-        "crop": unknown["reverse_crop"]["item_id"],
+        "unmatched_crop": unknown["sources"][0]["item_id"],
         "follow_up_fields": [item["field"] for item in unknown["follow_ups"]],
     }))
 

@@ -1,4 +1,6 @@
 """Combine staff-linked snapshots without losing a competing source or converting corrections to OCR."""
+from hashlib import sha256
+
 from app.schemas.analysis import AnalysisResult, Discrepancy, validate_analysis_result
 from app.schemas.evidence import CaseEvidence, EvidenceRef, EvidenceSource, Observation, SourcedValue
 from app.schemas.admission_intake import IntakePart
@@ -48,13 +50,22 @@ def prepare_sources(medicine, case_id):
         if candidate.identity_status == "named":
             _extend_unique(candidate.observed_names, part.row.observed_names)
         _extend_unique(candidate.reported_use, part.row.reported_use)
-        _extend_unique(candidate.regimens, part.row.regimens)
+        for component in part.row.regimens:
+            if component in candidate.regimens:
+                continue
+            if any(existing.component_id == component.component_id for existing in candidate.regimens):
+                # Parser IDs are row-local. A linked scan can also call its first schedule "form-1".
+                digest = sha256(component.model_dump_json().encode()).hexdigest()[:24]
+                component = component.model_copy(update={"component_id": "linked-regimen-" + digest})
+            _extend_unique(candidate.regimens, [component])
         _extend_unique(candidate.discrepancies, part.row.discrepancies)
         _extend_unique(candidate.follow_ups, part.row.follow_ups)
         candidate.reverse_crop = candidate.reverse_crop or part.row.reverse_crop
         for key, value in part.row.label_fields.items():
             if key not in candidate.label_fields or candidate.label_fields[key].status != "readable":
                 candidate.label_fields[key] = value
+    dispensing = {part.row.dispensing_source_id for part in parts if part.row.dispensing_source_id}
+    candidate.dispensing_source_id = next(iter(dispensing)) if len(dispensing) == 1 else None
     # Corrections are statements by the intake reviewer. Keep original facts and their original source IDs.
     for key, corrected in medicine.corrections.items():
         sid = f"intake-correction-{rid}-{key}"
