@@ -69,6 +69,18 @@ test("a response also becomes stale after evidence, context, reference or case c
   for (const [edited, version] of edits) assert.match(render(edited, report, version), /Stale/);
 });
 
+test("changing verification at the same revision hides the prior result", () => {
+  const [row, ...others] = request.rows;
+  const verification = {
+    reviewer: service.reviewer, verified_at: "2026-11-21T04:03:00Z", status: "current",
+    normalized_medication_id: "demo-a", identity: row.observed_names[0], evidence: [row.sources[0]],
+  };
+  const verified = { ...request, rows: [{ ...row, verification }, ...others] };
+  const report = { snapshot: captureCheckSnapshot(verified), summary: service.ddi_partial };
+  assert.match(render(verified, report), /Partial coverage/);
+  assert.match(render(request, report), /Stale/);
+});
+
 test("unavailable rules and complete coverage expose reasons and the right denominator", () => {
   const drp = { ...request, kind: "DRP" };
   const unavailable = render(drp, { snapshot: captureCheckSnapshot(drp), summary: service.drp_unavailable });

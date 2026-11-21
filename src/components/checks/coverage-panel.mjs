@@ -9,9 +9,10 @@ const statusLabels = {
 /** Capture at request time, before awaiting the check. Keep the snapshot in memory. */
 export function captureCheckSnapshot(request, referenceVersion = null) {
   const { kind, enabled, rows, evidence, context = {} } = request;
-  const revisions = rows.map(row => [row.id, row.revision]).sort(([left], [right]) => left.localeCompare(right));
+  const checkedRows = rows.map(({ approval: _approval, ...row }) => row)
+    .sort((left, right) => left.id.localeCompare(right.id));
   const facts = Object.entries(context).sort(([left], [right]) => left.localeCompare(right));
-  return { kind, enabled, key: JSON.stringify([kind, enabled, evidence, revisions, facts, referenceVersion]) };
+  return { kind, enabled, key: JSON.stringify([kind, enabled, evidence, checkedRows, facts, referenceVersion]) };
 }
 
 function textElement(document, tag, text) {
