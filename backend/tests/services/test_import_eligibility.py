@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from app.schemas.analysis import AnalysisRequest, Discrepancy
-from app.schemas.review import ImportRequest, ReviewerIdentity, ReviewRow
+from app.schemas.review import IdentityResolutionEvidence, ImportRequest, ReviewerIdentity, ReviewRow
 from app.services.import_eligibility import ApprovalLedger, EligibilityError
 
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "contracts" / "transfer_case.json"
@@ -102,3 +102,33 @@ def test_unresolved_discrepancy_blocks_approval(prepared_import):
     with pytest.raises(EligibilityError) as exc:
         ApprovalLedger().approve(PHARMACIST, row, prepared_import.evidence)
     assert exc.value.detail.code == "unresolved_conflict"
+
+
+@pytest.mark.parametrize("record_resolution", [False, True])
+def test_disputed_identity_cannot_be_resolved_with_a_second_crop(prepared_import, record_resolution):
+    row = prepared_import.rows[0]
+    evidence = prepared_import.evidence
+    original = row.observed_names[0]
+    crop = evidence.items[1].model_copy(update={"id": "second-crop"})
+    evidence.items.append(crop)
+    second_crop = original.model_copy(deep=True)
+    second_crop.evidence.item_id = crop.id
+    row.sources.append(second_crop.evidence)
+    row.discrepancies = [Discrepancy(
+        id="discrepancy", field="identity", question="Which identity can be verified?",
+        observed_values=[original, second_crop.model_copy(update={"value": "Demo C"})],
+    )]
+    row.verification.identity = second_crop
+    row.verification.resolved_discrepancies = ["discrepancy"]
+    if record_resolution:
+        row.verification.identity_resolutions = [IdentityResolutionEvidence(
+            discrepancy_id="discrepancy",
+            evidence=second_crop.evidence,
+            documented_name=second_crop.value,
+            identity_basis="matched_original_package",
+            finding=f"Read {second_crop.value} from the second crop of the bag.",
+        )]
+
+    with pytest.raises(EligibilityError) as exc:
+        ApprovalLedger().approve(PHARMACIST, row, evidence)
+    assert exc.value.detail.code == "independent_identity_evidence_required"

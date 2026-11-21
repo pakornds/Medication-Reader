@@ -7,9 +7,10 @@ from hashlib import sha256
 from threading import Lock
 
 from app.schemas.analysis import AnalysisResult, EvidenceValidationError, validate_analysis_result
-from app.schemas.evidence import PHOTO_KINDS, CaseEvidence
+from app.schemas.evidence import PHOTO_KINDS, CaseEvidence, EvidenceSource, SourceKind, SourcedValue
 from app.schemas.regimen import validate_regimen_evidence
 from app.schemas.review import (
+    IdentityResolutionEvidence,
     ImportRequest,
     PharmacistApproval,
     ReviewerIdentity,
@@ -72,6 +73,58 @@ def _validate_review(row: ReviewRow, evidence: CaseEvidence) -> None:
         raise EligibilityError(
             "invalid_evidence", "A reviewed field lacks attributable case evidence.", [row.id]
         ) from None
+
+    _validate_identity_resolutions(
+        row, verification.identity, verification.identity_resolutions, sources,
+    )
+
+
+def _validate_identity_resolutions(
+    row: ReviewRow,
+    identity: SourcedValue,
+    recorded: list[IdentityResolutionEvidence],
+    sources: dict[str, EvidenceSource],
+) -> None:
+    disputes = {dispute.id: dispute for dispute in row.discrepancies if dispute.field == "identity"}
+    if not disputes and not recorded:
+        return
+    resolutions = {resolution.discrepancy_id: resolution for resolution in recorded}
+    error = EligibilityError(
+        "independent_identity_evidence_required",
+        "Document independent evidence that identifies this specific item.",
+        [row.id],
+    )
+    if disputes.keys() != resolutions.keys() or len(resolutions) != len(recorded):
+        raise error
+
+    reference = identity.evidence
+    source = sources[reference.source_id]
+    if reference.item_id is None:
+        raise error
+    if source.kind not in PHOTO_KINDS and source.kind not in {
+        SourceKind.PRESCRIPTION, SourceKind.TRANSFER_RECORD, SourceKind.REVIEWER_RECORD,
+    }:
+        raise error
+    verified_name = identity.value.strip().casefold()
+    for dispute_id, resolution in resolutions.items():
+        finding = resolution.finding.strip().casefold()
+        if (
+            resolution.evidence != reference
+            or resolution.documented_name.strip().casefold() != verified_name
+            or verified_name not in finding
+            or finding == verified_name
+        ):
+            raise error
+        for observed in disputes[dispute_id].observed_values:
+            challenged = sources[observed.evidence.source_id]
+            if source.id == challenged.id or (
+                source.attachment_id is not None and source.attachment_id == challenged.attachment_id
+            ):
+                raise error
+            if source.kind in PHOTO_KINDS and challenged.kind in PHOTO_KINDS and (
+                source.attachment_id is None or challenged.attachment_id is None
+            ):
+                raise error
 
 
 def _fingerprint(row: ReviewRow, evidence: CaseEvidence) -> str:
