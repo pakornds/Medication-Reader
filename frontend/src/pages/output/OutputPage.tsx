@@ -9,6 +9,8 @@ import { RegimenReadback } from '../new-patient/RegimenReadback'
 import { regimenText } from '../../i18n/regimen'
 import type { Language } from '../../i18n/messages'
 import { exclusion, importRequestId, medicineName, saveReceipt } from './importSelection'
+import { Handoff } from '../clinical/Handoff'
+import { bilingual } from '../clinical/review'
 
 const text = {
   en: {
@@ -55,6 +57,7 @@ type Props = {
   actor: ReviewerIdentity
   encounter: Encounter
   onEncounter: (value: Encounter) => void
+  onReviewRow?: (caseId: string, rowId: string) => void
 }
 
 type ErrorKey = 'failed' | 'conflict' | 'refreshFailed' | 'denied' | 'rejected' | 'noReceipt'
@@ -63,7 +66,7 @@ export function OutputPage(props: Props) {
   return <Output key={JSON.stringify([props.encounter.id, props.actor.id])} {...props} />
 }
 
-function Output({ language, client, actor, encounter, onEncounter }: Props) {
+function Output({ language, client, actor, encounter, onEncounter, onReviewRow }: Props) {
   const t = text[language]
   const [selection, setSelection] = useState({ revision: encounter.revision, ids: [] as string[] })
   const [busy, setBusy] = useState(false)
@@ -137,6 +140,7 @@ function Output({ language, client, actor, encounter, onEncounter }: Props) {
 
   return <div className="intake stack">
     <div className="intake-title"><h1>{t.title}</h1><p>{encounter.patient_alias}</p></div>
+    <div><Handoff encounter={encounter} client={client} t={bilingual(language)} /></div>
     {success && <section className="intake-panel stack" role="status">
       <h2 className="flex items-center gap-2"><LuCheck aria-hidden="true" />{t.success}</h2>
       <p>{t.time} · <time dateTime={success.receipt.imported_at}>{success.receipt.imported_at}</time></p>
@@ -164,12 +168,16 @@ function Output({ language, client, actor, encounter, onEncounter }: Props) {
               </span>
             </label>
               {v.regimens?.map(component => <RegimenReadback key={component.component_id} component={component} t={regimenText[language]} />)}
+              {onReviewRow && <Button variant="text" onClick={() => onReviewRow(encounter.id, row.id)}>
+                {t.goReview} · {v.identity!.name}</Button>}
             </div>
           })}
         </fieldset>}
         {excluded.length > 0 && <div><h3>{t.excluded} · {excluded.length}</h3>
           <ul className="divide-y divide-line">{excluded.map(row => <li className="py-2" key={row.id}>
             <strong>{medicineName(row) || t.unknown}</strong> · {t[exclusion(row)!]}
+            {onReviewRow && <Button variant="text" onClick={() => onReviewRow(encounter.id, row.id)}>
+              {t.goReview} · {medicineName(row) || row.id}</Button>}
           </li>)}</ul>
         </div>}
         <Link className="text-action" to="/new-patient/review"><LuArrowLeft aria-hidden="true" />{t.goReview}</Link>

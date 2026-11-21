@@ -9,7 +9,7 @@ from app.schemas.admission import NewEncounter, Photo, SourceEntry
 from app.schemas.admission_intake import IntakeSubmission
 from app.schemas.analysis import FollowUp
 from app.schemas.evidence import EvidenceSource, PHOTO_KINDS, REPORT_KINDS
-from app.services.admission_intake_evidence import prepare_sources
+from app.services.admission_intake_evidence import intake_documents, prepare_sources
 from app.services.admissions import capture_orientation, new_encounter, new_row, now, require, unresolved_photo
 
 
@@ -34,7 +34,7 @@ def _prepare_images(request, existing, medicines):
     return images, orientations
 
 
-def _entries(medicine, encoded, images, by_source, names_by_source):
+def _entries(medicine, encoded, images, by_source, names_by_source, excerpts):
     """Build ordinary admission source entries. Keep the exact suggestion alongside its citations."""
     result = []
     row = medicine.row
@@ -72,7 +72,7 @@ def _entries(medicine, encoded, images, by_source, names_by_source):
             wording = name or attrs.get("directions") or next((o.value for o in fields.values() if o.value), None)
             wording = wording or row.unknown_label or "Located medication image"
         else:
-            wording = medicine.notes[src.id]
+            wording = excerpts.get((row.id, src.id), medicine.notes[src.id])
         # The source's actual words remain intact. A staff-entered product selection is a separate record.
         documented_name = name if name and name.casefold() in wording.casefold() else None
         transcribed = {key: value for key, value in attrs.items()
@@ -157,6 +157,12 @@ def save_intake(store, actor, request: IntakeSubmission):
         changed = {rid for rid in old.keys() | by_id.keys() if old.get(rid) != digests.get(rid)}
         encoded = {aid: b64encode(im.content).decode("ascii") for aid, im in images.items() if aid in orientations}
         reserved = _reserved_evidence(case)
+        reserved.update(case.get("documents", {}))
+        excerpts, document_ids = intake_documents(case, by_id, prepared, reserved)
+        for (rid, sid), wording in excerpts.items():
+            prior_row = case["rows"].get(rid)
+            if prior_row and any(e["source"]["id"] == sid and e["wording"] != wording for e in prior_row["entries"]):
+                changed.add(rid)
         generated = {}
         for rid in sorted(changed):
             row = case["rows"].get(rid)
@@ -167,7 +173,7 @@ def save_intake(store, actor, request: IntakeSubmission):
                 del case["rows"][rid]
                 continue
             medicine, source_fields, source_names = prepared[rid]
-            entries = _entries(medicine, encoded, images, source_fields, source_names)
+            entries = _entries(medicine, encoded, images, source_fields, source_names, excerpts)
             crop = medicine.row.reverse_crop
             if crop and not any(e["source"]["id"] == crop.source_id and e["photo"] and
                                 e["photo"]["pairing"] == "matched" for e in entries):
@@ -176,7 +182,8 @@ def save_intake(store, actor, request: IntakeSubmission):
                     question="Can the reviewer match the reverse photo to this item?"))
             for entry in entries:
                 sid = entry["source"]["id"]
-                require(sid not in reserved, "Use new source IDs for independent, retired or unavailable evidence.", 409)
+                require(sid not in reserved or sid in document_ids,
+                        "Use new source IDs for independent, retired or unavailable evidence.", 409)
                 if sid not in {source.id for source in medicine.sources}:
                     require(sid not in registry and generated.setdefault(sid, rid) == rid,
                             "Use distinct IDs for staff selection and documentary evidence.")
@@ -196,6 +203,8 @@ def save_intake(store, actor, request: IntakeSubmission):
             row.update(entries=entries, intake=medicine.row.model_dump(mode="json"),
                        intake_entry_ids=[e["source"]["id"] for e in entries],
                        intake_catalogue=medicine.catalogue.model_dump(mode="json") if medicine.catalogue else None)
+            if original.document_excerpts:
+                row["intake_document_excerpts"] = original.document_excerpts.copy()
             if original.linked or original.corrections:
                 row["intake_sources"] = [part.row.model_dump(mode="json") for part in [original, *original.linked]]
                 row["intake_corrections"] = original.corrections.copy()

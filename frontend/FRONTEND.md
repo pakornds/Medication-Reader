@@ -1,8 +1,8 @@
 # Med Reader frontend architecture
 
-The app has one medication reconciliation workflow and three destinations. **Home** introduces the workflow. **New Patient** holds the active case. **History** lists successful imports. All three use the same top bar. The demo opens on Home, with no sign-in screen or account menu.
+The app has one medication reconciliation workflow and three destinations. **Home** introduces the workflow. **New Patient** holds the active case. **History** lists successful imports. All three use the same top bar. The demo opens on Home. Staff sign in there to open an assigned encounter, or sign in from a stage when saving their first draft.
 
-This is the proposed structure for the existing Vite, React and TypeScript scaffold. The v1 design and some ticket paths still assume Next.js App Router. Use the Vite entry point and coordinate path changes with the owners of those tickets before implementing them. The backend publishes the FastAPI contract and owns import authorization. [V1 design](../docs/specs/medication-reader-v1.md) · [AI behavior contract](../docs/ai/reconciliation-behavior.md)
+Run the Vite, React and TypeScript app from `frontend/`. The workspace uses the typed FastAPI client and the server checks clinical roles, source evidence and import eligibility. [Local setup](README.md) · [V1 design](../docs/specs/medication-reader-v1.md)
 
 ## Navigation
 
@@ -33,50 +33,21 @@ On wide screens, place the medication list on the left and the selected row's de
 | In the detail panel | What staff see or record |
 | --- | --- |
 | Identity and source | Show the row's source and link each populated field to its evidence. A matched pill-side crop can sit beside **Unknown medication A** while its dispensing source is still unknown. If matching is uncertain, show a missing-image note. Loose-pill catalog matches remain candidates pending independent evidence. |
-| Directions and actual use | Show **Printed directions** with the original label wording and **Reported use** with the reporter and date. A pharmacist or doctor records **Verified current use**, including current, stopped, or uncertain status, supporting evidence, verifier and time. |
+| Directions and actual use | Show **Printed directions** with the original label wording and **Reported use** with the reporter and date. An assigned nurse, doctor or pharmacist records **Verified current use**, including current, stopped, or uncertain status, supporting evidence, verifier and time. A pharmacist confirms a previously unknown item using independent, item-specific evidence. |
 | Discrepancies | Put conflicting source values together. Preserve both originals when the reviewer records a resolution. Leave missing or unreadable values blank with a visible reason and a specific follow-up. |
 
 ### Output — hand off the draft or import reviewed rows
 
 - **Print draft** opens a dated handoff containing all rows, their sources, unresolved questions, matched crops and space for handwritten verification. Printing is available while rows are pending. It creates no import receipt.
-- **Import preview** shows which rows can be selected and gives a reason beside each ineligible row. Selection and pharmacist approval are separate actions. Before submission show the selected count and the rows that will remain pending. Any edit to an approved row requires fresh approval.
-- **Import selected rows** submits the explicitly approved subset. If the server rejects a selected row, show the reason and a route back to Review. Keep the selection available for correction. For a retry of an unchanged submission, reuse its transient retry token.
+- **Import preview** shows which rows can be selected and gives a reason beside each ineligible row. Staff can adjust the selection until the pharmacist submits it. Before submission show the selected count and the rows that will remain pending. Any edit to an approved row requires fresh approval.
+- **Approve and import selected rows** submits the pharmacist’s selection in one action. If the server rejects a selected row, show the reason and a route back to Review. Keep the selection available for correction. For a retry of an unchanged submission, reuse its transient retry token.
 - On success show the server's receipt timestamp and distinguish imported rows from those still pending. History gains the successful UTC timestamp. The remaining rows stay in the active case for follow-up.
 
-## Proposed source layout
+## Where the workflow runs
 
-The [component guide](docs/components.md) lists planned controls, their owners and when to extract a shared component.
+The Vite entry is `src/main.tsx`. `src/App.tsx` owns the active case, staff session, selected medicine and routes. Input and draft review live in `src/pages/new-patient/`. Assigned clinical review, candidate comparison and print use `src/pages/clinical/`. After saving the draft, open **Review package photos and retakes** to edit the stored front and reverse views or attach a region to an existing medication. A missing reverse can be supplied later. Manual regions are available if automatic detection fails.
 
-Create files as their screens are built.
-
-```text
-src/
-  main.tsx
-  App.tsx                       # Selects the page and owns the active case
-  index.css                     # Tailwind entry, theme tokens, base and print rules
-  assets/
-  components/
-    layout/TopBar.tsx           # Shared navigation and preference controls
-    ui/                         # Shared controls such as Button and StatusLabel
-  pages/
-    home/HomePage.tsx           # Bilingual instructions for the reconciliation workflow
-    new-patient/
-      NewPatientPage.tsx
-      WorkflowNav.tsx
-      InputPage.tsx             # Evidence form and confirmation preview
-      ReviewPage.tsx            # Row list, evidence comparison and verified use
-      OutputPage.tsx            # Printable handoff and approved import selection
-      draft.ts                  # Case state and edit/reset transitions
-    history/
-      HistoryPage.tsx
-      importHistory.ts          # Read and record successful UTC timestamps
-  api/
-    reconciliation.ts           # Typed calls using the FastAPI contract
-  i18n/
-    messages.ts                 # Paired Thai and English interface strings
-```
-
-Page ownership gives each component a natural home. A source comparison or print layout starts beside New Patient. Extract a shared component when another view needs the same behavior. Add stage folders inside New Patient once the screens justify them. Revisit a top-level `features/` folder if the product gains a separately maintained clinical workflow.
+Output uses the admission import action through `src/pages/output/`. History in `src/pages/history/` resolves each saved UTC timestamp against authorized hospital records. Its row action opens the cited encounter and selects the medicine in Review.
 
 ## Case lifetime and API boundary
 

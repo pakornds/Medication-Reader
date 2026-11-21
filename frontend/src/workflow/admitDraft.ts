@@ -1,7 +1,7 @@
 import type { createClient } from '../api/client'
 import type { Encounter } from '../api/admission'
 import type { DispensingFacility, EvidenceItem, EvidenceSource, RegionBounds } from '../api/contracts'
-import { photoCitation, type Draft, type Medicine, type MedicineEvidence, type DraftValues, type CatalogueMatch, type Suggestion } from '../pages/new-patient/draft'
+import { photoCitation, type Draft, type Medicine, type Note, type MedicineEvidence, type DraftValues, type CatalogueMatch, type Suggestion } from '../pages/new-patient/draft'
 
 type Original = { media_type: string; data: string }
 type IntakePart = {
@@ -15,7 +15,27 @@ type IntakePart = {
   physical_items: Record<string, string>
 }
 
-type IntakeRow = IntakePart & { linked: IntakePart[]; corrections: Partial<DraftValues> }
+export type DocumentExcerpts = Record<string, Record<string, string>>
+type IntakeRow = IntakePart & { linked: IntakePart[]; corrections: Partial<DraftValues>; document_excerpts?: Record<string, string> }
+
+export function sharedDocuments(medicines: Medicine[]) {
+  const documents = new Map<string, { note: Note; rows: Set<Medicine> }>()
+  for (const medicine of medicines) {
+    for (const part of [medicine, ...(medicine.linkedScans ?? [])]) {
+      for (const note of part.evidence.notes) {
+        if (note.kind !== 'other_record' || !part.row.sources.some(ref => ref.source_id === note.id)) continue
+        const document = documents.get(note.id) ?? { note, rows: new Set<Medicine>() }
+        document.rows.add(medicine)
+        documents.set(note.id, document)
+      }
+    }
+  }
+  return [...documents.values()].filter(document => document.rows.size > 1)
+}
+
+export function selectedExcerpt(excerpts: DocumentExcerpts, encounter: Encounter | undefined, rowId: string, sourceId: string) {
+  return excerpts[rowId]?.[sourceId] ?? encounter?.rows[rowId]?.intake_document_excerpts?.[sourceId] ?? ''
+}
 
 export type IntakeCommand = {
   case_id: string
@@ -76,10 +96,13 @@ function prepareSnapshot({ row, evidence, facility }: MedicineEvidence, original
     sources: [...sources.values()], items, notes, regions, physical_items: physicalItems }
 }
 
-function prepareMedicine(medicine: Medicine, originals: Map<string, File>): IntakeRow {
+function prepareMedicine(medicine: Medicine, originals: Map<string, File>, excerpts: Record<string, string>): IntakeRow {
   const primary = prepareSnapshot(medicine, originals, medicine.origin, medicine.catalogue ?? null)
   const linked = (medicine.linkedScans ?? []).map(snapshot => prepareSnapshot(snapshot, originals, 'analysis', null))
-  return { ...primary, linked, corrections: medicine.corrections ?? {} }
+  const documentIds = new Set([primary, ...linked].flatMap(part => Object.keys(part.notes)))
+  const selected = Object.fromEntries(Object.entries(excerpts).filter(([id]) => documentIds.has(id)))
+  return { ...primary, linked, corrections: medicine.corrections ?? {},
+    ...(Object.keys(selected).length ? { document_excerpts: selected } : {}) }
 }
 
 function encode(file: File): Promise<Original> {
@@ -96,11 +119,13 @@ function encode(file: File): Promise<Original> {
 }
 
 export async function admitDraft(client: ReturnType<typeof createClient>, draft: Draft,
-  encounter: Encounter | null = null): Promise<Encounter> {
+  encounter: Encounter | null = null, excerpts: DocumentExcerpts = {}): Promise<Encounter> {
   if (encounter && encounter.id !== "admission-" + draft.caseId.replaceAll("-", ""))
     throw new Error("Choose the encounter for this draft.")
   const originals = new Map<string, File>()
-  const rows = draft.medicines.map(m => prepareMedicine(m, originals))
+  const rows = draft.medicines.map(m => prepareMedicine(m, originals, {
+    ...encounter?.rows[m.row.id]?.intake_document_excerpts, ...excerpts[m.row.id],
+  }))
   const uploads = await Promise.all([...originals].filter(([id]) => !encounter?.intake_attachments?.includes(id))
     .map(async ([id, file]) => [id, await encode(file)] as const))
   const current_views: IntakeCommand['current_views'] = {}

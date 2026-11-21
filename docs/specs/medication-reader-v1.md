@@ -15,8 +15,11 @@ flowchart TD
   manual["Search catalogue as you type; select one product"] --> row["Editable medicine row with source and structured directions"]
   front["Photo 1: lay out items label-side up"] --> locate["OpenAI locates packages across the whole photo"]
   reverse["Optional photo 2: flip the same items in place"] --> pair["Staff match a reverse crop to its front item"]
-  locate --> pair
-  locate --> extract["Analyze evidence or transcribe a located label"]
+  locate -->|Reverse present| pair
+  locate -->|Reverse missing| extract
+  pair -->|Association uncertain| retake["Keep reverse pending; adjust or retake its region"]
+  retake --> compare
+  extract["Analyze evidence or transcribe a located label"]
   pair --> extract
   note["Patient report or transfer record"] --> extract
   extract -->|"Named or unidentified prefill"| row
@@ -78,7 +81,7 @@ Facility contact fields are optional. A missing phone or address cannot establis
 | Label and ward record disagree about which medicine is in a bag | Keep the initially named item pending until an assigned nurse, doctor or pharmacist confirms its identity from independent, item-specific evidence. Preserve both accounts and log the incident for pharmacy to review and record the confirmed medication error. An unavailable clinic record can be a follow-up target only. |
 | A new note changes an already approved case | Refresh the handoff and obtain fresh approvals before import. The current backend fingerprints the full evidence manifest, so even an unrelated source edit can invalidate another row's approval. |
 
-**Backend review finding.** The import gate currently verifies that every discrepancy ID is listed as resolved and that reviewed fields have valid case references. It does not establish that confirmation of a disputed identity is independent of the challenged label. Until a resolution carries its own checked evidence, the reviewer must inspect that confirmation. An acceptance case for the gate is to reject an identity resolution supported solely by the disputed label, including another crop of the same label. [Import eligibility implementation](../../backend/app/services/import_eligibility.py)
+The standalone import gate validates the resolution and independently checked evidence for a disputed identity. The admission service also records the assigned clinician’s original decision and the pharmacist’s subsequent assessment, including after finish. [Import gate #65](https://github.com/pakornds/Medication-Reader/issues/65) · [Admission incidents #104](https://github.com/pakornds/Medication-Reader/issues/104)
 
 ### Fixed fields for directions
 
@@ -248,9 +251,6 @@ The backend scaffold and API contracts are prerequisites. [#1](https://github.co
 
 **Merge order.** Follow issue dependencies. Complete prompt verification before integrating the AI-backed routes. Assemble the workspace after feature work and router registration, then run the end-to-end checks.
 
-The following frontend tickets await human readiness review.
-
-- [#36](https://github.com/pakornds/Medication-Reader/issues/36) tracks the proposed Vite frontend scaffold.
-- [#39](https://github.com/pakornds/Medication-Reader/issues/39) tracks the TypeScript API client. It uses the frontend scaffold in #36 and the backend OpenAPI contract and synthetic fixtures in #2.
+The staff workspace runs in Vite. Its typed client calls the mounted FastAPI routes for admission, evidence capture, clinical review and import. [Frontend entry and local setup](../../frontend/README.md) · [Vite scaffold #36](https://github.com/pakornds/Medication-Reader/issues/36) · [Typed client #39](https://github.com/pakornds/Medication-Reader/issues/39)
 
 The one-day demo budget stays the same. Use the [agent workflow](../../AGENTS.md) for separate worktrees and verified merges. The [AI behavior contract](../ai/reconciliation-behavior.md) supplies test cases and model constraints.

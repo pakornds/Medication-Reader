@@ -37,6 +37,7 @@ class IntakePart(ContractModel):
 class IntakeMedicine(IntakePart):
     linked: list[IntakePart] = Field(default_factory=list)
     corrections: dict[Literal["name", "strength", "form", "directions"], str] = Field(default_factory=dict)
+    document_excerpts: dict[Text, Text] = Field(default_factory=dict)
 
 
 class Original(ContractModel):
