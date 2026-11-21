@@ -32,7 +32,8 @@ def record_identity_incident(
 
     incident_id = f"identity-incident-{uuid4().hex}"
     original_name = conflicting_entries[0]["name"]
-    decision = "confirmed" if original_name.casefold() == corroboration["name"].casefold() else "corrected"
+    same_name = original_name.strip().casefold() == corroboration["name"].strip().casefold()
+    decision = "confirmed" if same_name else "corrected"
     incidents[incident_id] = {
         "id": incident_id,
         "encounter_id": case["id"],

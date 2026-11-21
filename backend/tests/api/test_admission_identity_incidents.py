@@ -71,7 +71,7 @@ def test_named_dispute_requires_independent_item_evidence(client, role):
     assert incident["encounter_id"] == case.state["id"]
     assert incident["row_id"] == row_id
     assert {entry["source_id"] for entry in incident["conflicting_sources"]} == {
-        "bag-label", "transfer", "second-crop",
+        "bag-label", "transfer", "second-crop", "reported-name",
     }
     assert incident["corroborating_source_id"] == "dispensing"
     assert incident["identity"] == "Demo Slate"
@@ -156,3 +156,17 @@ def test_superseded_corroboration_keeps_history_and_cannot_verify_again(client):
     verify(case, row_id, "replacement", 422)
     assert case.state["rows"][row_id]["verified"] is None
     assert case.state["identity_incidents"] == original
+
+
+def test_reported_name_cannot_resolve_a_named_package_dispute(client):
+    case = Case(client, "nurse")
+    bag = photo("bag-label", "Bag A", name="Demo Amber")
+    bag["source"]["kind"] = "label_photo"
+    row_id = case.add(bag)
+    case.link(row_id, record(
+        "account", "patient_report", "I think the tablet in Bag A is Demo Slate.", name="Demo Slate",
+    ))
+    case.interview(row_id, "account")
+    verify(case, row_id, "account", 422)
+    verify(case, row_id, "bag-label", 422)
+    assert case.state["rows"][row_id]["verified"] is None

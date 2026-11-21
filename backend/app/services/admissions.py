@@ -509,8 +509,8 @@ class AdmissionStore:
                 chosen = entry_for(row, cmd.identity_source_id) if cmd.identity_source_id else named[-1]
                 require(chosen in named, "Choose a source that documents this identity.")
                 documented = [entry for entry in named if entry["source"]["kind"] not in REPORT_KINDS]
-                if len({entry["name"].casefold() for entry in documented}) > 1:
-                    conflicting = [entry for entry in documented if entry is not chosen]
+                if documented and len({entry["name"].strip().casefold() for entry in named}) > 1:
+                    conflicting = [entry for entry in named if entry is not chosen]
                     require(chosen in documented and chosen["identity_basis"],
                             "Cite separate item-specific documentation to resolve the disputed identity.")
                     require(not any(shares_origin(chosen, entry) for entry in conflicting),
