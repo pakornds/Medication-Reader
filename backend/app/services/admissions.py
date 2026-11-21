@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from io import BytesIO
 from json import dumps
+import sqlite3
 from threading import RLock
 from uuid import uuid4
 
@@ -20,14 +21,15 @@ from app.services.labels import LabelPhotoError, crop_label
 from app.schemas.analysis import Discrepancy
 from app.schemas.admission import (
     Action, AddEvidence, AddRow, AssessIdentityIncident, AttestCurrentUse, Decision,
-    Finish, Import, Interview, NewEncounter, Proposal, Refer, Verify,
+    Finish, Import, Interview, NewEncounter, Proposal, RecordUnavailableSource, Refer, Verify,
 )
-from app.schemas.evidence import REPORT_KINDS, Observation, CaseEvidence, EvidenceItem, EvidenceRef, EvidenceSource, SourcedValue
+from app.schemas.evidence import REPORT_KINDS, Observation, CaseEvidence, EvidenceItem, EvidenceRef, EvidenceSource, EvidenceValidationError, SourcedValue
 from app.schemas.review import CurrentUseVerification, ImportRequest, ReviewRow
-from app.schemas.regimen import RegimenParseRequest
+from app.schemas.regimen import RegimenParseRequest, validate_regimen_evidence
 from app.services.regimens import parse_directions
 from app.services.admission_incidents import record_identity_incident, remember_identity_dispute
 from app.services.hospital import HospitalError
+from app.services.local_reference_db import open_reference
 from app.services.import_eligibility import ApprovalLedger, EligibilityError, selected_evidence
 
 
@@ -42,6 +44,36 @@ def require(condition, message, status=422):
 
 def active(row):
     return [entry for entry in row["entries"] if entry["source"]["id"] not in row["superseded"]]
+
+
+def confirm_catalogue_product(row, identity, product):
+    require(identity is not None, "Resolve the medication identity before confirming a catalogue product.")
+    entry = entry_for(row, identity["source_id"])
+    observations = entry_observations(entry)
+    fields = {field: value for field, (status, value) in observations.items() if status == "readable"}
+    # The full product label or a documented short name with its source fields must
+    # distinguish this TPU. A clinician may still verify the row without a match.
+    query = """
+        SELECT tpu FROM product WHERE active_tmt = 1
+          AND (label = :name COLLATE NOCASE OR source_generic = :name COLLATE NOCASE
+               OR instr(lower(label), lower(:name) || ' (') = 1)
+          AND (:strength IS NULL OR source_strength = :strength COLLATE NOCASE)
+          AND (:form IS NULL OR form = :form COLLATE NOCASE)
+        LIMIT 2
+    """
+    try:
+        with open_reference("LOCAL_TMT_DB") as db:
+            release = db.execute("SELECT value FROM metadata WHERE key='tmt_release'").fetchone()
+            require(release is not None and release[0], "Local Thai product catalogue is unavailable.", 503)
+            require(product.tmt_release == release[0], "Re-select the product from the installed TMT release.")
+            matches = db.execute(query, {
+                "name": entry["name"], "strength": fields.get("strength"), "form": fields.get("form"),
+            }).fetchall()
+            require(len(matches) == 1 and matches[0]["tpu"] == product.tpu,
+                    "The verified identity source must identify the selected catalogue product unambiguously.")
+    except sqlite3.Error:
+        raise HTTPException(503, "Local Thai product catalogue is unavailable.") from None
+    return {**identity, "normalized_medication_id": product.tpu, "tmt_release": product.tmt_release}
 
 
 def entry_for(row, source_id):
@@ -244,9 +276,36 @@ def import_snapshot_key(row):
     # Keep the verified identity, use, regimen and their selected citations.
     # Audit metadata and incidental evidence do not change the clinical snapshot.
     answer = verified["answer"]
-    review = [verified["identity"], verified["source_id"], answer["ownership"],
-              answer["current_use"], answer["dose"], answer["route"], answer["schedule"]]
+    review = [verified["identity"], verified["source_id"], answer["ownership"], answer["current_use"]]
+    if verified.get("regimens"):
+        clinical_components = [
+            {key: value for key, value in component.items() if key != "component_id"}
+            for component in verified["regimens"]
+        ]
+        review.append(sorted(dumps(component, sort_keys=True) for component in clinical_components))
+    else:
+        review.extend([answer["dose"], answer["route"], answer["schedule"]])
     return sha256(dumps(review, sort_keys=True).encode()).hexdigest()
+
+
+def entry_evidence(row_id, entry):
+    source = EvidenceSource.model_validate(entry["source"])
+    kind = "record_excerpt"
+    if entry["photo"]:
+        kind = "label_region" if reviewable_entry(entry) else "pill_crop"
+        if kind == "label_region" and source.kind == "reverse_photo":
+            kind = "matched_reverse_label"
+    return source, EvidenceItem(id=entry.get("intake_item_id") or row_id, source_id=source.id, row_id=row_id, kind=kind)
+
+
+def verified_regimen_fields(verified, interview_ref):
+    if verified.get("regimens"):
+        return {"regimens": verified["regimens"]}
+    fields = {}
+    for key, interview_key in (("dose", "dose"), ("route", "route"), ("frequency", "schedule")):
+        if value := verified["answer"].get(interview_key):
+            fields[key] = SourcedValue(value=value, evidence=interview_ref)
+    return fields
 
 
 def capture_orientation(media_type, data):
@@ -266,7 +325,7 @@ def new_encounter(case_id, actor, request, revision=1):
     assigned = {actor.id, "demo-pharmacist", *("demo-" + role for role in request.assigned_roles)}
     return dict(id=case_id, patient_alias=request.patient_alias,
                 assigned=sorted(assigned), revision=revision, status="In progress", created_at=now(),
-                rows={}, events=[], receipts=[], identity_incidents={})
+                rows={}, events=[], receipts=[], identity_incidents={}, unavailable_sources={})
 
 
 class AdmissionStore:
@@ -332,6 +391,13 @@ class AdmissionStore:
                 require(actor.role == "pharmacist", "Pharmacist required.", 403)
             require(original["status"] != "Finished" or isinstance(cmd, (Import, AssessIdentityIncident)),
                     "Review is finished.", 409)
+            unavailable = original.get("unavailable_sources", {})
+            if isinstance(cmd, (AddRow, AddEvidence)):
+                require(cmd.entry.source.id not in unavailable, "Use a new logical source ID.")
+            if isinstance(cmd, Proposal):
+                require(cmd.reference not in unavailable, "An unavailable source cannot support identity.")
+            if isinstance(cmd, Verify):
+                require(cmd.identity_source_id not in unavailable, "An unavailable source cannot support identity.")
             case = deepcopy(original)
             details = self.transition(case, actor, cmd, request.request_id)
             for row_id in details["rows"]:
@@ -377,6 +443,8 @@ class AdmissionStore:
                 retired_sources.update(retired_view_sources(original, originals, previous, manifest, replaced))
             require(not retired_sources.intersection(s.id for s in manifest.sources),
                     "Use new source IDs for evidence on a retaken or invalidated view.")
+            require(not any(source.id in original.get("unavailable_sources", {}) for source in manifest.sources),
+                    "Use a new logical source ID.")
 
             for side in ("front", "reverse"):
                 view = getattr(manifest, side)
@@ -517,6 +585,14 @@ class AdmissionStore:
 
     def transition(self, case, actor, cmd, request_id):
         rows = case["rows"]
+        if isinstance(cmd, RecordUnavailableSource):
+            source_id = cmd.source.id
+            unavailable = case.setdefault("unavailable_sources", {})
+            used_ids = {entry["source"]["id"] for row in rows.values() for entry in row["entries"]}
+            used_ids.update(source_id for event in case["events"] for source_id in event.get("sources", ()))
+            require(source_id not in unavailable and source_id not in used_ids, "Use a new logical source ID.")
+            unavailable[source_id] = {"source": cmd.source.model_dump(mode="json"), "follow_up": cmd.follow_up}
+            return dict(rows=[], sources=[source_id])
         if isinstance(cmd, AttestCurrentUse):
             return attest_current_use(self.row(rows, cmd.row_id), actor, cmd)
         if isinstance(cmd, (AddEvidence, Interview, Proposal, Decision)) and cmd.row_id in rows:
@@ -666,7 +742,18 @@ class AdmissionStore:
                     "Clarify ownership and current use.")
             require((answer["ownership"] == "other") == (answer["current_use"] == "not_owned"),
                     "Resolve conflicting ownership and use.")
-            if answer["current_use"] == "current":
+            if cmd.regimens:
+                entries = [entry_evidence(row["id"], entry) for entry in active(row)]
+                evidence = CaseEvidence(case_id=case["id"], sources=[source for source, _ in entries],
+                                        items=[item for _, item in entries])
+                try:
+                    for component in cmd.regimens:
+                        validate_regimen_evidence(component, row["id"], evidence)
+                        if answer["current_use"] == "current":
+                            require(component.has_verified_regimen(), "Complete every verified regimen component.")
+                except EvidenceValidationError as exc:
+                    raise HTTPException(422, str(exc)) from None
+            elif answer["current_use"] == "current":
                 require(all(answer[k] for k in ("dose", "route", "schedule")), "Record the actual regimen.")
             require(not needs_identity(row), "Identity requires pharmacist review.")
             named = [e for e in active(row) if e["name"] and reviewable_entry(e)]
@@ -699,8 +786,12 @@ class AdmissionStore:
                         case, row["id"], conflicting, chosen, actor, cmd.resolution, verified_at,
                     )
                 identity = dict(name=chosen["product"], source_id=chosen["source"]["id"])
+            if cmd.confirmed_product is not None:
+                identity = confirm_catalogue_product(row, identity, cmd.confirmed_product)
             row["verified"] = dict(actor=actor.model_dump(), at=verified_at, source_id=cmd.source_id,
                                    identity=identity, resolution=cmd.resolution, answer=deepcopy(answer))
+            if cmd.regimens:
+                row["verified"]["regimens"] = [component.model_dump(mode="json") for component in cmd.regimens]
             return dict(**details, verification=row["verified"], sources=[cmd.source_id] +
                         ([identity["source_id"]] if identity else []))
         row["verified"] = None
@@ -728,26 +819,19 @@ class AdmissionStore:
                     "Only medicines verified as belonging to this patient can be imported.")
             refs = {}
             for entry in active(row):
-                source = EvidenceSource.model_validate(entry["source"])
+                source, item = entry_evidence(row["id"], entry)
                 if not any(existing.id == source.id for existing in sources):
                     sources.append(source)
-                kind = "record_excerpt"
-                if entry["photo"]:
-                    kind = "label_region" if reviewable_entry(entry) else "pill_crop"
-                if kind == "label_region" and source.kind == "reverse_photo":
-                    kind = "matched_reverse_label"
-                item = EvidenceItem(id=entry.get("intake_item_id") or row["id"], source_id=source.id, row_id=row["id"], kind=kind)
                 items.append(item)
                 refs[source.id] = EvidenceRef(source_id=source.id, item_id=item.id)
             ref = refs[verified["source_id"]]
             identity = verified["identity"]
             name = SourcedValue(value=identity["name"], evidence=refs[identity["source_id"]])
-            def sourced(key):
-                return SourcedValue(value=answer[key], evidence=ref) if answer[key] else None
             verification = CurrentUseVerification(
                 reviewer=verified["actor"], verified_at=verified["at"], identity=name, evidence=[ref],
+                normalized_medication_id=identity.get("normalized_medication_id"), tmt_release=identity.get("tmt_release"),
                 status="current" if answer["current_use"] == "current" else "no_longer_current",
-                dose=sourced("dose"), route=sourced("route"), frequency=sourced("schedule"))
+                **verified_regimen_fields(verified, ref))
             label_fields = {}
             identity_entry = entry_for(row, identity["source_id"])
             identity_observations = entry_observations(identity_entry)

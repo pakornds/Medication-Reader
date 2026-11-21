@@ -7,6 +7,7 @@ from pydantic import Field, model_validator
 
 from .analysis import LabelField
 from .package_capture import PackageCapture, Revision, Side
+from .regimen import RegimenComponent, validate_component_list
 from .evidence import Observation, PHOTO_KINDS, ContractModel, EvidenceSource, Text
 from app.services.labels import _matches_media_type
 
@@ -105,6 +106,18 @@ class AddEvidence(ContractModel):
     replaces: Text | None = None
 
 
+class RecordUnavailableSource(ContractModel):
+    action: Literal["record_unavailable_source"]
+    source: EvidenceSource
+    follow_up: Text | None = None
+
+    @model_validator(mode="after")
+    def unavailable(self):
+        if self.source.availability != "unavailable" or self.source.attachment_id is not None:
+            raise ValueError("Record an unavailable source without an attachment")
+        return self
+
+
 class Interview(ContractModel):
     action: Literal["interview"]
     row_id: Text
@@ -125,12 +138,26 @@ class AttestCurrentUse(ContractModel):
     source_id: Text
 
 
+class ConfirmedProduct(ContractModel):
+    """The trade product explicitly selected during clinical verification."""
+
+    tpu: Text
+    tmt_release: Text
+
+
 class Verify(ContractModel):
     action: Literal["verify"]
     row_id: Text
     source_id: Text
     identity_source_id: Text | None = None
     resolution: Text | None = None
+    confirmed_product: ConfirmedProduct | None = None
+    regimens: list[RegimenComponent] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def verified_components(self):
+        validate_component_list(self.regimens, verified=True)
+        return self
 
 
 class Proposal(ContractModel):
@@ -176,7 +203,7 @@ class Action(ContractModel):
     revision: int = Field(ge=1)
     request_id: Text
     command: Annotated[
-        AddRow | AddEvidence | Interview | Verify | Proposal | Decision | Refer | Finish
+        AddRow | AddEvidence | RecordUnavailableSource | Interview | Verify | Proposal | Decision | Refer | Finish
         | Import | AttestCurrentUse | AssessIdentityIncident,
         Field(discriminator="action"),
     ]

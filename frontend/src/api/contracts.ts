@@ -3,7 +3,7 @@
 export type Action = {
   revision: number
   request_id: string
-  command: AddRow | AddEvidence | Interview | Verify | Proposal | Decision | Refer | Finish | Import | AttestCurrentUse | AssessIdentityIncident
+  command: AddRow | AddEvidence | RecordUnavailableSource | Interview | Verify | Proposal | Decision | Refer | Finish | Import | AttestCurrentUse | AssessIdentityIncident
 }
 
 export type AddEvidence = {
@@ -115,6 +115,11 @@ export type CheckedScope = {
   rule_id?: string | null
 }
 
+export type ConfirmedProduct = {
+  tpu: string
+  tmt_release: string
+}
+
 export type CurrentUseVerification = {
   reviewer: ReviewerIdentity
   verified_at: string
@@ -222,7 +227,7 @@ export type Finish = {
 
 export type FollowUp = {
   question: string
-  field: LabelField | "identity" | "reported_use" | "source" | "photo_match"
+  field: LabelField | "identity" | "reported_use" | "source" | "photo_match" | "treatment_referral"
   potential_source_id?: string | null
 }
 
@@ -457,6 +462,12 @@ export type Proposal = {
   reference: string
 }
 
+export type RecordUnavailableSource = {
+  action: "record_unavailable_source"
+  source: EvidenceSource
+  follow_up?: string | null
+}
+
 export type Refer = {
   action: "refer"
   row_ids: Array<string>
@@ -679,6 +690,8 @@ export type Verify = {
   source_id: string
   identity_source_id?: string | null
   resolution?: string | null
+  confirmed_product?: ConfirmedProduct | null
+  regimens?: Array<RegimenComponent>
 }
 
 export type VersionedScreeningReport = {
