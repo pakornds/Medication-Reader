@@ -10,12 +10,13 @@ import { intake } from '../../i18n/intake'
 import { regimenText } from '../../i18n/regimen'
 import type { Language } from '../../i18n/messages'
 import { analysisErrorMessage, analysisProviderMessage } from '../new-patient/analysisError'
-import { createDraft, newNote, replacePhoto, type Photo, type PhotoKind } from '../new-patient/draft'
+import { createDraft, newNote, replacePhoto, type Evidence, type Photo, type PhotoKind } from '../new-patient/draft'
 import { FacilityDetails } from '../new-patient/FacilityDetails'
 import { ManualMedicineEntry } from '../new-patient/ManualMedicineEntry'
 import { createManualEntryDraft, hasManualEntryWork } from '../new-patient/manualEntryDraft'
 import { NewPatientLayout } from '../new-patient/NewPatientLayout'
 import { PhotoSlot } from '../new-patient/PhotoSlot'
+import { MAX_BATCH_PHOTO_BYTES } from '../new-patient/preparePhoto'
 import { canShare, exportRows, listName, manualRow, say, scannedRows, scheduleSummary, values, type ListRow } from './listData'
 import { ListMedicine } from './ListMedicine'
 import { ListChecks } from './ListChecks'
@@ -36,6 +37,7 @@ export default function MedicationListApp() {
   const [manualDraft, setManualDraft] = useState(createManualEntryDraft)
   const [inputMode, setInputMode] = useState<'photo' | 'manual' | 'text'>('photo')
   const [extraPhotos, setExtraPhotos] = useState(false)
+  const [preparingPhotos, setPreparingPhotos] = useState(0)
   const [status, setStatus] = useState<'idle' | 'scanning'>('idle')
   const [scanError, setScanError] = useState('')
   const scan = useRef<AbortController | null>(null)
@@ -66,20 +68,23 @@ export default function MedicationListApp() {
     nav('/new-patient/input')
   }
 
-  const updateEvidence = useCallback((next: typeof evidence) => {
+  const updateEvidence = useCallback((next: Evidence | ((previous: Evidence) => Evidence)) => {
     scan.current?.abort()
     setStatus('idle')
     setScanError('')
-    setDraft(current => ({ ...current, evidence: next, preview: null }))
+    setDraft(current => ({
+      ...current, evidence: typeof next === 'function' ? next(current.evidence) : next, preview: null,
+    }))
   }, [])
 
   function photoSlot(kind: PhotoKind, photo?: Photo) {
     return <PhotoSlot key={photo?.id ?? kind} kind={kind} photo={photo} photos={evidence.photos} t={labels}
+      onPreparingChange={preparing => setPreparingPhotos(count => count + (preparing ? 1 : -1))}
       onReplace={next => {
-        updateEvidence(replacePhoto(evidence, photo?.id, next))
+        updateEvidence(current => replacePhoto(current, photo?.id, next))
         if (kind === 'additional_photo' && !photo) setExtraPhotos(false)
       }}
-      onEdit={next => updateEvidence(replacePhoto(evidence, next.id, next))}/>
+      onEdit={next => updateEvidence(current => replacePhoto(current, next.id, next))}/>
   }
 
   async function analyzeEvidence() {
@@ -155,8 +160,9 @@ export default function MedicationListApp() {
   const hasPhotos = evidence.photos.length > 0
   const hasText = evidence.notes.some(note => note.text.trim())
   const hasEvidence = hasPhotos || hasText
-  const canScan = hasEvidence && evidence.photos.length <= 16
-    && evidence.photos.reduce((sum, photo) => sum + photo.file.size, 0) < 16_000_000
+  const tooLarge = evidence.photos.length > 16
+    || evidence.photos.reduce((sum, photo) => sum + photo.file.size, 0) > MAX_BATCH_PHOTO_BYTES
+  const canScan = hasEvidence && !tooLarge && !preparingPhotos
   const hasWork = rows.length > 0 || hasEvidence || hasManualEntryWork(manualDraft)
 
   return <>
@@ -234,7 +240,7 @@ export default function MedicationListApp() {
               </Button>
               {hasPhotos && hasText && <small>{t('Includes photos and text', 'รวมภาพและข้อความ')}</small>}
             </div>}
-            {!canScan && hasEvidence && <p role="alert">{labels.tooLarge}</p>}
+            {tooLarge && <p role="alert">{labels.tooLarge}</p>}
             {scanError && <p role="alert">{scanError}</p>}
             {draft.preview?.photo_issues?.map(issue => <p role="status" key={[issue.attachment_id, issue.item_id, issue.code].join(':')}>
               {labels[issue.code]} {issue.provider_code && analysisProviderMessage(issue.provider_code, language)}

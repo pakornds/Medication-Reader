@@ -1,11 +1,12 @@
 import type { RegionBounds } from '../../api/contracts'
 import { InputField } from '../../components/ui/InputField'
 import { Button } from '../../components/ui/Button'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { LuCamera, LuImagePlus, LuUpload } from 'react-icons/lu'
 import { PhotoItems } from './PhotoItems'
 import type { Photo, PhotoKind } from './draft'
 import type { IntakeText } from '../../i18n/intake'
+import { MAX_ORIGINAL_PHOTO_BYTES, PHOTO_ACCEPT, preparePhoto } from './preparePhoto'
 
 type Props = {
   kind: PhotoKind
@@ -15,34 +16,47 @@ type Props = {
   proposePhoto?: (photo: Photo) => Promise<RegionBounds[]>
   onReplace: (next?: Photo) => void
   onEdit: (next: Photo) => void
+  onPreparingChange: (preparing: boolean) => void
 }
-export function PhotoSlot({ kind, photo, photos, t, onReplace, onEdit, proposePhoto }: Props) {
-  const [error, setError] = useState(false)
+export function PhotoSlot({ kind, photo, photos, t, onReplace, onEdit, proposePhoto, onPreparingChange }: Props) {
+  const [error, setError] = useState<'badPhoto' | 'photoTooLarge'>()
+  const [preparing, setPreparing] = useState(false)
+  const pending = useRef<AbortController>(null)
   const browse = useRef<HTMLInputElement>(null)
   const camera = useRef<HTMLInputElement>(null)
-  function choose(file?: File) {
-    if (!file) return
-    if (
-      !['image/png', 'image/jpeg', 'image/webp'].includes(file.type) ||
-      !file.size ||
-      file.size > 4_000_000
-    ) {
-      setError(true)
+  useEffect(() => () => pending.current?.abort(), [])
+  async function choose(file?: File) {
+    if (!file || pending.current) return
+    if (file.size > MAX_ORIGINAL_PHOTO_BYTES) {
+      setError('photoTooLarge')
       return
     }
-    setError(false)
-    onReplace({ id: crypto.randomUUID(), kind, file, regions: [], date: '' })
+    const controller = new AbortController()
+    pending.current = controller
+    setError(undefined)
+    setPreparing(true)
+    onPreparingChange(true)
+    try {
+      const prepared = await preparePhoto(file, controller.signal)
+      if (!controller.signal.aborted) onReplace({ id: crypto.randomUUID(), kind, file: prepared, regions: [], date: '' })
+    } catch {
+      if (!controller.signal.aborted) setError('badPhoto')
+    } finally {
+      pending.current = null
+      if (!controller.signal.aborted) setPreparing(false)
+      onPreparingChange(false)
+    }
   }
   const filePicker = (capture: boolean) => (
     <input
       type="file"
       hidden
-      accept="image/jpeg,image/png,image/webp"
+      accept={PHOTO_ACCEPT}
       ref={capture ? camera : browse}
       aria-label={capture ? t.camera : t.browse}
       capture={capture ? 'environment' : undefined}
       onChange={(event) => {
-        choose(event.target.files?.[0])
+        void choose(event.target.files?.[0])
         event.target.value = ''
       }}
     />
@@ -56,7 +70,7 @@ export function PhotoSlot({ kind, photo, photos, t, onReplace, onEdit, proposePh
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => {
         e.preventDefault()
-        choose(e.dataTransfer.files[0])
+        void choose(e.dataTransfer.files[0])
       }}
     >
       <div className="spread">
@@ -90,17 +104,18 @@ export function PhotoSlot({ kind, photo, photos, t, onReplace, onEdit, proposePh
       <div className="actions">
         {filePicker(false)}
         {filePicker(true)}
-        <Button onClick={() => browse.current?.click()}>
+        <Button disabled={preparing} onClick={() => browse.current?.click()}>
           <LuUpload />
           {photo ? t.replace : t.browse}
         </Button>
-        <Button variant="text" onClick={() => camera.current?.click()}>
+        <Button variant="text" disabled={preparing} onClick={() => camera.current?.click()}>
           <LuCamera />
           {t.camera}
         </Button>
         {(photo || kind === 'additional_photo') && (
           <Button
             variant="text"
+            disabled={preparing}
             aria-label={[t.remove, t[kind], photo?.file.name].filter(Boolean).join(' ')}
             onClick={() => onReplace()}
           >
@@ -108,7 +123,8 @@ export function PhotoSlot({ kind, photo, photos, t, onReplace, onEdit, proposePh
           </Button>
         )}
       </div>
-      {error && <p role="alert">{t.badPhoto}</p>}
+      {preparing && <p role="status">{t.preparingPhoto}</p>}
+      {error && <p role="alert">{t[error]}</p>}
     </section>
   )
 }

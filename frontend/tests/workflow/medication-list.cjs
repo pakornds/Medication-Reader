@@ -1,6 +1,7 @@
 /* Run with TEST_UI_URL, Playwright and Chromium against the default app and a local TMT backend. */
 const assert = require('node:assert/strict')
 const { readFile } = require('node:fs/promises')
+const { resolve } = require('node:path')
 const { chromium } = require('playwright')
 
 async function run() {
@@ -37,6 +38,12 @@ async function run() {
         } })
         return
       }
+      const upload = route.request().postDataBuffer()
+      const photoHeader = Buffer.from('filename="synthetic-labels.png"\r\nContent-Type: image/png\r\n\r\n')
+      const headerPosition = upload.indexOf(photoHeader)
+      assert.ok(headerPosition >= 0, 'the photo upload must use the MIME type and extension matching its bytes')
+      assert.deepEqual(upload.subarray(headerPosition + photoHeader.length, headerPosition + photoHeader.length + 8),
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
       const boxes = [
         { id: 'front-one', x: 0.02, caption: 'SIADOCIN' },
         { id: 'front-two', x: 0.35, caption: 'SIADOCIN' },
@@ -61,8 +68,8 @@ async function run() {
       } })
     })
     await page.goto(base + '/new-patient/input')
-    const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6V3sAAAAASUVORK5CYII=', 'base64')
-    await page.locator('input[type=file]').first().setInputFiles({ name: 'synthetic-labels.png', mimeType: 'image/png', buffer: image })
+    const image = await readFile(resolve(__dirname, '../../../backend/tests/fixtures/ai/label-side.png'))
+    await page.locator('input[type=file]').first().setInputFiles({ name: 'synthetic-labels.jpg', mimeType: 'image/jpeg', buffer: image })
     await page.getByRole('button', { name: 'Analyze evidence' }).click()
     const cards = page.locator('.list-medicine')
     await cards.nth(2).waitFor()
