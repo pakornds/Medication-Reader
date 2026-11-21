@@ -1,6 +1,6 @@
 # Local medication screening
 
-The review workspace at `/review/` searches the Thai product catalogue, records the reviewed product and its evidence, and looks up potential interactions and shared active ingredients. Both lookups run inside FastAPI using read-only local databases. A fresh checkout includes compressed SQLite files for the public 2020 Thai release and the November 2026 FEST release. No clinical database API or model call is involved.
+In the default medicine-list workspace, use **Review → Check medicines** to look up potential interactions and shared active ingredients in the selected catalogue products. Both lookups run inside FastAPI using read-only SQLite databases. The separate staff workspace at `/review/` uses clinician-verified inputs. The checks run offline using the bundled public 2020 Thai release and November 2026 FEST release. [Try the default workflow](../demo/README.md)
 
 ## What the datasets contain
 
@@ -47,6 +47,8 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
 The default uses **TMT February 2020** and **FEST November 2026**. The installer verifies both uncompressed database hashes and places them under `reference-data/installed/`. Rerunning it selects the bundled historical release. Existing `LOCAL_TMT_DB` and `LOCAL_FEST_DB` settings override those paths. A packaged backend running outside this checkout can use these settings to point to the installed SQLite files. [Reference files and attribution](../../reference-data/README.md)
+
+The bundled catalogue has 30,683 active products. A fresh-checkout audit found 9,537 exact product mappings and 2,355 additional products with a single supported ATC through the ingredient fallback. Of those 2,355, 2,016 can reach an actionable FEST rule with at least one other catalogue product. These counts describe catalogue reach. The audit excludes multi-classification fallbacks, which the runtime can evaluate separately.
 
 To reproduce the public Thai mapping from publisher workbooks, run `uv run --with xlrd==2.0.2 tools/local_screening/install.py --rebuild-2020`. To select the audited **November 2026 Thai catalogue**, use the following command with the extracted directory containing the snapshot and bonus folders. Both rebuild modes use the public 2020 ZIP to preserve historical selections. Supply `--tmt-2020-zip /path/to/public.zip` for an offline rebuild with the dependency already installed. Each mode prints its release and measured coverage.
 

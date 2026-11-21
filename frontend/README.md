@@ -1,14 +1,8 @@
 # MedRec TH
 
-Use Node.js 22.13 or later in the 22.x series, or Node.js 24. Start FastAPI from the repo root with the [backend setup](../AGENTS.md#commands).
+Use Node.js 22.13 or later in the 22.x series, or Node.js 24. Start FastAPI with the [repository setup](../README.md#run-locally). The [synthetic demo](../docs/demo/README.md) explains how to configure photo and text analysis.
 
-For photo analysis, keep `OPENAI_API_KEY` and `OPENAI_MODEL` in the repository-root `.env` on the server. With uv, load that file explicitly from the repo root:
-
-```sh
-uv run --project backend --env-file .env uvicorn app.main:app --reload --reload-dir backend/app
-```
-
-Run from `frontend/`:
+Run from `frontend/`.
 
 ```sh
 npm ci
@@ -27,9 +21,11 @@ The development server proxies requests to FastAPI at `http://127.0.0.1:8000`. S
 
 History shows successful analysis times and lets you open completed handoff lists on this device. It keeps medication names, presentation, dose, schedule and quantity. Original photos, pasted text and facility contacts remain in tab memory. The list, pasted text and photos live in tab memory. Use the handoff before closing or refreshing the tab. The analysis and screening services process the submitted evidence and product IDs without creating encounters or hospital records.
 
-Run the browser workflow with Playwright, Chromium and a running backend with the local TMT catalogue:
+With both servers running and the bundled TMT and FEST data installed, test the default workflow from the repository root. The test replays analysis fixtures and calls the real local catalogue and DDI endpoints.
 
 ```sh
+npm --prefix frontend install --no-save --package-lock=false playwright
+npm --prefix frontend exec -- playwright install chromium
 TEST_UI_URL=http://127.0.0.1:5173 node frontend/tests/workflow/medication-list.cjs
 ```
 
