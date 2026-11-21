@@ -1,6 +1,6 @@
 # Run the GitHub ticket queue
 
-Setup happens once per repository. On any computer, open a checkout and say **“Work on the project”**. Each session independently selects eligible tickets. For a single-ticket run, say “Work only on issue #N”. GitHub issues and PRs carry progress between computers.
+On any computer, open a checkout and say **“Work on the project”**. Each session independently selects eligible tickets. For a single-ticket run, say “Work only on issue #N”. GitHub issues and PRs carry progress between computers.
 
 ## Select a ticket
 
@@ -31,6 +31,8 @@ Start immediately after confirming ownership. **Five minutes after starting, and
 
 If ownership changes, completed work appears or paths conflict, pause the affected edits, preserve your branch and discuss ownership directly on the issue. Address the other worker by its recorded name. Update checklist items as you finish them. Comment on material progress, decisions, blockers, status changes and handoffs. Link related issues and PRs. An unchanged poll needs no comment.
 
+When you need another worker's answer, post the question on their ticket, address their recorded worker name and link your own issue. Reply in that thread and link the decision from both tickets. Continue independent work while waiting.
+
 ## Finish or hand off
 
 Run acceptance checks and the repo's documented checks. Open one PR targeting main with a closing reference. Record verification, set status:in-review, respect merge order and required reviews, and recheck against current main before merge. Confirm the merge and post-merge checks, then close out the issue as status:done.
@@ -38,7 +40,3 @@ Run acceptance checks and the repo's documented checks. Open one PR targeting ma
 Release your claim with `git push "--force-with-lease=${claim}:$token" origin ":$claim"`. For a handoff, record the receiving worker, branch and remaining work on the ticket. The outgoing worker stops and releases its own claim. The named recipient acquires a fresh claim and confirms it on the issue before resuming. For an abandoned claim, a human verifies the previous worker has stopped and checks the issue, branches and PRs before clearing the ref with a lease against the observed SHA. Five minutes of silence alone never authorizes takeover.
 
 Refresh the queue and continue with eligible work unless assigned a single issue. Record blockers and report pending work when nothing more can advance.
-
-## Setup prompt for another repository
-
-> Setup only. Add the trigger “Work on the project” to AGENTS.md and link a queue playbook. Reuse existing repo conventions. Create a task-writing guide, issue template and workflow labels. Reserve agent-ready for human review. Let peer workers on any computer independently claim eligible tickets using an atomic per-issue claim. Document owned paths, dependencies, merge order, one branch and PR per ticket, and safe handoffs. Require claim and progress comments, five-minute checks during implementation, verification before merge and owner-checked release. Test competing claims on an isolated remote. Verify and publish the setup, then wait for a separate request to start implementation.

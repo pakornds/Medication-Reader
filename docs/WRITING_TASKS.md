@@ -52,6 +52,10 @@ Split by layer or by behavior, not by "part 1 / part 2". Example for "read a med
 | 5 | Safety layer: strip/refuse dosage advice | 4 |
 | 6 | CLI or API endpoint | 4, 5 |
 
+If two outcomes can be implemented, tested, and accepted independently, write two tickets. Keep each behavior's tests with its implementation. For example, one backend ticket can return partial interaction-check coverage for an unknown medication. A separate frontend ticket can display that same result from a shared fixture. Once the contract and fixture land, both tickets can proceed in parallel. Apply the same test to features within a layer, such as digital review and printing.
+
+Give cross-feature wiring its own ticket. Give end-to-end verification a separate ticket with a user scenario and observable result. Before publishing the plan, check that every spec requirement maps to a ticket.
+
 ### Parallel tasks and merge order
 
 - Use `Depends on` for work that must merge before a ticket can start. Use `Merge after` only when implementation can start independently but the PR needs another issue merged for integration or release order.
@@ -101,3 +105,7 @@ When asked to plan a feature:
 ```bash
 gh issue create --template agent-task.md --title "[TASK] ..." --body-file task.md --label status:todo
 ```
+
+## Setup prompt for another repository
+
+> Setup only. Add the trigger “Work on the project” to AGENTS.md and link a queue playbook. Reuse existing repo conventions. Create a task-writing guide, issue template and workflow labels. Reserve agent-ready for human review. Let peer workers on any computer independently claim eligible tickets using an atomic per-issue claim. Document owned paths, dependencies, merge order, one branch and PR per ticket, and safe handoffs. Require claim and progress comments, five-minute checks during implementation, verification before merge and owner-checked release. Test competing claims on an isolated remote. Verify and publish the setup, then wait for a separate request to start implementation.
