@@ -78,6 +78,7 @@ class LocalScreeningResult(ContractModel):
     ddi_unavailable_reason: str | None
     ddi_scope: str
     mapping_version: str
+    warnings: list[str] = Field(default_factory=list)
     checked_at: AwareDatetime
     rows: list[ScreenedRow]
     pairs: list[ScreenedPair]
