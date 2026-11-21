@@ -60,7 +60,7 @@ export function openRegimenVerification({ form, review, entries, actor, verify, 
     const current = ++generation;
     panel.replaceChildren();
     submit.hidden = choice.value !== "";
-    evidenceLabel.hidden = !submit.hidden;
+    evidenceLabel.style.display = submit.hidden ? "" : "none";
     if (!submit.hidden) return;
     if (!evidence.value) {
       panel.textContent = "Select the evidence supporting actual use. Use Link source or photo to record new clinician evidence.";

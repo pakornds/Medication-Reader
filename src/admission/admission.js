@@ -768,6 +768,7 @@ function render() {
             '<div class="source"><strong>' +
             esc(human(e.source.kind)) +
             "</strong> · " +
+            (e.record_basis ? esc(human(e.record_basis)) + " · " : "") +
             esc(e.source.organization || e.source.reporter || "") +
             " " +
             esc(e.source.source_date || "") +

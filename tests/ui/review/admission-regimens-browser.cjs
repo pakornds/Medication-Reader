@@ -1,12 +1,12 @@
-/* Run against a synthetic FastAPI server with ADMISSION_TEST_NURSE and Playwright on NODE_PATH. */
+/* Run against a synthetic FastAPI server with nurse and doctor tokens and Playwright on NODE_PATH. */
 const assert = require("node:assert/strict");
 const { randomUUID } = require("node:crypto");
 const { chromium } = require("playwright");
 
 const base = process.env.ADMISSION_DEMO_URL || "http://127.0.0.1:18764";
 const token = process.env.ADMISSION_TEST_NURSE;
-const headers = { "Content-Type": "application/json", "X-Demo-Reviewer-Token": token };
-async function request(path, data) {
+async function request(path, data, reviewerToken = token) {
+  const headers = { "Content-Type": "application/json", "X-Demo-Reviewer-Token": reviewerToken };
   const response = await fetch(base + path, { method: data ? "POST" : "GET", headers, body: data && JSON.stringify(data) });
   if (!response.ok) throw new Error(await response.text());
   return response.json();
@@ -15,7 +15,8 @@ async function request(path, data) {
 async function run() {
   assert.ok(token, "Set ADMISSION_TEST_NURSE for the synthetic app.");
   const alias = "Synthetic regimen review " + randomUUID().slice(0, 8);
-  let encounter = await request("/admissions", { patient_alias: alias });
+  assert.ok(process.env.ADMISSION_TEST_DOCTOR, "Set ADMISSION_TEST_DOCTOR for the synthetic app.");
+  let encounter = await request("/admissions", { patient_alias: alias, assigned_roles: ["doctor"] });
   const path = "/admissions/" + encounter.id;
   const save = async command => {
     encounter = await request(path + "/actions", { request_id: randomUUID(), revision: encounter.revision, command });
@@ -35,6 +36,10 @@ async function run() {
     await save({ action: "link", row_id: rowId, confirmed: true, entry: { source: { id, kind, reporter }, wording } });
   }
   await save({ action: "interview", row_id: rowId, source_id: "statement", ownership: "patient", current_use: "current" });
+  encounter = await request(path + "/actions", {
+    revision: encounter.revision, request_id: randomUUID(),
+    command: { action: "attest_current_use", row_id: rowId, source_id: "statement" },
+  }, process.env.ADMISSION_TEST_DOCTOR);
   const taper = "1 tablet each morning then taper";
   await save({ action: "add", entry: {
     source: { id: "taper", kind: "prescription" }, name: "Synthetic Taper", wording: "Synthetic Taper — " + taper, directions: taper,
@@ -56,6 +61,7 @@ async function run() {
     await page.getByRole("button", { name: new RegExp(alias) }).click();
     const row = id => page.locator("#rows > article").filter({ has: page.locator('[data-action="verify"][data-row="' + id + '"]') });
     const dialog = page.getByRole("dialog");
+    await row(rowId).getByText(/Regimen still requires dose, route, schedule/).waitFor();
     const edit = async (id, source) => {
       await row(id).getByRole("button", { name: "Verify current use" }).click();
       await dialog.getByLabel("Regimen to verify").selectOption("0");
@@ -76,6 +82,7 @@ async function run() {
     await page.getByRole("button", { name: "Reload review" }).click();
     const cards = row(rowId).locator("article.regimen-evidence");
     await cards.nth(1).waitFor();
+    assert.equal(await row(rowId).getByText(/Regimen still requires/).count(), 0);
     await cards.first().getByText("Fields and sources").click();
     await cards.first().getByText("Synthetic patient", { exact: true }).waitFor();
     const updated = await request(path);

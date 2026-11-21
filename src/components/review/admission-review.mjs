@@ -43,7 +43,7 @@ export function admissionReview(encounter, row) {
     ).filter(Boolean),
     incidents: Object.values(encounter.identity_incidents || {}).filter(incident => incident.row_id === row.id),
     screeningAttestation: activeAttestation(row, entries),
-    missingRegimen: missingRegimen(row.interview),
+    missingRegimen: row.verified?.regimens?.length ? [] : missingRegimen(row.verified?.answer || row.interview),
     package: reviewPackage(encounter.capture, row),
   };
 }

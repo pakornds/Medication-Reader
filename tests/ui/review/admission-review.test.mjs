@@ -103,6 +103,15 @@ test("only a doctor or pharmacist can attest sourced current use with an incompl
   const attested = { ...row, screening_attestation: attestation };
   assert.equal(admissionReview({}, attested).screeningAttestation, attestation);
   assert.equal(canAttestCurrentUse(attested, { role: "doctor" }), false);
+  const afterStructuredVerification = admissionReview({}, {
+    ...attested,
+    verified: {
+      answer: { ...row.interview },
+      regimens: [{ basis: "verified", dose_amount: 1, route: "oral", time_of_day: ["morning"] }],
+    },
+  });
+  assert.equal(afterStructuredVerification.screeningAttestation, attestation);
+  assert.deepEqual(afterStructuredVerification.missingRegimen, []);
   const addedSource = { ...attested, entries: [...row.entries, { source: { id: "extra" } }] };
   assert.equal(admissionReview({}, addedSource).screeningAttestation, null);
   assert.equal(canAttestCurrentUse(addedSource, { role: "doctor" }), true);
