@@ -37,7 +37,7 @@ async function addDocumentedProduct(page, { separateSchedules = false } = {}) {
   await field.press('ArrowDown')
   await field.press('Enter')
   assert.match(await field.inputValue(), /ZOCOR/i)
-  await label(page, 'Source wording or reference').fill('Synthetic transfer note lists ZOCOR; 21 tablets supplied.')
+  await label(page, 'Source wording or reference').fill('Synthetic transfer note lists ' + await field.inputValue() + '; 21 tablets supplied.')
   const manual = page.locator('form').filter({ has: button(page, 'Add to draft') })
   await manual.locator('summary').filter({ hasText: 'Organization (if known)' }).click()
   await label(manual, 'Organization (if known)').fill('Synthetic transfer clinic')
