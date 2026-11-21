@@ -68,6 +68,12 @@
           {tpu:'0007',label:'Demo M tablet',active_tmt:true,strength:'5 mg',dose_form:'tablet'}
         ] : []})
       }
+      if (String(url).endsWith('/regimens/parse')) {
+        const body = JSON.parse(options.body)
+        return Response.json({row_id:body.row_id,regimens:[{component_id:body.component_id,basis:body.basis,
+          directions_text:body.directions_text,parse_status:'complete',dose_amount:1,dose_unit:'tablet',time_of_day:['morning'],
+          evidence:{directions_text:body.source,dose_amount:body.source,dose_unit:body.source,time_of_day:body.source}}]})
+      }
       assert(String(url).endsWith('/medication-analysis'),'expected endpoint')
       submitted = JSON.parse(options.body.get('form'))
       uploaded = options.body.getAll('photos').map(file => file.name)
@@ -165,7 +171,20 @@
     doc().querySelector('.product-list [role=option]:not([aria-disabled=true])').click()
     type(field('Source wording or reference'),'Synthetic transfer record listing Demo M tablet')
     type(field('Quantity prescribed (as written)'),'21 tablets')
-    type(field('Directions as written or reported'),'2 tablets at night')
+    const wording = field('Directions as written or reported')
+    type(wording,'1 tablet each morning')
+    await click('Fill fields from wording')
+    await expect(() => field('Dose per use').value==='1','parsed dose available to amend')
+    type(field('Dose per use'),'1.5')
+    type(wording,'No morning doses')
+    await expect(() => field('Dose per use').value==='' && button('Morning').getAttribute('aria-pressed')==='false','replacement source withdraws amended and parsed values')
+    type(wording,'')
+    type(field('Dose per use'),'2')
+    wording.focus()
+    type(wording,'2')
+    type(wording,'2 tablets at night')
+    wording.blur()
+    assert(field('Dose per use').value==='2','first-time wording preserves manually entered fields')
     type(field('Dose per use'),'2')
     type(field('Dose unit'),'tablets')
     await click('Night')

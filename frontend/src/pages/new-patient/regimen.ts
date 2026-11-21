@@ -24,7 +24,7 @@ export function emptySchedule() {
 
 export type Schedule = ReturnType<typeof emptySchedule>
 export function newStatement() {
-  return { note: newNote('other_record'), schedules: [emptySchedule()], parsed: false }
+  return { note: newNote('other_record'), schedules: [emptySchedule()], boundWording: '' }
 }
 export type Statement = ReturnType<typeof newStatement>
 export const basisFor = (kind: NoteKind) => (kind === 'other_record' ? 'documented' : 'reported')

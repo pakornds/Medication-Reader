@@ -230,7 +230,7 @@ export function DirectionsEditor({
       if (controller.signal.aborted) return
       if (response.row_id !== rowId || !response.regimens.length)
         throw new Error('Invalid regimen response')
-      onChange({ ...statement, parsed: true, schedules: response.regimens.map(fromComponent) })
+      onChange({ ...statement, boundWording: note.text.trim(), schedules: response.regimens.map(fromComponent) })
       setStatus('idle')
     } catch {
       if (!controller.signal.aborted) setStatus('error')
@@ -245,16 +245,19 @@ export function DirectionsEditor({
           required={schedules.some(hasFields)}
           pattern={schedules.some(hasFields) ? '.*\\S.*' : undefined}
           value={note.text}
-          onChange={(e) =>
+          onBlur={() => {
+            if (!statement.boundWording && note.text.trim() && schedules.some(hasFields))
+              onChange({ ...statement, boundWording: note.text.trim() })
+          }}
+          onChange={(e) => {
+            const text = e.target.value
+            const replaced = Boolean(statement.boundWording && statement.boundWording !== text.trim())
             edit({
-              ...statement,
-              note: { ...note, text: e.target.value },
-              parsed: false,
-              schedules: statement.parsed
-                ? [emptySchedule()]
-                : schedules.map((s) => ({ ...s, complete: false, remainder: '' })),
+              ...statement, note: { ...note, text },
+              boundWording: replaced ? '' : statement.boundWording,
+              schedules: replaced ? [emptySchedule()] : schedules,
             })
-          }
+          }}
         />
         <label>
           {t.kind}
@@ -295,7 +298,7 @@ export function DirectionsEditor({
             onChange={(next) =>
               edit({
                 ...statement,
-                parsed: false,
+                boundWording: note.text.trim(),
                 schedules: schedules.map((v) => (v.id === s.id ? next : v)),
               })
             }
