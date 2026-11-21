@@ -110,8 +110,6 @@ def _display_identity(medicine, current_views):
         return None
     checked = []
     for part in (medicine, *medicine.linked):
-        if not part.row.observed_names and part.row.identity_status == "named":
-            return None
         if (part.row.identity_status != "named" or part.row.discrepancies
                 or any(s.kind == "label_photo" and current_views.get("front", s.attachment_id) != s.attachment_id
                        for s in part.sources)):
@@ -128,7 +126,7 @@ def _display_identity(medicine, current_views):
            (primary.ingredient, primary.trade_name, primary.release) for entry in checked[1:]):
         return None
     candidates = set(primary.candidate_tpus).intersection(*(entry.candidate_tpus for entry in checked[1:]))
-    if not candidates:
+    if not candidates or (medicine.catalogue and medicine.catalogue.product.tpu not in candidates):
         return None
     refs = {(ref.source_id, ref.item_id): ref for identity in checked for ref in identity.evidence}
     return primary.model_copy(update={"evidence": list(refs.values()),
@@ -160,6 +158,7 @@ def save_intake(store, actor, request: IntakeSubmission):
     case_id = "admission-" + request.case_id.hex
     by_id = {medicine.row.id: medicine for medicine in request.rows}
     require(len(by_id) == len(request.rows), "Duplicate medicine row.")
+    display_identities = {rid: _display_identity(m, request.current_views) for rid, m in by_id.items()}
     prepared = {rid: prepare_sources(medicine, case_id) for rid, medicine in by_id.items()}
     medicines = [part for part, _, _ in prepared.values()]
     # Evidence identifiers may be reused only for the same source, including its original wording.
@@ -230,7 +229,7 @@ def save_intake(store, actor, request: IntakeSubmission):
             row.update(entries=entries, intake=medicine.row.model_dump(mode="json"),
                        intake_entry_ids=[e["source"]["id"] for e in entries],
                        intake_catalogue=medicine.catalogue.model_dump(mode="json") if medicine.catalogue else None)
-            display_identity = _display_identity(original, request.current_views)
+            display_identity = display_identities[rid]
             if display_identity:
                 row["intake_catalogue_identity"] = display_identity
             if original.linked or original.corrections:

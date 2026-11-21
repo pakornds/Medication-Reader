@@ -183,3 +183,67 @@ def test_linked_prior_scene_retains_original_but_current_crop_uses_selected_view
     assert {e["source"]["attachment_id"] for e in case["rows"]["old"]["entries"]} == {"old-photo", "recent-photo"}
     assert len(case["rows"]["old"]["intake_sources"]) == 2
     assert case["intake_attachments"] == ["old-photo", "recent-photo"]
+
+
+def test_supported_scan_heading_survives_reopen_without_verifying_product(client, tmp_path, monkeypatch):
+    import sqlite3
+
+    db = tmp_path / "tmt.db"
+    with sqlite3.connect(db) as connection:
+        connection.executescript("""
+            CREATE TABLE metadata(key TEXT, value TEXT);
+            INSERT INTO metadata VALUES('tmt_release','fixture-release');
+            CREATE TABLE product(tpu TEXT PRIMARY KEY,label TEXT,active_tmt INTEGER,
+                                 source_generic TEXT,source_strength TEXT,form TEXT);
+            INSERT INTO product VALUES('71','DEMO BRAND (Test Pharma) (synthetic ingredient 3 mg) tablet',
+                                       1,'synthetic ingredient','3 mg','tablet');
+        """)
+    monkeypatch.setenv("LOCAL_TMT_DB", str(db))
+    ref = dict(source_id="label", item_id="region")
+    hint = dict(trade_name="DEMO BRAND", ingredient="synthetic ingredient", release="fixture-release",
+                candidate_tpus=["71"], evidence=[ref])
+    data = BytesIO()
+    Image.new("RGB", (20, 20), "white").save(data, "PNG")
+    payload = submission(dict(
+        row=dict(id="medicine", identity_status="named", sources=[ref],
+                 observed_names=[dict(value=name, evidence=ref) for name in ("DEMO BRAND", "synthetic ingredient")]),
+        origin="analysis", catalogue_identity=hint,
+        sources=[dict(id="label", kind="label_photo", attachment_id="front")],
+        notes={}, items=[dict(id="region", source_id="label", row_id="medicine", kind="label_region")],
+        regions={"region": dict(x=0,y=0,width=1,height=1)}, physical_items={"region": "medicine"},
+    ))
+    payload["originals"] = {"front": dict(media_type="image/png", data=b64encode(data.getvalue()).decode())}
+
+    for mutate in ("forged", "corrected", "selection", "linked"):
+        other = deepcopy(payload)
+        other["case_id"] = str(uuid4())
+        row = other["rows"][0]
+        if mutate == "forged":
+            row["catalogue_identity"]["ingredient"] = "unsupported identity"
+        if mutate == "corrected":
+            row["corrections"] = {"strength":"9 mg"}
+        if mutate == "selection":
+            row["catalogue"] = dict(release="fixture-release", product=dict(
+                tpu="wrong", label="Other product", strength="9 mg", dose_form="tablet", active_tmt=True))
+        if mutate == "linked":
+            other_ref = dict(source_id="second")
+            row["linked"] = [dict(row=dict(id="linked", identity_status="named", sources=[other_ref],
+                                            observed_names=[dict(value="Independent name", evidence=other_ref)]),
+                                  origin="analysis", sources=[dict(id="second",kind="other_record")],
+                                  items=[], notes={"second":"Independent name"}, regions={},physical_items={})]
+        assert "intake_catalogue_identity" not in submit(client, other)["rows"]["medicine"]
+
+    case = submit(client, payload)
+    url = "/admissions/" + case["id"]
+    row = client.get(url, headers=headers("pharmacist")).json()["rows"]["medicine"]
+    assert row["intake_catalogue_identity"] == hint
+    assert row["unknown"] and row["verified"] is None and row["confirmed"] is None
+    assert row["intake_catalogue"] is None
+    result = client.post(url + "/actions", headers=headers("pharmacist"), json=dict(
+        revision=case["revision"],request_id="cannot-import",command=dict(action="import",row_ids=["medicine"])))
+    assert result.status_code == 422
+    result = client.post(url + "/actions", headers=headers("nurse"), json=dict(
+        revision=case["revision"], request_id="new-evidence", command=dict(action="link",row_id="medicine",confirmed=True,
+            entry=dict(source=dict(id="clarify", kind="other_record"), wording="Another medicine",name="Another medicine"))))
+    assert result.status_code == 200, result.text
+    assert "intake_catalogue_identity" not in result.json()["rows"]["medicine"]

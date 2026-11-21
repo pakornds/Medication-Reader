@@ -296,6 +296,7 @@ def unresolved_photo(entry):
 
 def hold_report_identity(case, row):
     """Keep a report-based name as a proposal once a physical unknown is linked."""
+    row.pop("intake_catalogue_identity", None)
     if row["unknown"]:
         return
     named = [entry for entry in active(row) if entry["name"] and reviewable_entry(entry)]
@@ -673,6 +674,8 @@ class AdmissionStore:
             return attest_current_use(self.row(rows, cmd.row_id), actor, cmd)
         if isinstance(cmd, (AddEvidence, Interview, Proposal, Decision)) and cmd.row_id in rows:
             rows[cmd.row_id].pop("screening_attestation", None)
+            if isinstance(cmd, (Proposal, Decision)):
+                rows[cmd.row_id].pop("intake_catalogue_identity", None)
         if isinstance(cmd, (AddRow, AddEvidence)):
             resolved = resolve_entry(case, cmd.entry)
             entry = resolved.model_dump(mode="json")
