@@ -4,6 +4,7 @@ import sqlite3
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import Field
 
 from app.schemas.evidence import ContractModel
 from app.services.local_reference_db import open_reference
@@ -15,6 +16,9 @@ class ProductOption(ContractModel):
     tpu: str
     label: str
     active_tmt: bool
+    source_generic: str = Field(description="Verbatim TMT generic or ingredient text for the whole product.")
+    strength: str = Field(description="Product strength as recorded in TMT. Empty when absent.")
+    dose_form: str = Field(description="Dosage form as recorded in TMT. Empty when absent.")
 
 
 class ProductOptions(ContractModel):
@@ -28,7 +32,8 @@ def local_products(q: Annotated[str, Query(min_length=1, max_length=120)]) -> Pr
     # All tokens are parameters. Literal %, underscores and apostrophes are searchable.
     matches = " AND ".join("instr(lower(label), ?) > 0" for _ in terms)
     statement = f"""
-        SELECT tpu, label, active_tmt FROM product
+        SELECT tpu, label, active_tmt, source_generic, source_strength AS strength, form AS dose_form
+        FROM product
         WHERE tpu = ? OR ({matches})
         ORDER BY (tpu = ?) DESC, active_tmt DESC, length(label), label, tpu LIMIT 30
     """
