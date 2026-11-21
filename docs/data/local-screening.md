@@ -17,8 +17,8 @@ Contains information from the Norwegian Medical Products Agency (DMP), made avai
 
 | Population | Product units | Complete TMT composition | Product-to-FEST mapping |
 | --- | ---: | ---: | ---: |
-| Active November 2026 products selected in this release | 34,567 | 33,617 (97.3%) | 10,568 (30.6%) |
-| Original February 2020 selections, without reconfirmation | 30,683 | 28,496 (92.9%) | 9,320 (30.4%) |
+| Active November 2026 products selected in this release | 34,567 | 33,612 (97.3%) | 10,568 (30.6%) |
+| Original February 2020 selections, without reconfirmation | 30,683 | 28,493 (92.9%) | 9,320 (30.4%) |
 
 The release cohorts overlap. Of the original catalogue, 38 product codes are absent from the new snapshot and 1,498 have changed clinical fields. Reconfirm changed products from the current catalogue. The active DDI-mapped set includes 564 combination products with all components mapped. Strength-dependent applicability still requires review of the individual case. The comparison matches ingredients, form and route conservatively, without fuzzy names or automatic salt substitution. [Mapping methodology and reproducible build](../../tools/local_screening/catalog-mapping.md)
 
@@ -26,12 +26,12 @@ The release cohorts overlap. Of the original catalogue, 38 product codes are abs
 | --- | ---: |
 | No matching FEST formulation for the recorded composition, form and route | 8,828 |
 | Thai form or route outside the supported crosswalk | 8,663 |
-| No exact FEST substance identity for at least one ingredient | 4,756 |
-| TMT composition unresolved | 950 |
+| No exact FEST substance identity for at least one ingredient | 4,751 |
+| TMT composition unresolved | 955 |
 | Component ATC assignment unsupported | 750 |
 | More than one possible ATC assignment | 52 |
 
-The 950 unresolved compositions comprise 485 disagreements between the TMT graph and the master ingredient field, 448 complex substance descriptions withheld for review, and 17 missing or ambiguous product chains. Even a mapped product can have an explicit FEST coverage gap. In this release 566 mapped TPUs have only ATCs carrying an exact unassessed notice. A positive rule remains visible when an unassessed notice is also present. A scope with no returned rule provides no clinical safety clearance.
+The 955 unresolved compositions comprise 485 disagreements between the TMT graph and the master ingredient field, 453 complex substance descriptions withheld for review, and 17 missing or ambiguous product chains. Even a mapped product can have an explicit FEST coverage gap. In this release 566 mapped TPUs have only ATCs carrying an exact unassessed notice. A positive rule remains visible when an unassessed notice is also present. A scope with no returned rule provides no clinical safety clearance.
 
 Across the mapped catalogue, **3,110 of the 11,159 source rules** have opposite sides reachable by at least two distinct active Thai product codes. **9,437 of the 10,568 mapped products** can reach at least one such partner. This counts possible catalogue matches under the ATC lookup. It measures neither patient exposure nor clinical accuracy. Run `tools/local_screening/audit_rule_reach.py` with the mapping and FEST SQLite paths to reproduce it.
 

@@ -113,24 +113,39 @@ def _route_scope(row: ReviewRow, expected: str | None) -> tuple[str | None, bool
     return None, False
 
 
-def _resolve(tmt: sqlite3.Connection, evidence: CaseEvidence, row: ReviewRow, release: str) -> Product:
+def _resolve(
+    tmt: sqlite3.Connection, evidence: CaseEvidence, row: ReviewRow, release: str, legacy_release: str
+) -> Product:
     label = row.unknown_label or next((item.value for item in row.observed_names), row.id)
     result = Product(ScreenedRow(row_id=row.id, label=label, reason=_eligibility(row, evidence)))
     if result.row.reason:
         return result
     verification = row.verification
-    if verification.tmt_release is not None and verification.tmt_release != release:
+    if verification.tmt_release not in (None, release, legacy_release):
         result.row.reason = "The verified product belongs to a different TMT release. Re-select it from the current catalogue."
         return result
     product = tmt.execute(
-        "SELECT tpu, label, composition_status, ddi_status, legacy_status, fest_route FROM product WHERE tpu=?",
+        "SELECT tpu, label, legacy_label, composition_status, ddi_status, legacy_status, fest_route FROM product WHERE tpu=?",
         (verification.normalized_medication_id,),
     ).fetchone()
-    if product and product["legacy_status"] == "clinical_fields_changed" and verification.tmt_release is None:
+    if product is None or product["legacy_status"] == "absent_in_snapshot":
+        result.row.reason = "The TPU is unavailable in the current TMT release. Re-select an active product."
+        return result
+    if product["legacy_status"] == "clinical_fields_changed" and verification.tmt_release != release:
         result.row.reason = "Product identity, strength or form changed. Re-select from the current TMT catalogue to confirm the release."
         return result
-    if product is None or product["label"] != verification.identity.value:
-        result.row.reason = "Verified identity and TPU do not match the same product in this TMT release."
+
+    # Bind the exact label to the selected TPU and the release that supplied the label.
+    # Old rows without a release may use a legacy label only when clinical fields agree.
+    name = verification.identity.value
+    current_match = verification.tmt_release in (None, release) and name == product["label"]
+    legacy_match = (
+        verification.tmt_release in (None, legacy_release)
+        and product["legacy_status"] == "unchanged"
+        and name == product["legacy_label"]
+    )
+    if not (current_match or legacy_match):
+        result.row.reason = "The verified identity and TPU do not match the product label for the selected catalogue release."
         return result
 
     tpu = product["tpu"]
@@ -274,9 +289,12 @@ def screen_local(request: LocalScreeningRequest) -> LocalScreeningResult:
     try:
         with open_reference("LOCAL_TMT_DB") as tmt:
             meta = dict(tmt.execute("SELECT key,value FROM metadata"))
-            if not all(meta.get(key) for key in ("tmt_release", "mapping_version", "mapping_sha256")):
+            if not all(meta.get(key) for key in ("tmt_release", "legacy_tmt_release", "mapping_version", "mapping_sha256")):
                 raise ReferenceUnavailable("The Thai product database has incomplete release metadata.")
-            products = [_resolve(tmt, request.evidence, row, meta["tmt_release"]) for row in request.rows]
+            products = [
+                _resolve(tmt, request.evidence, row, meta["tmt_release"], meta["legacy_tmt_release"])
+                for row in request.rows
+            ]
     except (sqlite3.Error, OSError) as exc:
         raise ReferenceUnavailable("The Thai product reference is missing or unreadable.") from exc
 

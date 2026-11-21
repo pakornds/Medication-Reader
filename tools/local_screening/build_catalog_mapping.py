@@ -20,7 +20,7 @@ from contextlib import closing
 from pathlib import Path
 from zipfile import ZipFile
 
-VERSION = "tmt-fest-form-route-1"
+VERSION = "tmt-fest-form-route-2"
 ATC_SYSTEM = "2.16.578.1.12.4.1.1.7180"
 LEAF = re.compile(r"[A-Z][0-9]{2}[A-Z]{2}[0-9]{2}$")
 # Explicit TMT form -> (FEST 7448 short pharmaceutical form, FEST 7477 route).
@@ -48,6 +48,7 @@ FORM = {
     "nebuliser solution": ("869", "11"), "nebuliser suspension": ("871", "11"),
 }
 COMPLEX = re.compile(r"\b(vaccin\w*|extracts?|multivitamins?|probiotics?|mixtures?|combinations?|allergens?)\b")
+AGGREGATE_SUBSTANCES = {"vitamin b complex", "factor ix complex", "ossein mineral complex"}
 
 
 def norm(text):
@@ -169,7 +170,7 @@ def tmt_composition(tpu, master_name, links, substances):
     written = sorted(norm(s) for s in master_name.split(" + "))
     if sorted(norm(name) for _, name in parts) != written:
         return "master_graph_disagreement", parts
-    if any(COMPLEX.search(name) for name in written):
+    if any(name in AGGREGATE_SUBSTANCES or COMPLEX.search(name) for name in written):
         return "complex_substance_needs_review", parts
     return "complete", parts
 
@@ -215,7 +216,7 @@ CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE product(tpu TEXT PRIMARY KEY,label TEXT NOT NULL,composition_status TEXT NOT NULL,
     ddi_status TEXT NOT NULL,form TEXT NOT NULL,fest_form TEXT,fest_route TEXT,
     active_tmt INTEGER NOT NULL,legacy_member INTEGER NOT NULL,legacy_status TEXT NOT NULL,
-    source_strength TEXT NOT NULL,source_generic TEXT NOT NULL);
+    source_strength TEXT NOT NULL,source_generic TEXT NOT NULL,legacy_label TEXT);
 CREATE TABLE ingredient(tpu TEXT REFERENCES product,subs_id TEXT,name TEXT NOT NULL,PRIMARY KEY(tpu,subs_id));
 CREATE TABLE product_atc(tpu TEXT REFERENCES product,atc TEXT,PRIMARY KEY(tpu,atc));
 CREATE TABLE fest_evidence(tpu TEXT REFERENCES product,fest_product_id TEXT,mapping TEXT NOT NULL,
@@ -264,7 +265,7 @@ def build(tmt_root, release, legacy_file, fest, destination):
     header = ["tpu", "label", "active_tmt", "legacy_member", "legacy_status", "source_generic", "form",
               "source_strength", "composition_status", "ddi_status", "fest_form", "fest_route",
               "tmt_subs_ids", "atcs", "fest_candidate_count", "mapping_version", "tmt_release",
-              "legacy_composition_status", "legacy_ddi_status"]
+              "legacy_composition_status", "legacy_ddi_status", "legacy_label"]
     destination.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=destination) as temp:
         staged = Path(temp)
@@ -291,8 +292,9 @@ def build(tmt_root, release, legacy_file, fest, destination):
                     comp = ddi = "inactive_or_missing_tpu"
                     parts, atcs, evidence = [], [], []
                 fr, route = FORM.get(norm(form), (None, None))
-                db.execute("INSERT INTO product VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                           (tpu, label, comp, ddi, form, fr, route, bool(current), bool(legacy_item), historical, strength, generic))
+                legacy_label = legacy_item["label"] if legacy_item else None
+                db.execute("INSERT INTO product VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                           (tpu, label, comp, ddi, form, fr, route, bool(current), bool(legacy_item), historical, strength, generic, legacy_label))
                 db.executemany("INSERT INTO ingredient VALUES (?,?,?)", [(tpu, s, name) for s, name in parts])
                 db.executemany("INSERT INTO product_atc VALUES (?,?)", [(tpu, c) for c in atcs])
                 db.executemany("INSERT INTO fest_evidence VALUES (?,?,?)",
@@ -300,7 +302,7 @@ def build(tmt_root, release, legacy_file, fest, destination):
                 old_comp, old_ddi = legacy_outcome(historical, comp, ddi)
                 product_csv.append((tpu, label, int(bool(current)), int(bool(legacy_item)), historical, generic, form, strength,
                                     comp, ddi, fr, route, "|".join(s for s, _ in parts), "|".join(atcs), len(evidence), VERSION, release,
-                                    old_comp if legacy_item else None, old_ddi if legacy_item else None))
+                                    old_comp if legacy_item else None, old_ddi if legacy_item else None, legacy_label))
                 for scope in ["union"] + (["active"] if current else []) + (["legacy"] if legacy_item else []):
                     usable_comp, usable_ddi = (old_comp, old_ddi) if scope == "legacy" else (comp, ddi)
                     counts = counters[scope]

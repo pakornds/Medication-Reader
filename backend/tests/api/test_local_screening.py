@@ -25,11 +25,11 @@ def refs(tmp_path, monkeypatch):
         db.executescript("""
             CREATE TABLE metadata(key TEXT, value TEXT);
             INSERT INTO metadata VALUES ('tmt_release','tmt-test'), ('mapping_version','map-v1'),
-                ('mapping_sha256','snapshot-test'), ('fest_sha256','test-digest');
-            CREATE TABLE product(tpu TEXT PRIMARY KEY,label TEXT,composition_status TEXT,ddi_status TEXT,legacy_status TEXT,fest_route TEXT);
-            INSERT INTO product VALUES ('101','Demo Blue tablet','complete','mapped','unchanged','53'),
-                ('202','Demo Pink tablet','complete','mapped','unchanged','53'),
-                ('303','Demo Yellow tablet','incomplete','no_exact_fest_product_form_route','unchanged',NULL);
+                ('mapping_sha256','snapshot-test'), ('fest_sha256','test-digest'), ('legacy_tmt_release','tmt-legacy');
+            CREATE TABLE product(tpu TEXT PRIMARY KEY,label TEXT,composition_status TEXT,ddi_status TEXT,legacy_status TEXT,fest_route TEXT,legacy_label TEXT);
+            INSERT INTO product VALUES ('101','Demo Blue tablet','complete','mapped','unchanged','53','Blue original presentation'),
+                ('202','Demo Pink tablet','complete','mapped','unchanged','53','Pink original presentation'),
+                ('303','Demo Yellow tablet','incomplete','no_exact_fest_product_form_route','unchanged',NULL,'Yellow original presentation');
             CREATE TABLE ingredient(tpu TEXT,subs_id TEXT,name TEXT);
             INSERT INTO ingredient VALUES ('101','S1','Demo ingredient'),
                 ('202','S1','Demo ingredient'),('202','S2','Second ingredient'),('303','S1','Demo ingredient');
@@ -268,3 +268,38 @@ def test_structured_component_route_controls_the_gap(client, refs):
     result = run(client, request)
     assert result["pairs"][0]["ddi"]["status"] == "potential"
     assert result["rows"][0]["route_note"] is None
+
+
+@pytest.mark.parametrize("release", [None, "tmt-legacy"])
+def test_exact_historical_identity_without_clinical_changes_resolves_current_reference(client, refs, release):
+    request = body(("101", "202"))
+    verification = request["rows"][0]["verification"]
+    verification.update(tmt_release=release)
+    verification["identity"]["value"] = "Blue original presentation"
+    report = run(client, request)
+    assert report["rows"][0]["tpu"] == "101" and report["rows"][0]["label"] == "Demo Blue tablet"
+    assert report["pairs"][0]["ddi"]["status"] == "potential"
+    assert report["pairs"][0]["duplicate"]["status"] == "potential"
+
+
+@pytest.mark.parametrize("release,label,status", [
+    ("tmt-test", "Blue original presentation", "unchanged"),
+    ("tmt-legacy", "Demo Blue tablet", "unchanged"),
+    ("tmt-legacy", "Pink original presentation", "unchanged"),
+    (None, "Blue original", "unchanged"),
+    (None, "Blue original presentation", "clinical_fields_changed"),
+    ("tmt-legacy", "Blue original presentation", "clinical_fields_changed"),
+    ("tmt-legacy", "Blue original presentation", "new_to_legacy"),
+    (None, "Blue original presentation", "absent_in_snapshot"),
+])
+def test_wrong_release_label_or_changed_legacy_selection_remains_unassessed(client, refs, release, label, status):
+    with closing(sqlite3.connect(refs[0])) as db:
+        db.execute("UPDATE product SET legacy_status=? WHERE tpu='101'", (status,))
+        db.commit()
+    request = body(("101", "202"))
+    verification = request["rows"][0]["verification"]
+    verification.update(tmt_release=release)
+    verification["identity"]["value"] = label
+    report = run(client, request)
+    assert report["rows"][0]["tpu"] is None and report["rows"][0]["reason"]
+    assert report["pairs"][0]["ddi"]["status"] == report["pairs"][0]["duplicate"]["status"] == "unassessed"

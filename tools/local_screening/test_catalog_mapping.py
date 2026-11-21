@@ -26,6 +26,14 @@ def test_historical_release_gate_is_independent_of_current_mapping():
     )
 
 
+def test_aggregate_single_code_does_not_establish_constituent_composition():
+    graph = [{"tpu": {"gpu"}}, {"gpu": {"gp"}}, {"gp": {"vtm"}}, {"vtm": {"1"}}]
+    for name in ("vitamin B complex", "factor ix complex", "ossein mineral complex"):
+        assert tmt_composition("tpu", name, graph, {"1": name}) == (
+            "complex_substance_needs_review", [("1", name)],
+        )
+
+
 def test_conservative_mapping_never_strips_salts_or_picks_an_ambiguous_code():
     names = {A.lower(): {"a"}}
     index = {(("a",), "53", "53"): {("f1", (("a", "C10AA01"),)), ("f2", (("a", "D01AA01"),))}}
@@ -126,6 +134,9 @@ def test_generated_database_and_csv_separate_fresh_select_from_changed_legacy(tm
             "complete", "mapped", "clinical_fields_changed",
         )
         assert db.execute("SELECT tpu,atc FROM product_atc").fetchall() == [("10", "C10AA01")]
+        assert db.execute("SELECT label,legacy_label FROM product WHERE tpu='10'").fetchone() == (
+            "A tablet", "A tablet old",
+        )
         assert db.execute("SELECT key,value FROM metadata WHERE key='tmt_release'").fetchone() == ("tmt_release", release)
     assert report["counts"]["legacy"]["ddi"] == {"inactive_or_missing_tpu": 1, "legacy_reconfirmation_required": 1}
     assert report["counts"]["active"]["ddi"] == {"mapped": 1}
