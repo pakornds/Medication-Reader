@@ -1,25 +1,25 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { LuArrowLeft, LuCheck, LuHistory } from 'react-icons/lu'
 import { ApiError, type createClient } from '../../api/client'
 import type { Encounter } from '../../api/admission'
-import type { ImportReceipt, RegimenComponent, ReviewerIdentity } from '../../api/contracts'
+import type { RegimenComponent, ReviewerIdentity } from '../../api/contracts'
 import { Button } from '../../components/ui/Button'
 import { RegimenReadback } from '../new-patient/RegimenReadback'
 import { regimenText } from '../../i18n/regimen'
 import type { Language } from '../../i18n/messages'
-import { exclusion, importRequestId, medicineName, saveReceipt } from './importSelection'
+import { exclusion, importRequestId, medicineName, receiptForApproval, saveReceipt } from './importSelection'
 
 const text = {
   en: {
     title: 'Output', select: 'Select medicines to import', empty: 'No medicines are ready to import.',
-    ready: 'Ready for import', excluded: 'Excluded from this import', review: 'Clinical verification pending',
+    ready: 'Ready for import', pending: 'Pending medicines', excluded: 'Excluded medicines', review: 'Clinical verification pending',
     identity: 'Medicine identity unresolved', ownership: 'Ownership unconfirmed', other: 'Belongs to someone else',
-    imported: 'Already imported', current: 'Current medicine', stopped: 'Stopped · import as history',
+    imported: 'Imported medicines', current: 'Current medicine', stopped: 'Stopped · import as history',
     discontinued: 'Discontinued by order · import as history', unknown: 'Unidentified medicine',
     source: 'Verification source', verifier: 'Verified by', preview: 'Import selection', selected: 'Selected medicines',
     remaining: 'Other medicines remaining in this encounter', submit: 'Approve and import selected medicines',
-    sending: 'Importing…', success: 'Import confirmed', time: 'Hospital receipt', history: 'Open import history',
+    sending: 'Importing…', success: 'Import confirmed', time: 'Hospital receipt', receiptRows: 'Medicines on receipt', history: 'Open import history',
     goReview: 'Back to Review', pharmacist: 'An assigned pharmacist must approve the import.',
     destination: 'Destination', hospital: 'Mock hospital', failed: 'Import could not be confirmed. Retry the same selection.',
     conflict: 'The encounter changed. Review the latest rows and select again.',
@@ -31,13 +31,13 @@ const text = {
   },
   th: {
     title: 'ส่งออก', select: 'เลือกยาที่ต้องการนำเข้า', empty: 'ยังไม่มียาที่พร้อมนำเข้า',
-    ready: 'พร้อมนำเข้า', excluded: 'รายการที่ไม่นำเข้า', review: 'รอการยืนยันทางคลินิก',
+    ready: 'พร้อมนำเข้า', pending: 'รายการยาที่รอดำเนินการ', excluded: 'รายการที่ไม่นำเข้า', review: 'รอการยืนยันทางคลินิก',
     identity: 'ยังไม่ยืนยันตัวยา', ownership: 'ยังไม่ยืนยันเจ้าของยา', other: 'เป็นยาของผู้อื่น',
-    imported: 'นำเข้าแล้ว', current: 'ยาที่ใช้อยู่', stopped: 'หยุดใช้แล้ว · นำเข้าเป็นประวัติ',
+    imported: 'รายการยาที่นำเข้าแล้ว', current: 'ยาที่ใช้อยู่', stopped: 'หยุดใช้แล้ว · นำเข้าเป็นประวัติ',
     discontinued: 'มีคำสั่งหยุดยา · นำเข้าเป็นประวัติ', unknown: 'ยาที่ยังระบุไม่ได้',
     source: 'แหล่งข้อมูลที่ยืนยัน', verifier: 'ยืนยันโดย', preview: 'รายการที่จะนำเข้า', selected: 'ยาที่เลือก',
     remaining: 'ยาอื่นที่เหลือในเคสนี้', submit: 'อนุมัติและนำเข้ายาที่เลือก',
-    sending: 'กำลังนำเข้า…', success: 'ยืนยันการนำเข้าแล้ว', time: 'ใบรับรายการจากโรงพยาบาล', history: 'เปิดประวัติการนำเข้า',
+    sending: 'กำลังนำเข้า…', success: 'ยืนยันการนำเข้าแล้ว', time: 'ใบรับรายการจากโรงพยาบาล', receiptRows: 'รายการยาในใบรับ', history: 'เปิดประวัติการนำเข้า',
     goReview: 'กลับไปทบทวน', pharmacist: 'เภสัชกรที่รับผิดชอบเคสต้องเป็นผู้อนุมัติการนำเข้า',
     destination: 'ปลายทาง', hospital: 'ระบบโรงพยาบาลจำลอง', failed: 'ยังยืนยันผลนำเข้าไม่ได้ ลองส่งรายการเดิมอีกครั้ง',
     conflict: 'เคสมีการเปลี่ยนแปลง กรุณาทบทวนรายการล่าสุดแล้วเลือกอีกครั้ง',
@@ -67,8 +67,8 @@ function Output({ language, client, actor, encounter, onEncounter }: Props) {
   const t = text[language]
   const [selection, setSelection] = useState({ revision: encounter.revision, ids: [] as string[] })
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<ErrorKey | null>(null)
-  const [success, setSuccess] = useState<{ receipt: ImportReceipt; saved: boolean } | null>(null)
+  const [failure, setFailure] = useState<{ key: ErrorKey; revision: number; ids: string[] } | null>(null)
+  const [historyUnavailable, setHistoryUnavailable] = useState(false)
   const running = useRef(false)
   const mounted = useRef(true)
   useEffect(() => {
@@ -76,28 +76,50 @@ function Output({ language, client, actor, encounter, onEncounter }: Props) {
     return () => { mounted.current = false }
   }, [])
 
+  const { id: caseId, receipts } = encounter
+  const updateEncounter = useEffectEvent(onEncounter)
+  useEffect(() => {
+    let active = true
+    void client.encounter(caseId).then(latest => {
+      if (active) updateEncounter(latest)
+    }, () => { /* The open encounter remains available for an idempotent retry. */ })
+    return () => { active = false }
+  }, [client, caseId])
+
+  useEffect(() => {
+    for (const receipt of receipts) saveReceipt(receipt)
+  }, [receipts])
+
   const rows = Object.values(encounter.rows)
+  const imported = rows.filter(row => row.imported_at)
   const ready = rows.filter(row => !exclusion(row))
-  const excluded = rows.filter(row => exclusion(row))
+  const pending = rows.filter(row => {
+    const reason = exclusion(row)
+    return reason === 'identity' || reason === 'review' || reason === 'ownership'
+  })
+  const excluded = rows.filter(row => exclusion(row) === 'other')
+  const outcomes = [[t.imported, imported], [t.pending, pending], [t.excluded, excluded]] as const
   const pharmacist = actor.role === 'pharmacist' && encounter.assigned.includes(actor.id)
   const selected = selection.revision === encounter.revision
     ? ready.filter(row => selection.ids.includes(row.id)) : []
-  const remaining = rows.filter(row => !row.imported_at).length - selected.length
+  const remaining = rows.length - imported.length - selected.length
+  const error = failure && !receiptForApproval(encounter, failure.revision, actor.id, failure.ids)
+    ? failure.key : null
 
   function toggle(id: string) {
     setSelection({ revision: encounter.revision, ids: selected.some(row => row.id === id)
       ? selected.filter(row => row.id !== id).map(row => row.id)
       : [...selected.map(row => row.id), id] })
-    setError(null)
+    setFailure(null)
   }
 
   async function submit() {
     if (!pharmacist || !selected.length || running.current) return
     running.current = true
     setBusy(true)
-    setError(null)
-    setSuccess(null)
+    setFailure(null)
     const ids = selected.map(row => row.id).sort()
+    const fail = (key: ErrorKey) => setFailure({ key, revision: encounter.revision, ids })
     try {
       const updated = await client.action(encounter.id, {
         revision: encounter.revision,
@@ -105,15 +127,12 @@ function Output({ language, client, actor, encounter, onEncounter }: Props) {
         command: { action: 'import', row_ids: ids },
       })
       // A replay can include later imports. Read the event for this particular approval.
-      const event = updated.events.find(event => event.action === 'import' && event.revision === encounter.revision + 1)
-      const receipt = event?.action === 'import' && updated.receipts.find(item =>
-        item.imported_at === event.imported_at && item.imported_row_ids.length === ids.length
-        && ids.every(id => item.imported_row_ids.includes(id)))
+      const receipt = receiptForApproval(updated, encounter.revision, actor.id, ids)
       if (receipt) {
         const saved = saveReceipt(receipt)
-        if (mounted.current) setSuccess({ receipt, saved })
-      } else if (mounted.current) setError('noReceipt')
-      if (mounted.current) onEncounter(updated)
+        if (mounted.current) setHistoryUnavailable(!saved)
+      } else if (mounted.current) fail('noReceipt')
+      onEncounter(updated)
     } catch (e) {
       if (!mounted.current) return
       if (e instanceof ApiError && e.status === 409) {
@@ -122,11 +141,11 @@ function Output({ language, client, actor, encounter, onEncounter }: Props) {
           if (mounted.current) {
             onEncounter(latest)
             setSelection({ revision: latest.revision, ids: [] })
-            setError('conflict')
+            fail('conflict')
           }
-        } catch { if (mounted.current) setError('refreshFailed') }
+        } catch { if (mounted.current) fail('refreshFailed') }
       } else {
-        setError(e instanceof ApiError && (e.status === 401 || e.status === 403)
+        fail(e instanceof ApiError && (e.status === 401 || e.status === 403)
           ? 'denied' : e instanceof ApiError && e.status < 500 ? 'rejected' : 'failed')
       }
     } finally {
@@ -137,16 +156,18 @@ function Output({ language, client, actor, encounter, onEncounter }: Props) {
 
   return <div className="intake stack">
     <div className="intake-title"><h1>{t.title}</h1><p>{encounter.patient_alias}</p></div>
-    {success && <section className="intake-panel stack" role="status">
+    {receipts.length > 0 && <section className="intake-panel stack" role="status">
       <h2 className="flex items-center gap-2"><LuCheck aria-hidden="true" />{t.success}</h2>
-      <p>{t.time} · <time dateTime={success.receipt.imported_at}>{success.receipt.imported_at}</time></p>
-      {!success.saved && <p>{t.noHistory}</p>}
+      <ul>{[...receipts].reverse().map(receipt => <li key={JSON.stringify([receipt.imported_at, receipt.imported_row_ids])}>
+        {t.time} · <time dateTime={receipt.imported_at}>{receipt.imported_at}</time> · {t.receiptRows} · {receipt.imported_row_ids.length}
+      </li>)}</ul>
+      {historyUnavailable && <p>{t.noHistory}</p>}
       <Link className="text-action" to="/history"><LuHistory aria-hidden="true" />{t.history}</Link>
     </section>}
     <div className="intake-grid">
       <section className="intake-panel stack">
-        <h2>{t.select}</h2>
-        {!ready.length && <p>{t.empty}</p>}
+        {ready.length > 0 && <h2>{t.select}</h2>}
+        {!ready.length && !imported.length && <p>{t.empty}</p>}
         {ready.length > 0 && <fieldset disabled={busy || !pharmacist}>
           <legend className="mb-2 font-semibold">{t.ready} · {ready.length}</legend>
           {ready.map(row => {
@@ -167,24 +188,32 @@ function Output({ language, client, actor, encounter, onEncounter }: Props) {
             </div>
           })}
         </fieldset>}
-        {excluded.length > 0 && <div><h3>{t.excluded} · {excluded.length}</h3>
-          <ul className="divide-y divide-line">{excluded.map(row => <li className="py-2" key={row.id}>
-            <strong>{medicineName(row) || t.unknown}</strong> · {t[exclusion(row)!]}
-          </li>)}</ul>
-        </div>}
+        {outcomes.map(([label, group]) => group.length > 0 &&
+          <div key={label}><h3>{label} · {group.length}</h3>
+          <ul className="divide-y divide-line">{group.map(row => {
+            const reason = exclusion(row)
+            const name = medicineName(row)
+            return <li className="py-2" key={row.id}>
+              <strong>{name || t.unknown}</strong>
+              {reason && reason !== 'imported' && ' · ' + t[reason]}
+            </li>
+          })}</ul>
+        </div>)}
         <Link className="text-action" to="/new-patient/review"><LuArrowLeft aria-hidden="true" />{t.goReview}</Link>
       </section>
-      <section className="intake-panel stack">
-        <h2>{t.preview}</h2>
-        <dl className="grid gap-3">
-          <div><dt>{t.destination}</dt><dd className="font-semibold">{t.hospital}</dd></div>
-          <div><dt>{t.selected}</dt><dd className="font-semibold">{selected.length}</dd></div>
-          <div><dt>{t.remaining}</dt><dd>{remaining}</dd></div>
-        </dl>
-        {!pharmacist && <p>{t.pharmacist}</p>}
+      {(ready.length > 0 || error) && <section className="intake-panel stack">
+        {ready.length > 0 && <>
+          <h2>{t.preview}</h2>
+          <dl className="grid gap-3">
+            <div><dt>{t.destination}</dt><dd className="font-semibold">{t.hospital}</dd></div>
+            <div><dt>{t.selected}</dt><dd className="font-semibold">{selected.length}</dd></div>
+            <div><dt>{t.remaining}</dt><dd>{remaining}</dd></div>
+          </dl>
+          {!pharmacist && <p>{t.pharmacist}</p>}
+        </>}
         {error && <p role="alert">{t[error]}</p>}
-        <Button variant="primary" disabled={!pharmacist || !selected.length || busy} onClick={() => void submit()}>{busy ? t.sending : t.submit}</Button>
-      </section>
+        {ready.length > 0 && <Button variant="primary" disabled={!pharmacist || !selected.length || busy} onClick={() => void submit()}>{busy ? t.sending : t.submit}</Button>}
+      </section>}
     </div>
   </div>
 }
