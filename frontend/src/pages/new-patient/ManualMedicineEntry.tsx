@@ -1,47 +1,39 @@
 import { FacilityDetails } from './FacilityDetails'
 import { InputField } from '../../components/ui/InputField'
 import { Button } from '../../components/ui/Button'
-import { useLayoutEffect, useState } from 'react'
+import { useState, type Dispatch, type SetStateAction } from 'react'
 import { LuPlus } from 'react-icons/lu'
 import type { IntakeText } from '../../i18n/intake'
 import { DirectionsEditor } from './DirectionsEditor'
-import { hasFields, newStatement, toComponents } from './regimen'
+import { newStatement, toComponents, type Statement } from './regimen'
 import type { RegimenText } from '../../i18n/regimen'
 import { MedicinePicker } from './MedicinePicker'
-import { newNote, type CatalogueMatch, type FacilityContact, type Medicine } from './draft'
+import { newNote, type Medicine } from './draft'
+import { createManualEntryDraft, type ManualEntryDraft } from './manualEntryDraft'
 
 export function ManualMedicineEntry({
   t,
   rt,
   caseId,
   onAdd,
-  onWorkChange,
+  draft,
+  setDraft,
 }: {
   rt: RegimenText
   caseId: string
   t: IntakeText
   onAdd: (medicine: Medicine) => void
-  onWorkChange: (hasWork: boolean) => void
+  draft: ManualEntryDraft
+  setDraft: Dispatch<SetStateAction<ManualEntryDraft>>
 }) {
-  const [selected, setSelected] = useState<CatalogueMatch>()
-  const [name, setName] = useState('')
-  const [strength, setStrength] = useState('')
-  const [form, setForm] = useState('')
-  const [source, setSource] = useState('')
-  const [organization, setOrganization] = useState('')
-  const [sourceDate, setSourceDate] = useState('')
-  const [facilityContact, setFacilityContact] = useState<FacilityContact>({})
-  const [quantity, setQuantity] = useState('')
-  const [rowId, setRowId] = useState(() => crypto.randomUUID())
-  const [statements, setStatements] = useState(() => [newStatement()])
+  const { selected, name, strength, form, source, organization, sourceDate, facilityContact, quantity, rowId, statements } = draft
   const [pendingParses, setPendingParses] = useState(0)
-  const hasWork = Boolean(name || selected || strength || form || source || organization || sourceDate || Object.values(facilityContact).some(Boolean) || quantity ||
-    statements.length > 1 || statements.some(({ note, schedules }) =>
-      note.text || note.kind !== 'other_record' || schedules.some(hasFields)))
-  useLayoutEffect(() => {
-    onWorkChange(hasWork)
-    return () => onWorkChange(false)
-  }, [hasWork, onWorkChange])
+  function update(patch: Partial<ManualEntryDraft>) {
+    setDraft((current) => ({ ...current, ...patch }))
+  }
+  function setStatements(change: (statements: Statement[]) => Statement[]) {
+    setDraft((current) => ({ ...current, statements: change(current.statements) }))
+  }
   function add() {
     if (pendingParses > 0) return
     const directions = statements.filter((s) => s.note.text.trim())
@@ -68,17 +60,7 @@ export function ManualMedicineEntry({
         follow_ups: [],
       },
     })
-    setSelected(undefined)
-    setName('')
-    setForm('')
-    setStrength('')
-    setSource('')
-    setOrganization('')
-    setSourceDate('')
-    setFacilityContact({})
-    setQuantity('')
-    setRowId(crypto.randomUUID())
-    setStatements([newStatement()])
+    setDraft(createManualEntryDraft())
   }
   return (
     <div className="stack">
@@ -87,16 +69,8 @@ export function ManualMedicineEntry({
         t={t}
         name={name}
         selected={selected}
-        onChange={(value) => {
-          setName(value)
-          setSelected(undefined)
-        }}
-        onSelect={(match) => {
-          setSelected(match)
-          setName(match.product.label)
-          setStrength('')
-          setForm('')
-        }}
+        onChange={(name) => update({ name, selected: undefined })}
+        onSelect={(selected) => update({ selected, name: selected.product.label, strength: '', form: '' })}
       />
       <form
         className="stack"
@@ -115,27 +89,27 @@ export function ManualMedicineEntry({
             label={t.strength}
             value={selected?.product.strength || strength}
             readOnly={Boolean(selected?.product.strength)}
-            onChange={(e) => setStrength(e.target.value)}
+            onChange={(e) => update({ strength: e.target.value })}
           />
           <InputField
             label={t.form}
             value={selected?.product.dose_form || form}
             readOnly={Boolean(selected?.product.dose_form)}
-            onChange={(e) => setForm(e.target.value)}
+            onChange={(e) => update({ form: e.target.value })}
           />
         </div>
         <label>
           {t.manualSource}
-          <textarea required value={source} onChange={(e) => setSource(e.target.value)} />
+          <textarea required value={source} onChange={(e) => update({ source: e.target.value })} />
         </label>
         <details><summary>{t.organization}</summary><div className="field-pair">
-          <InputField label={t.organization} value={organization} onChange={e=>setOrganization(e.target.value)}/>
-          <InputField label={t.date} type="date" value={sourceDate} onChange={e=>setSourceDate(e.target.value)}/>
-        </div><FacilityDetails t={t} value={facilityContact} onChange={setFacilityContact}/></details>
+          <InputField label={t.organization} value={organization} onChange={e=>update({ organization: e.target.value })}/>
+          <InputField label={t.date} type="date" value={sourceDate} onChange={e=>update({ sourceDate: e.target.value })}/>
+        </div><FacilityDetails t={t} value={facilityContact} onChange={facilityContact => update({ facilityContact })}/></details>
         <InputField
           label={rt.quantity}
           value={quantity}
-          onChange={(e) => setQuantity(e.target.value)}
+          onChange={(e) => update({ quantity: e.target.value })}
         />
         {statements.map((statement) => (
           <div className="stack" key={statement.note.id}>
