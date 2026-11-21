@@ -15,7 +15,10 @@ const errors = [];
 
 async function signIn(page, role) {
   page.setDefaultTimeout(8000);
-  page.on("pageerror", (e) => { errors.push(e.message); console.error(e.message); });
+  page.on("pageerror", (e) => {
+    errors.push(e.message);
+    console.error(e.message);
+  });
   await page.goto(base + "/admission/");
   await page
     .getByLabel("Demo reviewer token")
@@ -28,7 +31,7 @@ async function click(scope, name) {
 }
 async function save(page) {
   const dialog = page.getByRole("dialog");
-  await click(dialog, "Save");
+  await dialog.locator('button[type="submit"]').click();
   await dialog.waitFor({ state: "hidden", timeout: 4000 }).catch(async (e) => {
     throw new Error(
       (await page.locator("#formerror").textContent()) || e.message,
@@ -52,10 +55,7 @@ async function add(page, name, kind = "transfer_record", bag) {
   await dialog
     .getByLabel("Original wording or observation")
     .fill(name || "Unlabeled bag. Location uncertain.");
-  if (name)
-    await dialog
-      .getByLabel("Documented medicine name, strength and form")
-      .fill(name);
+  if (name) await dialog.getByLabel("Documented medicine name").fill(name);
   await save(page);
   return page.locator("#rows article").last();
 }
@@ -98,6 +98,94 @@ async function paper(page, filename) {
     });
   await page.emulateMedia({ media: "screen" });
 }
+async function scannedLabels(page) {
+  await page.getByLabel("Synthetic patient name").fill("Synthetic scan");
+  await click(page, "Create encounter");
+  let scans = 0;
+  await page.route("**/medication-analysis", async (route) => {
+    const line = route
+      .request()
+      .postDataBuffer()
+      .toString()
+      .split(/\r?\n/)
+      .find((s) => s.startsWith('{"evidence"'));
+    const metadata = JSON.parse(line);
+    const evidence = {
+      source_id: metadata.photo_source_ids[0],
+      item_id: "selected",
+    };
+    const obs = (value) => ({ value, evidence, status: "readable" });
+    const strength = ++scans === 1 ? "25 mg" : "50 mg";
+    await route.fulfill({
+      json: {
+        rows: [
+          {
+            id: "preview",
+            observed_names: [obs("Demo tablet")],
+            label_fields: {
+              strength: obs(strength),
+              form: obs("blister"),
+              dose: obs("one tablet"),
+              directions: { status: "unreadable", evidence },
+            },
+          },
+        ],
+      },
+    });
+  });
+  await click(page, "Add medication or unknown item");
+  const d = page.getByRole("dialog");
+  await d.getByLabel("Evidence type").selectOption("label_photo");
+  await d.getByLabel("Source, reporter or department").fill("Synthetic clinic");
+  await d.getByLabel("Item photo").setInputFiles(photoPath);
+  await d.getByLabel("Bag or package reference").fill("Two labels");
+  await d.getByLabel("width (%)", { exact: true }).fill("50");
+  await d.getByLabel("Pairing").selectOption("matched");
+  await click(d, "Read selected label region");
+  await page.waitForFunction(
+    () => document.querySelector("[name=strength]").value === "25 mg",
+  );
+  await d.getByLabel("x (%)", { exact: true }).fill("50");
+  assert.equal(await d.getByLabel("Documented strength").inputValue(), "");
+  assert.equal(
+    await d.getByLabel("Original wording or observation").inputValue(),
+    "",
+  );
+  await click(d, "Read selected label region");
+  await page.waitForFunction(
+    () => document.querySelector("[name=strength]").value === "50 mg",
+  );
+  await save(page);
+  await page
+    .getByRole("heading", { name: "Demo tablet 50 mg blister" })
+    .waitFor();
+  const article = page.locator("#rows article");
+  await click(article, "Link source or photo");
+  await d
+    .getByLabel("Source, reporter or department")
+    .fill("Synthetic transfer");
+  await d
+    .getByLabel("Original wording or observation")
+    .fill("Other product on transfer list");
+  await d
+    .getByLabel("Documented medicine name", { exact: true })
+    .fill("Other product");
+  await d.getByRole("checkbox").check();
+  await save(page);
+  await interview(page, article);
+  await click(article, "Verify current use");
+  await d.getByLabel("Identity evidence").selectOption({ index: 0 });
+  await d
+    .getByLabel("Resolution of conflicting sources")
+    .fill("Checked the matched label for this item");
+  await save(page);
+  await page
+    .getByRole("heading", { name: "Demo tablet 50 mg blister" })
+    .waitFor();
+  await article.getByText(/Conflict resolution/).waitFor();
+  await click(page, "Assigned encounters");
+  await page.unroute("**/medication-analysis");
+}
 async function run(browser) {
   if (output) await fs.mkdir(output, { recursive: true });
   const nurse = await browser.newContext({
@@ -105,6 +193,7 @@ async function run(browser) {
   });
   const page = await nurse.newPage();
   await signIn(page, "nurse");
+  await scannedLabels(page);
   await page.getByLabel("Synthetic patient name").fill(patient);
   await click(page, "Create encounter");
   const first = await add(page, "Amlodipine 5 mg box");
@@ -175,9 +264,7 @@ async function run(browser) {
     .fill(
       "The dispensing pharmacist matched the physical item in bag A to Demo blue.",
     );
-  await d
-    .getByLabel("Documented medicine name, strength and form")
-    .fill("Demo blue");
+  await d.getByLabel("Documented medicine name").fill("Demo blue");
   await d
     .getByLabel("Independent identity evidence")
     .selectOption("dispensing_confirmation");

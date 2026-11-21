@@ -96,7 +96,8 @@ def test_two_strengths_and_documented_interview_survive_later_photos(client):
     case = Case(client, "doctor")
     for n, (name, schedule) in enumerate([("losartan 25 mg", "scheduled"), ("losartan 50 mg", "as needed")]):
         prior = f"prior{n}"
-        row = case.add(record(prior, "transfer_record", name + " · documented interview · " + schedule, name=name))
+        row = case.add(record(prior, "transfer_record", name + " · documented interview · " + schedule, name=name,
+                              record_basis="documented_interview"))
         case.interview(row, prior, schedule=schedule, note="Clarify at handoff" if n else None)
         case.link(row, photo(f"blister{n}", f"pack{n}", name=name))
         case.send("verify", row_id=row, source_id=prior)

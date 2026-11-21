@@ -5,7 +5,8 @@ from typing import Annotated, Literal
 
 from pydantic import Field, model_validator
 
-from .evidence import PHOTO_KINDS, ContractModel, EvidenceSource, Text
+from .analysis import LabelField
+from .evidence import Observation, PHOTO_KINDS, ContractModel, EvidenceSource, Text
 from app.services.labels import _matches_media_type
 
 Role = Literal["nurse", "doctor", "pharmacist"]
@@ -39,6 +40,11 @@ class SourceEntry(ContractModel):
     source: EvidenceSource
     wording: Text
     name: Text | None = None
+    strength: Text | None = None
+    form: Text | None = None
+    dose: Text | None = None
+    record_basis: Literal["documented_interview", "discontinuation_order"] | None = None
+    scan_fields: dict[LabelField, Observation] = Field(default_factory=dict)
     identity_basis: Literal["matched_original_package", "dispensing_confirmation", "item_specific_record"] | None = None
     label_owner: Text | None = None
     directions: Text | None = None
@@ -53,19 +59,29 @@ class SourceEntry(ContractModel):
         if (self.source.kind in PHOTO_KINDS) != bool(self.photo):
             raise ValueError("Photo sources require a located image")
         if self.photo and (self.photo.pairing == "uncertain" or self.photo.appearance):
-            if any((self.name, self.label_owner, self.directions, self.indication)):
+            if any((self.name, self.label_owner, self.directions, self.indication, self.strength, self.form, self.dose, self.scan_fields)):
                 raise ValueError("Unmatched views and appearance crops cannot supply label fields")
         if self.source.kind in {"patient_report", "caregiver_report"} and any(
             (self.label_owner, self.directions, self.indication)
         ):
             raise ValueError("Enter reported use and indication in the interview")
+        if self.record_basis:
+            if self.source.kind not in {"transfer_record", "reviewer_record", "prescription"}:
+                raise ValueError("Interview and order excerpts require a documented record")
+            if self.name and self.wording.strip().casefold() == self.name.strip().casefold():
+                raise ValueError("Preserve the actual interview or order excerpt")
+        for observed in self.scan_fields.values():
+            if not self.photo or (observed.evidence and (
+                observed.evidence.source_id != self.source.id or observed.evidence.item_id != "selected"
+            )):
+                raise ValueError("A scanned field must cite the selected region of its source")
         if self.identity_basis:
             if not self.name or self.wording.strip().casefold() == self.name.strip().casefold():
                 raise ValueError("Document how the independent evidence identifies this physical item")
             if self.source.kind not in {"label_photo", "reverse_photo", "additional_photo", "prescription",
                                         "transfer_record", "reviewer_record"}:
                 raise ValueError("Use an item-specific package, dispensing confirmation or documented record")
-        for value in (self.name, self.label_owner, self.directions, self.indication):
+        for value in (self.name, self.label_owner, self.directions, self.indication, self.strength, self.form, self.dose):
             if value and value.casefold() not in self.wording.casefold():
                 raise ValueError("Transcribed fields must occur in the original wording")
         return self

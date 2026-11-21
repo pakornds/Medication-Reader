@@ -6,6 +6,7 @@ let token = "",
   pending,
   saveForm;
 const form = $("editform");
+let scanDraft;
 const clean = (value) => value?.trim() || null;
 const human = (value) => (value || "").replaceAll("_", " ");
 const esc = (value) =>
@@ -21,12 +22,13 @@ const active = (row) =>
   row.entries.filter((e) => !row.superseded.includes(e.source.id));
 const role = () => actor.role === "pharmacist";
 const title = (row) =>
+  row.verified?.identity?.name ||
   row.confirmed?.name ||
   (row.unknown
     ? "Unknown medication " + row.id
     : active(row)
         .filter((e) => e.name)
-        .at(-1)?.name || row.id);
+        .at(-1)?.product || row.id);
 const field = (label, name, value = "", type = "text", required = false) =>
   "<label>" +
   esc(label) +
@@ -52,7 +54,9 @@ const area = (label, name, value = "", required = false) =>
 const select = (label, name, options, value) =>
   "<label>" +
   esc(label) +
-  '<select aria-label="' + esc(label) + '" name="' +
+  '<select aria-label="' +
+  esc(label) +
+  '" name="' +
   name +
   '">' +
   options
@@ -214,6 +218,12 @@ async function action(command) {
   }
 }
 function edit(title, fields, save) {
+  scanDraft = null;
+  form.querySelector('[type=submit]').textContent = ({
+    "Finish reconciliation": "Finish reconciliation",
+    "Request pharmacist review": "Send referral",
+    "Approve and import selected rows": "Approve and import selected rows",
+  })[title] || "Save";
   form.querySelector("h2").textContent = title;
   $("fields").innerHTML = fields;
   $("formerror").textContent = "";
@@ -293,7 +303,15 @@ function evidenceForm(row, retake) {
           )
         : "") +
       area("Original wording or observation", "wording", "", true) +
-      field("Documented medicine name, strength and form", "name") +
+      field("Documented medicine name", "name") +
+      field("Documented strength", "strength") +
+      field("Dosage form", "form") +
+      field("Printed dose", "dose") +
+      select("Record excerpt type", "record_basis", [
+        ["", "Medication list or other evidence"],
+        ["documented_interview", "Documented prior interview"],
+        ["discontinuation_order", "Documented discontinuation order"],
+      ]) +
       field("Patient name printed on label", "label_owner") +
       field("Printed directions", "directions") +
       select("If directions are blank", "directions_status", [
@@ -327,10 +345,15 @@ function evidenceForm(row, retake) {
           source_date: get(data, "date"),
         },
         wording: get(data, "wording"),
+        scan_fields: scanDraft?.fields || {},
       };
       for (const key of [
         "name",
         "identity_basis",
+        "strength",
+        "form",
+        "dose",
+        "record_basis",
         "label_owner",
         "directions",
         "indication",
@@ -365,7 +388,34 @@ function evidenceForm(row, retake) {
   );
   const update = () =>
     ($("photo").hidden = !form.elements.kind.value.endsWith("photo"));
-  form.elements.kind.onchange = update;
+  scanDraft = { source: sourceId, fields: {}, filled: {}, revision: 0 };
+  const resetScan = () => {
+    const draft = scanDraft;
+    draft.revision++;
+    for (const [key, value] of Object.entries(draft.filled)) {
+      const control = form.elements.namedItem(key);
+      if (control.value === value)
+        control.value = key === "directions_status" ? "missing" : "";
+    }
+    draft.filled = {};
+    draft.fields = {};
+  };
+  for (const key of [
+    "image",
+    "bag",
+    "appearance",
+    "x",
+    "y",
+    "width",
+    "height",
+    "pairing",
+  ]) {
+    form.elements.namedItem(key).oninput = resetScan;
+  }
+  form.elements.kind.onchange = () => {
+    resetScan();
+    update();
+  };
   update();
 }
 async function scan() {
@@ -374,7 +424,9 @@ async function scan() {
     kind = f.get("kind");
   if (f.get("pairing") !== "matched" || get(f, "appearance"))
     throw new Error("Match the label region to this item first.");
-  const source = id(),
+  const draft = scanDraft,
+    revision = ++draft.revision;
+  const source = draft.source,
     rid = "preview",
     region = "selected";
   const metadata = {
@@ -413,21 +465,39 @@ async function scan() {
     throw new Error(
       body.detail?.message || "Read the label manually or retry.",
     );
+  if (
+    !form.closest("dialog").open ||
+    scanDraft !== draft ||
+    draft.revision !== revision
+  )
+    return;
   const row = body.rows.find((r) => r.id === rid);
   if (!row) throw new Error("No supported transcription for this region.");
-  const values = {
-    name: row.observed_names[0]?.value,
-    directions: row.label_fields.directions?.value,
-    indication: row.label_fields.indication?.value,
-  };
-  for (const [key, v] of Object.entries(values))
-    if (v && !form.elements[key].value) form.elements[key].value = v;
-  if (!form.elements.wording.value)
-    form.elements.wording.value = Object.values(values)
-      .filter(Boolean)
-      .join("\n");
-  if (row.label_fields.directions?.status === "unreadable")
+  draft.fields = row.label_fields;
+  const values = { name: row.observed_names.map((n) => n.value).join(" / ") };
+  for (const key of ["strength", "form", "dose", "directions", "indication"])
+    values[key] = row.label_fields[key]?.value;
+  values.wording = [
+    ...new Set(
+      [
+        ...row.observed_names.map((n) => n.value),
+        ...Object.values(row.label_fields).map((f) => f.value),
+      ].filter(Boolean),
+    ),
+  ].join("\n");
+  if (values.name && !values.wording.includes(values.name))
+    values.wording += "\n" + values.name;
+  for (const [key, value] of Object.entries(values)) {
+    const input = form.elements.namedItem(key);
+    if (value && (!input.value || input.value === draft.filled[key])) {
+      input.value = value;
+      draft.filled[key] = value;
+    }
+  }
+  if (row.label_fields.directions?.status === "unreadable") {
     form.elements.directions_status.value = "unreadable";
+    draft.filled.directions_status = "unreadable";
+  }
 }
 function sourceOptions(row) {
   return active(row).map((e) => [
@@ -446,14 +516,10 @@ function interview(row) {
       ? "patient"
       : "uncertain";
   const options = active(row)
-    .filter((e) =>
-      [
-        "patient_report",
-        "caregiver_report",
-        "transfer_record",
-        "reviewer_record",
-        "prescription",
-      ].includes(e.source.kind),
+    .filter(
+      (e) =>
+        ["patient_report", "caregiver_report"].includes(e.source.kind) ||
+        e.record_basis,
     )
     .map((e) => [e.source.id, human(e.source.kind) + " · " + e.wording]);
   edit(
@@ -578,11 +644,13 @@ function crop(canvas, photo) {
   img.src = "data:" + photo.media_type + ";base64," + photo.data;
 }
 function render() {
-  const sourceNames=new Map();
+  const sourceNames = new Map();
   for (const row of Object.values(encounter.rows)) {
-    row.entries.forEach((entry,i)=>sourceNames.set(entry.source.id,row.id+" / source "+(i+1)));
+    row.entries.forEach((entry, i) =>
+      sourceNames.set(entry.source.id, row.id + " / source " + (i + 1)),
+    );
   }
-  const sourceName=sid=>sourceNames.get(sid) || sid;
+  const sourceName = (sid) => sourceNames.get(sid) || sid;
   const rows = Object.values(encounter.rows),
     finished = encounter.status === "Finished";
   const writable = !finished && (encounter.status === "In progress" || role());
@@ -655,6 +723,16 @@ function render() {
                     '"></canvas>'
                   : "")
               : "") +
+            (Object.keys(e.scan_fields || {}).length
+              ? "<p>Scanned label · " +
+                Object.entries(e.scan_fields)
+                  .map(
+                    ([k, v]) =>
+                      esc(human(k)) + " — " + esc(v.value || v.status),
+                  )
+                  .join(" · ") +
+                "</p>"
+              : "") +
             (e.label_owner
               ? "<p>Printed owner · " + esc(e.label_owner) + "</p>"
               : "") +
@@ -670,7 +748,7 @@ function render() {
         .join("");
       const anotherStrength = rows.some(
         (r) =>
-          r !== row &&
+          r !== row && !row.unknown && !r.unknown &&
           /\d/.test(title(row)) &&
           title(r).split(/\s*\d/)[0] === title(row).split(/\s*\d/)[0] &&
           title(r) !== title(row),
@@ -727,6 +805,15 @@ function render() {
             esc(new Date(verification.at).toLocaleString()) +
             " · " +
             esc(sourceName(verification.source_id)) +
+            (verification.identity
+              ? "<br>Verified identity · " +
+                esc(verification.identity.name) +
+                " · " +
+                esc(sourceName(verification.identity.source_id))
+              : "") +
+            (verification.resolution
+              ? "<br>Conflict resolution · " + esc(verification.resolution)
+              : "") +
             "</p>"
           : "<p>Verification pending</p>") +
         '<div class="bar">' +
@@ -778,7 +865,9 @@ function render() {
     encounter.events
       .map(
         (e) =>
-          (["verify","finish","refer","decide","propose"].includes(e.action) ? "<p>" : '<p class="screen">') +
+          (["verify", "finish", "refer", "decide", "propose"].includes(e.action)
+            ? "<p>"
+            : '<p class="screen">') +
           esc(new Date(e.at).toLocaleString()) +
           " · " +
           esc(e.actor.name) +
@@ -799,7 +888,9 @@ function render() {
           (e.proposal
             ? "<br>" + esc(e.proposal.name + " · " + e.proposal.reference)
             : "") +
-          (e.sources?.length ? " · " + esc(e.sources.map(sourceName).join(", ")) : "") +
+          (e.sources?.length
+            ? " · " + esc(e.sources.map(sourceName).join(", "))
+            : "") +
           "</p>",
       )
       .join("");
@@ -851,7 +942,7 @@ document.addEventListener("click", async (ev) => {
                 "identity_source_id",
                 active(row)
                   .filter((e) => e.name)
-                  .map((e) => [e.source.id, e.name + " · " + e.source.id]),
+                  .map((e) => [e.source.id, e.product + " · " + e.source.id]),
               )) +
           area(
             "Resolution of conflicting sources, if applicable",
@@ -881,7 +972,8 @@ document.addEventListener("click", async (ev) => {
             c.origin + " · " + c.name + " · " + c.id,
           ]),
         ]) +
-          field("Search local Thai catalogue", "query") + button("Search catalogue", "tmt") +
+          field("Search local Thai catalogue", "query") +
+          button("Search catalogue", "tmt") +
           field("Proposed identity", "name", "", "text", true) +
           field("Source or lookup reference", "reference", "", "text", true),
         (f) =>
@@ -898,18 +990,27 @@ document.addEventListener("click", async (ev) => {
         if (!query) return;
         search.disabled = true;
         try {
-          const result = await api("/checks/local/products?q=" + encodeURIComponent(query));
+          const result = await api(
+            "/checks/local/products?q=" + encodeURIComponent(query),
+          );
           for (const product of result.products) {
             const reference = "TMT " + result.tmt_release + " / " + product.tpu;
-            if (!choices.some(c=>c.id === reference)){
-              choices.push({id:reference, name:product.label});
-              form.elements.candidate.add(new Option(product.label + " · " + reference, reference));
+            if (!choices.some((c) => c.id === reference)) {
+              choices.push({ id: reference, name: product.label });
+              form.elements.candidate.add(
+                new Option(product.label + " · " + reference, reference),
+              );
             }
           }
-          $("formerror").textContent = result.products.length ? "Choose a catalogue result above." : "No match. Enter a proposed name and reference.";
-        } catch(err) {
-          $("formerror").textContent = err.message + " Free-text proposals are available.";
-        } finally {search.disabled=false;}
+          $("formerror").textContent = result.products.length
+            ? "Choose a catalogue result above."
+            : "No match. Enter a proposed name and reference.";
+        } catch (err) {
+          $("formerror").textContent =
+            err.message + " Free-text proposals are available.";
+        } finally {
+          search.disabled = false;
+        }
       };
       form.elements.candidate.onchange = () => {
         const c = choices.find((v) => v.id === form.elements.candidate.value);

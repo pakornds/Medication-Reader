@@ -7,7 +7,8 @@ def test_discharge_list_then_blister_loose_tablets_and_boxed_liquid(client):
         ("Demo A tablet", "blister"), ("Demo B tablet", "loose tablets"), ("Demo C liquid", "boxed liquid"),
     ]):
         prior = f"discharge-{n}"
-        row = case.add(record(prior, "transfer_record", name+" · documented prior patient interview", name=name))
+        row = case.add(record(prior, "transfer_record", name+" · documented prior patient interview", name=name,
+                              record_basis="documented_interview"))
         case.interview(row, prior, schedule="as needed" if n == 1 else "scheduled")
         before = case.state["rows"][row]["interview"]
         new_photo = photo(f"later-{n}", package, appearance="separate tablet" if n == 1 else None,
@@ -53,3 +54,41 @@ def test_lookup_and_rescan_cannot_replace_independent_identity_decision(client):
               outcome="confirm", finding="Lookup alone", status=422)
     case.send("finish", status=422)
     assert case.state["rows"][row]["entries"][0]["source"]["id"] == "original"
+
+
+def test_pharmacist_named_link_is_a_proposal_and_requires_disposition(client):
+    case = Case(client, "pharmacist")
+    row = case.add(photo("bag", "A", "round"))
+    case.link(row, record("typed", "reviewer_record", "Demo proposed name", name="Demo proposed name"))
+    assert case.state["rows"][row]["proposal"]["proposer"] == "demo-pharmacist"
+    case.link(row, record("answer", "patient_report", "Reports stopping this tablet"))
+    case.interview(row, "answer", current_use="reported_stopped")
+    case.send("verify", row_id=row, source_id="answer", status=422)
+    case.send("finish", status=422)
+    case.send("decide", row_id=row, outcome="reject", source_id="answer", finding="Withdrawn after review")
+    case.send("verify", row_id=row, source_id="answer")
+    case.send("finish")
+
+
+def test_order_alone_cannot_substitute_for_history_or_documented_stop(client):
+    case = Case(client, "nurse")
+    row = case.add(record("order", "prescription", "Demo tablet", name="Demo tablet"))
+    for use in ("current", "reported_stopped", "discontinued_order"):
+        case.send("interview", row_id=row, source_id="order", current_use=use, ownership="patient", status=422)
+    case.link(row, record("stop", "prescription", "Discontinue Demo tablet per documented order",
+                          record_basis="discontinuation_order"))
+    case.interview(row, "stop", current_use="discontinued_order")
+    case.send("verify", row_id=row, source_id="stop")
+    case.send("finish")
+
+def test_two_views_of_challenged_photo_are_not_independent(client):
+    case = Case(client, "pharmacist")
+    row = case.add(photo("first", "bag A", "speckled"))
+    same = photo("different-crop", "bag A", name="Demo tablet")
+    same.update(wording="Demo tablet on a second region of the same original photo",
+                identity_basis="matched_original_package")
+    same["photo"]["region"] = [.5, .2, .5, .5]
+    case.link(row, same)
+    case.send("decide", row_id=row, outcome="confirm", source_id="different-crop", name="Demo tablet",
+              finding="Same original attachment", status=422)
+    assert not case.state["rows"][row]["confirmed"]

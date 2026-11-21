@@ -18,7 +18,7 @@ class _ReviewAccessFilter(logging.Filter):
         args = record.args
         if isinstance(args, tuple) and len(args) == 5:
             path = str(args[2]).split("?", 1)[0]
-            if path == "/imports" or path.startswith(("/imports/", "/admissions/", "/admissions")):
+            if path in {"/imports", "/admissions", "/checks/local/products"} or path.startswith(("/imports/", "/admissions/")):
                 return False
         return True
 

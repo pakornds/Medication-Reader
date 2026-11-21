@@ -131,6 +131,12 @@ class AdmissionStore:
         rows = case["rows"]
         if isinstance(cmd, (AddRow, AddEvidence)):
             entry = cmd.entry.model_dump(mode="json")
+            if entry["name"]:
+                parts = [entry["name"]]
+                for field in ("strength", "form"):
+                    if entry[field] and entry[field].casefold() not in entry["name"].casefold():
+                        parts.append(entry[field])
+                entry["product"] = " ".join(parts)
             sid = entry["source"]["id"]
             require(not any(sid == e["source"]["id"] for r in rows.values() for e in r["entries"]),
                     "Use a new logical source ID.")
@@ -149,10 +155,11 @@ class AdmissionStore:
                     if row["confirmed"] and row["confirmed"]["source_id"] == cmd.replaces:
                         row["confirmed"] = None
             if isinstance(cmd, AddEvidence) and row["unknown"] and entry["name"]:
-                if row["confirmed"] and row["confirmed"]["name"].casefold() != entry["name"].casefold():
+                if row["confirmed"] and row["confirmed"]["name"].casefold() != entry["product"].casefold():
                     row["confirmed"] = None
-                if actor.role != "pharmacist" and not row["confirmed"] and not row["proposal"]:
-                    row["proposal"] = dict(name=entry["name"], reference=sid, proposer=actor.id)
+                if not row["confirmed"] and not row["proposal"]:
+                    row["proposal"] = dict(name=entry["product"], reference=sid, proposer=actor.id,
+                                           independent_entry=bool(entry["identity_basis"]))
             row["entries"].append(entry)
             row["verified"] = None
             return dict(rows=[row["id"]], sources=[sid], replaces=getattr(cmd, "replaces", None))
@@ -192,7 +199,11 @@ class AdmissionStore:
                         owner_entry["label_owner"].casefold() == case["patient_alias"].casefold(),
                         "Ownership prefill must cite the matching patient name.")
             if cmd.current_use == "discontinued_order":
-                require(kind in {"transfer_record", "prescription"}, "Cite the documented discontinuation order.")
+                require(kind in {"transfer_record", "prescription"} and src["record_basis"] == "discontinuation_order",
+                        "Cite the documented discontinuation order.")
+            else:
+                require(kind in REPORT_KINDS or src["record_basis"] == "documented_interview",
+                        "Cite an actual report or the documented prior interview excerpt.")
             row["interview"] = cmd.model_dump(exclude={"row_id", "action"})
             details.update(answer=row["interview"], sources=[cmd.source_id])
         elif isinstance(cmd, Proposal):
@@ -205,15 +216,16 @@ class AdmissionStore:
             entry = entry_for(row, cmd.source_id)
             if cmd.outcome in {"confirm", "correct"}:
                 challenged = [row["entries"][0]]
-                if row["proposal"]:
+                if row["proposal"] and not row["proposal"].get("independent_entry"):
                     challenged.extend(e for e in row["entries"] if e["source"]["id"] == row["proposal"]["reference"])
                 require(not any(shares_origin(entry, other) for other in challenged),
                         "A second crop of the same challenged source cannot confirm identity.")
-                require(cmd.name and entry["name"] and cmd.name.casefold() == entry["name"].casefold()
+                require(cmd.name and entry["name"] and cmd.name.casefold() == entry["product"].casefold()
                         and entry["identity_basis"] and entry != row["entries"][0] and reviewable_entry(entry)
                         and entry["source"]["kind"] in {"prescription", "reviewer_record", "transfer_record",
                                                       "label_photo", "additional_photo", "reverse_photo"}
-                        and (not row["proposal"] or row["proposal"]["reference"] != cmd.source_id),
+                        and (not row["proposal"] or row["proposal"]["reference"] != cmd.source_id
+                             or row["proposal"].get("independent_entry")),
                         "Cite separate item-specific documentation of this identity.")
                 row["confirmed"] = dict(name=cmd.name, source_id=cmd.source_id, reviewer=actor.id)
                 row["proposal"] = None
@@ -238,7 +250,7 @@ class AdmissionStore:
             require(not needs_identity(row), "Identity requires pharmacist review.")
             named = [e for e in active(row) if e["name"] and reviewable_entry(e)]
             require(row["unknown"] or named, "Review the current identity evidence.")
-            variants = {e["name"].casefold() for e in named}
+            variants = {e["product"].casefold() for e in named}
             directions = {e["directions"].casefold() for e in active(row) if e["directions"]}
             require((len(variants) <= 1 and len(directions) <= 1) or cmd.resolution,
                     "Document the resolution of conflicting evidence.")
@@ -247,7 +259,7 @@ class AdmissionStore:
                 require(len(variants) <= 1 or cmd.identity_source_id, "Choose the supported identity source.")
                 chosen = entry_for(row, cmd.identity_source_id) if cmd.identity_source_id else named[-1]
                 require(chosen in named, "Choose a source that documents this identity.")
-                identity = dict(name=chosen["name"], source_id=chosen["source"]["id"])
+                identity = dict(name=chosen["product"], source_id=chosen["source"]["id"])
             row["verified"] = dict(actor=actor.model_dump(), at=now(), source_id=cmd.source_id,
                                    identity=identity, resolution=cmd.resolution, answer=deepcopy(answer))
             return dict(**details, verification=row["verified"], sources=[cmd.source_id] +
@@ -298,7 +310,7 @@ class AdmissionStore:
                 reported = entry["source"]["kind"] in REPORT_KINDS
                 if reported:
                     reports.append(SourcedValue(value=entry["wording"], evidence=citation))
-                for key in ("directions", "indication"):
+                for key in ("directions", "indication", "strength", "form", "dose"):
                     if entry[key]:
                         label_fields[key] = Observation(status="readable", value=entry[key], evidence=citation)
                 wording = entry["wording"] if reported else entry["directions"]
