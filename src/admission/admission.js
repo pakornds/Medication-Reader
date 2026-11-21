@@ -217,6 +217,10 @@ async function action(command) {
     }
   }
 }
+function canSelectForImport(row) {
+  const review = row.verified;
+  return review?.identity && review.answer.ownership === "patient" && review.answer.current_use !== "not_owned";
+}
 function edit(title, fields, save) {
   scanDraft = null;
   form.querySelector('[type=submit]').textContent = ({
@@ -869,7 +873,7 @@ function render() {
     rows.some((r) => r.unknown && !r.confirmed)
       ? button("Request pharmacist review", "refer")
       : "") +
-    (role() && rows.some((r) => r.verified?.identity)
+    (role() && rows.some(canSelectForImport)
       ? button("Approve and import selected rows", "import")
       : "") +
     "</div>";
@@ -1069,7 +1073,7 @@ document.addEventListener("click", async (ev) => {
       );
     if (op === "refer" || op === "import") {
       const choices = Object.values(encounter.rows).filter((r) =>
-        op === "refer" ? r.unknown && !r.confirmed : r.verified?.identity,
+        op === "refer" ? r.unknown && !r.confirmed : canSelectForImport(r),
       );
       edit(
         b.textContent,

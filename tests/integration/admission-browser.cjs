@@ -229,6 +229,16 @@ async function run(browser) {
   await interview(page, first, true);
   await click(first, "Verify current use");
   await save(page);
+  const other = await add(page, "Family member's medicine");
+  await click(other, "Interview");
+  const answer = page.getByRole("dialog");
+  await answer.getByLabel("Reporter", { exact: true }).fill("Synthetic caregiver");
+  await answer.getByLabel("Original account").fill("This package belongs to a family member.");
+  await answer.getByLabel("Ownership", { exact: true }).selectOption("other");
+  await answer.getByLabel("Current use", { exact: true }).selectOption("not_owned");
+  await save(page);
+  await click(other, "Verify current use");
+  await save(page);
   const unknown = await add(page, null, "reverse_photo", "Bag A");
   await interview(page, unknown);
   await click(unknown, "Propose identity");
@@ -310,6 +320,9 @@ async function run(browser) {
     });
   await paper(later, "reviewed");
   await click(later, "Approve and import selected rows");
+  assert.equal(await d.getByRole("checkbox").count(), 2);
+  assert.equal(await d.getByRole("checkbox", {name: /Family member/}).count(), 0);
+  if (output) await later.screenshot({path: path.join(output, "import-ownership.png")});
   await d.getByRole("checkbox").first().check();
   await save(later);
   assert.match(
