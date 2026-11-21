@@ -47,7 +47,7 @@
       t.title + ' opens in the selected language')
     await expect(() => button(t.fresh) && navCase()?.textContent.trim() === (active ? t.resume : t.newPatient) &&
       (active ? resume()?.textContent.trim() === t.resume : !resume()), t.title + ' names each available case action')
-    const steps = [...doc().querySelectorAll('main li')]
+    const steps = [...doc().querySelectorAll('main ol > li')]
     await expect(() => steps.length === 3 && steps.every((step, i) => step.querySelector('h2')?.textContent === t.stages[i])
       && t.capture.test(steps[0].textContent) && t.verify.test(steps[1].textContent) && t.print.test(steps[1].textContent)
       && t.approve.test(steps[2].textContent) && !t.print.test(steps[2].textContent),
@@ -102,6 +102,27 @@
     by('a[href="/new-patient/review"]').click()
     await expect(() => path() === '/new-patient/review' && by('h1')?.textContent === 'ทบทวน' &&
       !by('article h2') && !doc().body.textContent.includes(medicine), 'The fresh case contains no old medicine row')
+    // Run in the default staff sign-in mode. Only the session and empty queue are simulated.
+    by('header a[href="/"]').click()
+    await checkHome(thai, true)
+    const actor = { id: 'fixture-pharmacist', name: 'Synthetic staff', role: 'pharmacist' }
+    frame.contentWindow.fetch = async (url) => {
+      const path = new URL(url, frame.contentWindow.location.href).pathname
+      if (path === '/admissions/session') return Response.json({ actor, catalogue: [] })
+      if (path === '/admissions') return Response.json([])
+      throw new Error('Unexpected request in Home sign-out check: ' + path)
+    }
+    const tokenField = by('main input[type="password"]')
+    if (!tokenField) throw new Error('The sign-out check requires Vite in staff sign-in mode')
+    type(tokenField, 'synthetic-home-token')
+    await expect(() => button('เข้าสู่ระบบ') && !button('เข้าสู่ระบบ').disabled, 'Staff sign-in is available')
+    button('เข้าสู่ระบบ').click()
+    await expect(() => button('ออกจากระบบ') && by('.staff-session strong')?.textContent === actor.name,
+      'The synthetic staff member signed in on Home')
+    await checkHome(thai, true)
+    button('ออกจากระบบ').click()
+    await expect(() => by('main input[type="password"]'), 'Sign-out returns to staff sign-in')
+    await checkHome(thai, false)
     result.textContent = 'PASS'
   } catch (error) {
     result.textContent = 'FAIL ' + error.message

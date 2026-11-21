@@ -94,7 +94,7 @@ export default function App() {
     generation.current++
     setRequestError(false)
     setSession(next)
-    if (!next) {setRecord(null);setSelectedRow('');setDraft(createDraft());setLastStage('input')}
+    if (!next) {setRecord(null);setSelectedRow('');setDraft(createDraft());setLastStage(null)}
   }
   async function openEncounter(id:string, reloadSaved = false, rowId?:string) {
     if(!session) return
