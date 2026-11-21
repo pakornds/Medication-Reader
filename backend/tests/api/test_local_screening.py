@@ -185,7 +185,7 @@ def test_missing_db_or_stale_crosswalk_fails_closed(client, refs, monkeypatch, t
     assert report["fest_release"] is None and "different releases" in report["ddi_unavailable_reason"]
     assert report["pairs"][0]["ddi"]["status"] == "unassessed"
     assert report["pairs"][0]["duplicate"]["status"] == "potential"
-    monkeypatch.delenv("LOCAL_FEST_DB")
+    monkeypatch.setenv("LOCAL_FEST_DB", str(tmp_path / "missing-fest.sqlite"))
     without_fest = run(client, body())
     assert "missing" in without_fest["ddi_unavailable_reason"]
     assert without_fest["pairs"][0]["duplicate"]["status"] == "potential"
