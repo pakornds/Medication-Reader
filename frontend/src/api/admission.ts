@@ -1,4 +1,4 @@
-import type { Action, ImportReceipt, Interview, PackageCapture, ReviewerIdentity, SourceEntry } from './contracts'
+import type { Decision, ImportReceipt, Interview, PackageCapture, ReviewerIdentity, SourceEntry } from './contracts'
 
 type InterviewAnswers = Omit<Interview, 'action' | 'row_id'>
 type IdentifiedItem = { name: string; source_id: string }
@@ -37,14 +37,24 @@ export interface Encounter {
   capture?: PackageCapture
   capture_rows?: Record<string, string>
   receipts: ImportReceipt[]
-  events: Array<{
-    action: Action['command']['action'] | 'capture'
-    actor: ReviewerIdentity
-    at: string
-    revision: number
-    rows: string[]
-    sources?: string[]
-  }>
+  events: AdmissionEvent[]
 }
 
+export type AdmissionEvent = {
+  actor: ReviewerIdentity
+  at: string
+  revision: number
+  rows: string[]
+} & (
+  | { action: 'capture' | 'finish'; sources: string[] }
+  | { action: 'add' | 'link'; sources: string[]; replaces: string | null }
+  | { action: 'interview'; answer: InterviewAnswers; sources: string[] }
+  | { action: 'propose'; proposal: NonNullable<AdmissionRow['proposal']> }
+  | { action: 'decide'; outcome: Decision['outcome']; name: string | null; finding: string; sources: string[] }
+  | { action: 'verify'; verification: NonNullable<AdmissionRow['verified']>; sources: string[] }
+  | { action: 'refer'; checked: string; reason: string; sources: string[] }
+  | { action: 'import'; imported_at: string }
+)
+
+export type AdmissionCandidate = { id: string; name: string; origin: 'Encounter record' | 'Mock hospital' }
 export type EncounterSummary = Pick<Encounter, 'id' | 'patient_alias' | 'status'> & { updated_at: string }

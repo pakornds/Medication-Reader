@@ -1,5 +1,5 @@
 import type * as C from './contracts'
-import type { Encounter, EncounterSummary } from './admission'
+import type { AdmissionCandidate, Encounter, EncounterSummary } from './admission'
 
 export class ApiError extends Error {
   readonly status: number
@@ -72,6 +72,7 @@ export function createClient(baseUrl = '', reviewerToken?: string) {
     encounters: () => json<EncounterSummary[]>('/admissions'),
     createEncounter: (input: C.NewEncounter) => json<Encounter>('/admissions', body(input)),
     encounter: (id: string) => json<Encounter>(admission(id)),
+    admissionCandidates: (id: string) => json<AdmissionCandidate[]>(admission(id) + '/candidates'),
     action: (id: string, input: C.Action) => json<Encounter>(admission(id) + '/actions', body(input)),
     capture(id: string, command: C.CaptureCommand, originals: { front?: Blob; reverse?: Blob } = {}) {
       const form = new FormData()

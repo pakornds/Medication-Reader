@@ -25,7 +25,14 @@ try {
   const contract = fileURLToPath(new URL('frontend/src/api/contracts.ts', root)).replaceAll('\\', '/')
   const statements = examples.map(([value, name]) => '(' + JSON.stringify(value) + ') satisfies C.' + name)
   statements.push('(' + JSON.stringify(responses.import_retry) + ') satisfies Pick<C.ImportRequest, "retry_token" | "selected_row_ids">')
-  await writeFile(source, 'import type * as C from ' + JSON.stringify(contract) + '\n' + statements.join(';\n'))
+  const eventBase = { actor: responses.reviewer, at: responses.import_success.imported_at, revision: 5, rows: ['pending-b-round'] }
+  for (const fields of [
+    { action: 'refer', sources: ['note'], checked: 'Front label', reason: 'Identity unresolved' },
+    { action: 'decide', sources: ['note'], outcome: 'pending', name: null, finding: 'Further evidence required' },
+  ]) statements.push('(' + JSON.stringify({ ...eventBase, ...fields }) + ') satisfies AdmissionEvent')
+  const admission = fileURLToPath(new URL('frontend/src/api/admission.ts', root)).replaceAll('\\', '/')
+  await writeFile(source, 'import type * as C from ' + JSON.stringify(contract) + '\n' +
+    'import type { AdmissionEvent } from ' + JSON.stringify(admission) + '\n' + statements.join(';\n'))
   const program = ts.createProgram([source], {
     strict: true, noEmit: true, types: [], target: ts.ScriptTarget.ES2023,
     module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler,
@@ -33,7 +40,7 @@ try {
   })
   const errors = ts.getPreEmitDiagnostics(program)
   assert.equal(errors.length, 0, ts.formatDiagnosticsWithColorAndContext(errors, ts.createCompilerHost({})))
-  console.log('12 shared fixture contracts passed, including wrong-label, pending appearance and retry cases.')
+  console.log('12 shared fixture contracts and 2 admission handoff event types passed.')
 } finally {
   await rm(dir, { recursive: true, force: true })
 }

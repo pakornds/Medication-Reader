@@ -47,6 +47,20 @@ const add = { revision: captured.revision, request_id: 'add-report', command: { 
 const changed = await nurse.action(id, add)
 assert.deepEqual(await nurse.action(id, add), changed)
 await assert.rejects(nurse.action(id, { ...add, request_id: 'stale-action' }), denied(409))
+const replayRevision = (await pharmacy.encounter(id)).revision
+const order = await nurse.action(id, { revision: changed.revision, request_id: 'documented-order',
+  command: { action: 'add', entry: { source: { id: 'order-a-record', kind: 'prescription', organization: 'Demo Clinic' },
+    wording: 'Synthetic A from the clinic record', name: 'Synthetic A' } } })
+assert.deepEqual(await pharmacy.admissionCandidates(id), [{ id: 'order-a-record', name: 'Synthetic A', origin: 'Encounter record' }])
+const reportedRow = changed.events.at(-1).rows[0]
+const referral = await nurse.action(id, { revision: order.revision, request_id: 'refer', command: {
+  action: 'refer', row_ids: [reportedRow], checked: 'Interview note', reason: 'No label identifies the tablet',
+} })
+assert.equal((await pharmacy.encounter(id)).events.at(-1).reason, 'No label identifies the tablet')
+const decision = await pharmacy.action(id, { revision: referral.revision, request_id: 'decision', command: {
+  action: 'decide', row_id: reportedRow, outcome: 'pending', finding: 'An identified package is needed', source_id: 'interview-note',
+} })
+assert.equal(decision.events.at(-1).finding, 'An identified package is needed')
 await assert.rejects(nurse.analyzeForm(new FormData()), denied(422, 'invalid_analysis_form'))
 const choices = await nurse.intakeProducts('AMLOC')
 for (const [code, strength] of [['108455','5 mg'], ['108591','10 mg']]) {
@@ -58,6 +72,7 @@ for (const [code, strength] of [['108455','5 mg'], ['108591','10 mg']]) {
 }
 console.log(JSON.stringify({ encounter: 'synthetic', frontOnlyReverse: initial.capture.reverse, activeRows: Object.keys(captured.rows).length,
   sharedSources: shared.map(s => s.organization), pendingItems: pending.map(r => r.capture_item_id),
-  revisionAfterAction: changed.revision, replayRevision: (await pharmacy.encounter(id)).revision,
+  revisionAfterAction: changed.revision, replayRevision, referralReason: referral.events.at(-1).reason,
+  pharmacistFinding: decision.events.at(-1).finding,
   unauthorized: 403, stale: 409, proposalError: 'view_unavailable', analysisError: 'invalid_analysis_form',
   catalogue: choices.filter(p => ['108455','108591'].includes(p.id)).map(p => [p.id,p.strength,p.form,p.release]) }))
