@@ -6,6 +6,7 @@ from typing import Annotated, Literal
 from pydantic import Field, model_validator
 
 from .analysis import LabelField
+from .package_capture import PackageCapture, Revision, Side
 from .evidence import Observation, PHOTO_KINDS, ContractModel, EvidenceSource, Text
 from app.services.labels import _matches_media_type
 
@@ -163,3 +164,16 @@ class Action(ContractModel):
     request_id: Text
     command: Annotated[AddRow | AddEvidence | Interview | Verify | Proposal | Decision | Refer | Finish | Import,
                        Field(discriminator="action")]
+
+
+class CaptureCommand(ContractModel):
+    revision: int = Field(ge=1)
+    request_id: Text
+    manifest: PackageCapture
+    existing_rows: dict[Text, Text] = Field(default_factory=dict)
+
+
+class CaptureViewRequest(ContractModel):
+    side: Side
+    attachment_id: Text
+    revision: Revision

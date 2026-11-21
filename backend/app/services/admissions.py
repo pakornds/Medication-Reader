@@ -2,10 +2,16 @@
 from copy import deepcopy
 from datetime import UTC, datetime
 from hashlib import sha256
+from io import BytesIO
 from threading import RLock
 from uuid import uuid4
 
 from fastapi import HTTPException
+from PIL import Image
+
+from app.ai.client import EvidenceImage
+from app.schemas.package_capture import PackageCapture
+from app.services.labels import LabelPhotoError, crop_label
 
 from app.schemas.analysis import Discrepancy
 from app.schemas.admission import (
@@ -69,9 +75,29 @@ def reviewable_entry(entry):
     return not photo or ((front or photo["pairing"] == "matched") and not photo["appearance"])
 
 
+def new_row(row_id, unknown):
+    return dict(id=row_id, unknown=unknown, entries=[], superseded=[], proposal=None,
+                confirmed=None, referred=False, interview=None, verified=None)
+
+
+def capture_orientation(media_type, data):
+    expected = {"image/jpeg": "JPEG", "image/png": "PNG", "image/webp": "WEBP"}[media_type]
+    try:
+        with Image.open(BytesIO(data), formats=[expected]) as image:
+            require(image.width * image.height <= 25_000_000, "Image exceeds the decoded size limit.")
+            orientation = image.getexif().get(274, 1)
+            require(isinstance(orientation, int) and 1 <= orientation <= 8, "Invalid original orientation.")
+            image.load()
+            return orientation
+    except (OSError, SyntaxError, ValueError, Image.DecompressionBombError):
+        raise HTTPException(422, "Invalid capture image.") from None
+
+
 class AdmissionStore:
     def __init__(self, hospital):
         self.records = {}
+        self.originals = {}
+        self.capture_results = {}
         self.retries = {}
         self.hospital = hospital
         self.lock = RLock()
@@ -138,6 +164,111 @@ class AdmissionStore:
             self.retries[key] = fingerprint
             return case
 
+    def capture(self, actor, case_id, command, images):
+        manifest = command.manifest.model_copy(deep=True)
+        with self.lock:
+            original = self.get(actor, case_id)
+            require(manifest.case_id == case_id, "Capture belongs to another encounter.")
+            key = (case_id, actor.id, command.request_id)
+            fingerprint = sha256(command.model_dump_json().encode())
+            for side, (media_type, data) in sorted(images.items()):
+                fingerprint.update(side.encode() + media_type.encode() + sha256(data).digest())
+            digest = fingerprint.hexdigest()
+            if key in self.retries:
+                require(self.retries[key] == digest, "Request ID already used.", 409)
+                return self.capture_results[key]
+            require(original["revision"] == command.revision, "Encounter changed. Reload before saving.", 409)
+            require(original["status"] != "Finished", "Review is finished.", 409)
+            if original["status"] == "Awaiting pharmacist review":
+                require(actor.role == "pharmacist", "Pharmacist required.", 403)
+
+            originals = self.originals.get(case_id, {}).copy()
+            previous = PackageCapture.model_validate(original["capture"]) if "capture" in original else None
+            for side in ("front", "reverse"):
+                view = getattr(manifest, side)
+                old = getattr(previous, side) if previous else None
+                if old:
+                    require(view and old.attachment_id == view.attachment_id,
+                            "Use the retake workflow to replace an existing original.", 409)
+                    old_regions = {r.id: r for r in old.regions}
+                    new_regions = {r.id: r for r in view.regions}
+                    changed = (any(new_regions.get(rid) != region for rid, region in old_regions.items())
+                               or old.visibility != view.visibility)
+                    require(view.revision >= old.revision + int(changed), "The view revision is stale.", 409)
+                if not view:
+                    require(side not in images, "Unexpected original without a capture view.")
+                    continue
+                if view.attachment_id in originals:
+                    require(side not in images, "Reference the existing original without uploading it again.")
+                    require(old, "Original is already bound to a different view.")
+                    orientation = old.exif_orientation
+                else:
+                    require(side in images, "Supply the original for each new view.")
+                    media_type, data = images[side]
+                    orientation = capture_orientation(media_type, data)
+                    originals[view.attachment_id] = EvidenceImage(view.attachment_id, media_type, data)
+                require("exif_orientation" not in view.model_fields_set or view.exif_orientation == orientation,
+                        "Original orientation differs from the manifest.")
+                view.exif_orientation = orientation
+
+            case = deepcopy(original)
+            links = case.setdefault("capture_rows", {})
+            items = {item.row_id: (package.id, item) for package in manifest.packages for item in package.items}
+            require(command.existing_rows.keys() <= items.keys(), "Link an item from the current capture.")
+            for removed in links.keys() - items.keys():
+                row = case["rows"][links.pop(removed)]
+                row.pop("package_id", None)
+                row.pop("capture_item_id", None)
+            for item_id, (package_id, item) in items.items():
+                target = command.existing_rows.get(item_id)
+                if target:
+                    require(target in original["rows"], "Referenced admission row is unavailable.")
+                    require(links.get(item_id, target) == target, "An item cannot move to another row.")
+                    require(target not in (rid for iid, rid in links.items() if iid != item_id),
+                            "Keep separate capture items on separate rows.")
+                if item_id not in links:
+                    if not target:
+                        target = "item-" + str(len(case["rows"]) + 1)
+                        case["rows"][target] = new_row(target, unknown=True)
+                    links[item_id] = target
+                row = case["rows"][links[item_id]]
+                require(row.get("package_id", package_id) == package_id, "An item cannot move between packages.")
+                row["package_id"] = package_id
+                row["capture_item_id"] = item_id
+
+            case["capture"] = manifest.model_dump(mode="json")
+            case["revision"] += 1
+            case["events"].append(dict(action="capture", actor=actor.model_dump(), at=now(),
+                                       revision=case["revision"], rows=list(links.values()),
+                                       sources=[s.id for s in manifest.sources]))
+            self.records[case_id] = case
+            self.originals[case_id] = originals
+            self.retries[key] = digest
+            self.capture_results[key] = case
+            return case
+
+    def view(self, actor, case_id, ref):
+        with self.lock:
+            case = self.get(actor, case_id)
+            metadata = case.get("capture", {}).get(ref.side)
+            require(metadata and metadata["attachment_id"] == ref.attachment_id
+                    and metadata["revision"] == ref.revision, "Capture view unavailable.", 404)
+            return self.originals[case_id][ref.attachment_id]
+
+    def region(self, actor, case_id, link):
+        with self.lock:
+            image = self.view(actor, case_id, link)
+            manifest = PackageCapture.model_validate(self.records[case_id]["capture"])
+            try:
+                bounds = manifest.locate(link).bounds
+            except ValueError:
+                raise HTTPException(404, "Capture region unavailable.") from None
+        location = ",".join(f"{n * 100:.15f}%" for n in (bounds.x, bounds.y, bounds.width, bounds.height))
+        try:
+            return crop_label(image, location, image.evidence_id)
+        except LabelPhotoError as exc:
+            raise HTTPException(422, str(exc)) from None
+
     def transition(self, case, actor, cmd, request_id):
         rows = case["rows"]
         if isinstance(cmd, (AddRow, AddEvidence)):
@@ -153,8 +284,7 @@ class AdmissionStore:
                     "Use a new logical source ID.")
             if isinstance(cmd, AddRow):
                 rid = "item-" + str(len(rows) + 1)
-                row = dict(id=rid, unknown=not bool(entry["name"]), entries=[], superseded=[],
-                           proposal=None, confirmed=None, referred=False, interview=None, verified=None)
+                row = new_row(rid, unknown=not bool(entry["name"]))
                 rows[rid] = row
             else:
                 row = self.row(rows, cmd.row_id)
