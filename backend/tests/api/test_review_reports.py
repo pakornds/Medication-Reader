@@ -189,15 +189,22 @@ def test_only_timing_changes_supersede_both_kinds_and_invalid_exposure_cannot_re
     encounter = Encounter(client)
     encounter.seed(fixture_case)
     unknown = encounter.update_snapshot(encounter.exposure("unknown")).json()
-    encounter.run("DDI")
-    encounter.run("DRP")
+    prior_reports = {kind: encounter.run(kind).json() for kind in ("DDI", "DRP")}
     client.app.state.review_snapshots.clock = lambda: fixture_case.reports[2].ran_at
 
     wrong_pair = encounter.exposure("confirmed")
     wrong_pair["row_ids"] = [encounter.row_ids["R1"], encounter.row_ids["R3"]]
     assert encounter.update_snapshot(wrong_pair, status=422).json()["detail"]["code"] == "invalid_exposure"
     encounter.update_snapshot(encounter.exposure("confirmed", ["source-from-another-case"]), status=422)
-    assert encounter.report("DRP").json()["coverage"]["findings"] == 1
+    duplicates = encounter.exposure("confirmed", ["E4", "E4"])
+    rejection = encounter.update_snapshot(duplicates, status=422)
+    assert rejection.json()["detail"] == {
+        "code": "invalid_exposure",
+        "message": "Cite each exposure source only once.",
+        "recoverable": True,
+    }
+    for kind, previous in prior_reports.items():
+        assert encounter.report(kind).json() == previous
 
     confirmed = encounter.update_snapshot(encounter.exposure("confirmed")).json()
     assert confirmed["admission_revision"] == unknown["admission_revision"]

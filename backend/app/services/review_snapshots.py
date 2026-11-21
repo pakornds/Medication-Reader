@@ -251,8 +251,11 @@ def _project_snapshot(
         pair = frozenset(observation.row_ids)
         if pair in pairs or pair - exposure_evidence.keys():
             raise ReviewSnapshotError("invalid_exposure", "Select a unique pair of rows in this encounter.", 422)
+        citations = set(observation.evidence_ids)
+        if len(citations) != len(observation.evidence_ids):
+            raise ReviewSnapshotError("invalid_exposure", "Cite each exposure source only once.", 422)
         available = set().union(*(exposure_evidence[row_id] for row_id in pair))
-        if set(observation.evidence_ids) - available:
+        if citations - available:
             raise ReviewSnapshotError("invalid_exposure", "Cite an active reported-use source linked to that pair.", 422)
         pairs.add(pair)
 
