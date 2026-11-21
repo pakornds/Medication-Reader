@@ -21,6 +21,22 @@ DDI_PAIRS = {
     frozenset({"demo-a", "demo-b"}): "Simulated finding for Demo A and Demo B.",
     frozenset({"demo-a", "demo-c"}): None,
 }
+STOPPED_WARNING = "Discontinued medicines are not checked for interactions."
+
+
+def use_exclusion(row: ReviewRow) -> str | None:
+    verification = row.verification
+    if verification and verification.status == "no_longer_current":
+        return STOPPED_WARNING
+    if verification and verification.reviewer.role == "nurse":
+        return "Current use has nurse-only verification; doctor or pharmacist verification is required."
+    if not verification and row.identity_status != "named":
+        return "Current use and medication identity remain unverified."
+    if not verification or verification.status != "current" or verification.reviewer.role not in {"doctor", "pharmacist"}:
+        return "Current use has not been verified by a clinician."
+    return None
+
+
 DRP_RULE_ID = "synthetic-regimen-review"
 
 
@@ -45,12 +61,9 @@ def _traceable(reference: EvidenceRef, row_id: str, evidence: CaseEvidence) -> b
 
 def _eligibility(row: ReviewRow, evidence: CaseEvidence) -> tuple[str | None, str | None]:
     verification = row.verification
-    if (
-        verification is None
-        or verification.status != "current"
-        or verification.reviewer.role not in {"doctor", "pharmacist"}
-    ):
-        return None, "Current use has not been verified by a clinician."
+    reason = use_exclusion(row)
+    if reason:
+        return None, reason
     if verification.identity is None or verification.normalized_medication_id is None:
         return None, "Medication identity is unresolved."
     if {item.id for item in row.discrepancies} != set(verification.resolved_discrepancies):
@@ -144,6 +157,7 @@ def run_checks(request: CoverageRequest) -> CheckSummary:
         status=status,
         ran_at=datetime.now(UTC) if evaluated else None,
         source=REFERENCE,
+        warnings=[STOPPED_WARNING] if any(use_exclusion(row) == STOPPED_WARNING for row in request.rows) else [],
         evaluated=evaluated,
         excluded=excluded,
         findings=findings,

@@ -10,10 +10,11 @@ from fastapi.security import APIKeyHeader
 
 from app.ai.client import OpenAIClient
 from app.api.admissions import register_admissions
-from app.api.checks import router as checks_router
+from app.api.checks import create_checks_router
+from app.api.encounter_screening import screening_case
 from app.api.imports import create_import_router
 from app.api.local_products import router as products_router
-from app.api.local_screening import router as local_screening_router
+from app.api.local_screening import create_local_screening_router
 from app.api.labels import create_labels_router
 from app.api.package_regions import create_package_regions_router
 from app.api.medication_analysis import create_medication_analysis_router
@@ -59,9 +60,10 @@ def register_feature_routes(
     app.include_router(create_pills_router(get_provider))
     app.include_router(pill_candidates_router)
     app.include_router(create_medication_analysis_router(get_provider))
-    app.include_router(checks_router)
+    authorize_screening = screening_case(app.state.admissions, resolve_reviewer)
+    app.include_router(create_checks_router(authorize_screening))
     app.include_router(products_router)
-    app.include_router(local_screening_router)
+    app.include_router(create_local_screening_router(authorize_screening))
     register_review_reports(app, app.state.admissions, resolve_reviewer)
     app.include_router(regimens_router)
     app.include_router(create_import_router(ApprovalLedger(), hospital, resolve_reviewer, app.state.admissions.can_read))
