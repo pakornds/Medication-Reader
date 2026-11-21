@@ -62,6 +62,7 @@ class IngredientRouteMatch(ContractModel):
     summary_en: str
     summary_th: str
     references: list[Reference]
+    classification_uncertain: bool = False
 
 
 class RuleMatch(ContractModel):

@@ -27,19 +27,23 @@ function referenceUrl(value: string | null) {
 function SourceRule({ rule, language }: { rule: RuleMatch; language: Language }) {
   const t = (en: string, th: string) => say(language, en, th)
   const ingredientMatch = rule.ingredient_route_match
+  const uncertain = ingredientMatch?.classification_uncertain
   const summary = ingredientMatch && t(ingredientMatch.summary_en, ingredientMatch.summary_th)
   const references = [...rule.references, ...(ingredientMatch?.references ?? [])]
   const label = rule.relevance === 'Bør unngås' ? t('FEST flags this combination to avoid', 'FEST ระบุว่าควรหลีกเลี่ยงคู่นี้')
     : rule.relevance === 'Forholdsregler bør tas' ? t('FEST flags this combination for precautions', 'FEST ระบุว่าควรระวังเมื่อใช้คู่นี้')
       : t('Interaction flagged by FEST', 'พบอันตรกิริยาตามข้อมูล FEST')
   return <div className="stack">
-    <strong>{label}</strong>
-    {ingredientMatch && <div>
+    {!uncertain && <strong>{label}</strong>}
+    {ingredientMatch && !uncertain && <div>
       {summary && <p>{summary}</p>}
       <small className="hint">{t('Ingredient-level check', 'ตรวจจากตัวยา')}</small>
     </div>}
     <details>
-      <summary>{t('Source conditions and references', 'เงื่อนไขและเอกสารอ้างอิง')}</summary>
+      <summary>{uncertain
+        ? t('FEST rule', 'กฎของ FEST') + ' · ' + rule.matched_atcs.flat().join(' + ')
+        : t('Source conditions and references', 'เงื่อนไขและเอกสารอ้างอิง')}</summary>
+      {uncertain && <p>{label}</p>}
       {rule.condition && <p>{t('Applies when', 'เงื่อนไขที่เกี่ยวข้อง')} · {rule.condition}</p>}
       {rule.consequence && <p>{t('Possible effect', 'ผลที่อาจเกิดขึ้น')} · {rule.consequence}</p>}
       <p className="hint">FEST · {rule.rule_id}</p>
@@ -52,6 +56,25 @@ function SourceRule({ rule, language }: { rule: RuleMatch; language: Language })
       })}
     </details>
   </div>
+}
+
+function InteractionFindings({ pair, language }: { pair: Pair; language: Language }) {
+  const t = (en: string, th: string) => say(language, en, th)
+  const rules = actionRules(pair)
+  const uncertain = rules.some(rule => rule.ingredient_route_match?.classification_uncertain)
+  const summaries = new Set(rules.flatMap(rule => {
+    const match = rule.ingredient_route_match
+    return match && match.classification_uncertain ? [t(match.summary_en, match.summary_th)] : []
+  }).filter(Boolean))
+  return <>
+    {uncertain && <div className="stack">
+      <strong>{t('FEST flags a potential interaction', 'FEST พบอันตรกิริยาที่อาจเกิดขึ้น')}</strong>
+      {[...summaries].map(summary => <p key={summary}>{summary}</p>)}
+      <small className="hint">{t('The ingredient matches more than one product classification. Check the indication to see which rule applies.',
+        'ตัวยาตรงกับการจัดกลุ่มผลิตภัณฑ์มากกว่าหนึ่งแบบ ตรวจสอบข้อบ่งใช้เพื่อเลือกกฎที่ตรงกับผลิตภัณฑ์')}</small>
+    </div>}
+    {rules.map(rule => <SourceRule key={rule.rule_id} rule={rule} language={language} />)}
+  </>
 }
 
 export function ListChecks({ rows, language }: { rows: ListRow[]; language: Language }) {
@@ -108,7 +131,7 @@ export function ListChecks({ rows, language }: { rows: ListRow[]; language: Lang
           {' · '}{pair.duplicate.ingredients?.map(item => item.name).join(', ')}
           <small className="block">TMT {result.tmt_release}</small>
         </p>}
-        {actionRules(pair).map(rule => <SourceRule key={rule.rule_id} rule={rule} language={language} />)}
+        <InteractionFindings pair={pair} language={language} />
       </article>)}
       {unresolved.length > 0 && <div>
         <h3>{t('Medicines that couldn’t be assessed', 'รายการยาที่ยังประเมินไม่ได้')}</h3>

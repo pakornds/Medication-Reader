@@ -198,9 +198,13 @@ def _atc_hierarchy(code: str) -> set[str]:
     return {code[:length] for length in (1, 3, 4, 5, 7)}
 
 
+RuleSides = dict[str, dict[int, set[str]]]
+
+
 @dataclass
 class Membership:
-    sides: dict[str, dict[int, set[str]]] = field(default_factory=dict)
+    sides: RuleSides = field(default_factory=dict)
+    alternative_sides: dict[str, RuleSides] = field(default_factory=dict)
     gaps: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     ingredient_atc: ingredient_reference.IngredientATC | None = None
@@ -227,8 +231,11 @@ def _members(
             )
         if matches.ingredient_atc is None:
             return matches
-        atcs = {matches.ingredient_atc.atc}
-        matches.gaps[0] = "An oral ingredient ATC was checked. Exact product coverage remains incomplete."
+        atcs = set(matches.ingredient_atc.atcs)
+        matches.gaps[0] = "Oral ingredient ATCs were checked. Exact product coverage remains incomplete."
+        if len(atcs) > 1:
+            matches.alternative_sides = {code: {} for code in atcs}
+            matches.notes.append("The selected oral product could have more than one ATC. Product indication is unconfirmed.")
     if product.row.route_note:
         if product.route_gap:
             matches.gaps.append(product.row.route_note)
@@ -249,6 +256,8 @@ def _members(
         )
         for rule_id, side, atc in rows:
             matches.sides.setdefault(rule_id, {}).setdefault(side, set()).add(atc)
+            if matches.alternative_sides:
+                matches.alternative_sides[code].setdefault(rule_id, {}).setdefault(side, set()).add(atc)
     return matches
 
 
@@ -271,31 +280,43 @@ def _read_rule(fest: sqlite3.Connection, rule_id: str, matched: tuple[list[str],
     )
 
 
-def _ddi(fest: sqlite3.Connection, left: Membership, right: Membership, mapping_version: str | None) -> DDILookup:
-    reasons = [f"{side}: {reason}" for side, member in (("First row", left), ("Second row", right)) for reason in member.gaps]
-    interactions = []
-    ingredient_sources = [ref for member in (left, right) if member.ingredient_atc
-                          for ref in member.ingredient_atc.references]
-    for rule_id in sorted(left.sides.keys() & right.sides.keys()):
+def _opposing_matches(left: RuleSides, right: RuleSides) -> dict[str, tuple[list[str], list[str]]]:
+    matches = {}
+    for rule_id in sorted(left.keys() & right.keys()):
         matched_left, matched_right = set(), set()
         for side in (1, 2):
-            left_codes = left.sides[rule_id].get(side, set())
-            right_codes = right.sides[rule_id].get(3 - side, set())
+            left_codes = left[rule_id].get(side, set())
+            right_codes = right[rule_id].get(3 - side, set())
             if left_codes and right_codes:
                 matched_left.update(left_codes)
                 matched_right.update(right_codes)
         if matched_left:
-            rule = _read_rule(fest, rule_id, (sorted(matched_left), sorted(matched_right)))
-            if ingredient_sources and mapping_version:
-                if rule.relevance == "Ingen tiltak nødvendig":
-                    continue
-                en, th = ingredient_reference.RULE_SUMMARIES.get(rule_id, ("", ""))
-                rule.ingredient_route_match = IngredientRouteMatch(
-                    route="oral", mapping_version=mapping_version,
-                    summary_en=en, summary_th=th,
-                    references=list({(ref.title, ref.url): ref for ref in ingredient_sources}.values()),
-                )
-            interactions.append(rule)
+            matches[rule_id] = sorted(matched_left), sorted(matched_right)
+    return matches
+
+
+def _ddi(fest: sqlite3.Connection, left: Membership, right: Membership, mapping_version: str | None) -> DDILookup:
+    reasons = [f"{side}: {reason}" for side, member in (("First row", left), ("Second row", right)) for reason in member.gaps]
+    ingredient_sources = [ref for member in (left, right) if member.ingredient_atc
+                          for ref in member.ingredient_atc.references]
+    interactions = [_read_rule(fest, rule_id, codes) for rule_id, codes in _opposing_matches(left.sides, right.sides).items()]
+    uncertain = bool(left.alternative_sides or right.alternative_sides)
+    if ingredient_sources and mapping_version:
+        interactions = [rule for rule in interactions if rule.relevance != "Ingen tiltak nødvendig"]
+        if uncertain:
+            actionable = {rule.rule_id for rule in interactions}
+            if not all(actionable.intersection(_opposing_matches(a, b))
+                       for a in (left.alternative_sides.values() or [left.sides])
+                       for b in (right.alternative_sides.values() or [right.sides])):
+                interactions = []
+                reasons.insert(0, "An actionable rule could not be established for every supported product classification.")
+        references = list({(ref.title, ref.url): ref for ref in ingredient_sources}.values())
+        for rule in interactions:
+            en, th = ingredient_reference.RULE_SUMMARIES.get(rule.rule_id, ("", ""))
+            rule.ingredient_route_match = IngredientRouteMatch(
+                route="oral", mapping_version=mapping_version, summary_en=en, summary_th=th,
+                references=references, classification_uncertain=uncertain,
+            )
     if reasons:
         status = "partial" if interactions else "unassessed"
     elif any(r.relevance != "Ingen tiltak nødvendig" for r in interactions):

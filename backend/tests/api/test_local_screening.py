@@ -71,10 +71,13 @@ def ingredient_route_refs(refs, monkeypatch):
                 ('737856','I-RON','complete','no_exact_fest_product_form_route','53','53'),
                 ('441548','SIADOCIN','complete','no_exact_fest_product_form_route','53','891'),
                 ('461798','TRAMA','complete','no_exact_fest_product_form_route','53','53'),
-                ('432331','RONTIN','complete','mapped','53','891');
+                ('432331','RONTIN','complete','mapped','53','891'),
+                ('108354','MAFORAN','complete','no_exact_fest_product_form_route','53','53'),
+                ('250763','ASLAC-B','complete','no_exact_fest_substance','53','53');
             INSERT INTO ingredient VALUES
                 ('737856','689632','ferrous fumarate'), ('441548','226372','doxycycline'),
-                ('461798','864627','tramadol hydrochloride'), ('432331','322132','gabapentin');
+                ('461798','864627','tramadol hydrochloride'), ('432331','322132','gabapentin'),
+                ('108354','225929','warfarin sodium'), ('250763','223308','aspirin');
             INSERT INTO product_atc VALUES ('432331','N02BF01');
         """)
     with closing(sqlite3.connect(fest)) as db:
@@ -82,6 +85,8 @@ def ingredient_route_refs(refs, monkeypatch):
             ("fixture-iron-doxycycline", "B03AA02", "J01AA02"),
             ("fixture-opioid-class", "N02A", "N02BF01"),
             ("fixture-doxycycline-third-drug", "J01AA", "A01AA01"),
+            ("fixture-warfarin-aspirin-platelet", "B01AA03", "B01AC06"),
+            ("fixture-warfarin-aspirin-analgesic", "B01AA03", "N02BA01"),
         ]:
             db.execute("INSERT INTO rule SELECT ?,updated,relevance_no,clinical_consequence_no,entry_xml "
                        "FROM rule WHERE id = 'demo-rule'", (key,))
@@ -160,6 +165,29 @@ def test_catalogue_fallback_cannot_clear_a_pair_from_a_no_action_rule(ingredient
         db.commit()
     pair = catalogue_pair()
     assert pair.ddi.status == "unassessed" and not pair.ddi.interactions
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_aspirin_brings_up_fest_when_both_classifications_flag_the_pair(ingredient_route_refs, reverse):
+    ids = ("108354", "250763")
+    ddi = catalogue_pair(ids[::-1] if reverse else ids).ddi
+    assert ddi.status == "partial"
+    assert {rule.rule_id for rule in ddi.interactions} == {
+        "fixture-warfarin-aspirin-platelet", "fixture-warfarin-aspirin-analgesic",
+    }
+    for rule in ddi.interactions:
+        assert rule.ingredient_route_match.classification_uncertain
+        assert rule.matched_atcs[1 if reverse else 0] == ["B01AA03"]
+
+
+def test_aspirin_does_not_surface_a_finding_from_only_one_classification(ingredient_route_refs):
+    _, fest = ingredient_route_refs
+    with closing(sqlite3.connect(fest)) as db:
+        db.execute("UPDATE rule SET relevance_no='Ingen tiltak nødvendig' WHERE id='fixture-warfarin-aspirin-platelet'")
+        db.commit()
+    ddi = catalogue_pair(("108354", "250763")).ddi
+    assert ddi.status == "unassessed" and not ddi.interactions
+    assert "every supported product classification" in ddi.reasons[0]
 
 
 def test_reference_checks_release_and_blocks_conflicted_ingredient(tmp_path):

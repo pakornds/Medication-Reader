@@ -34,8 +34,8 @@ def catalogue(tmt, routes, release):
         if form and route:
             candidate = routes.resolve(release=release, ingredients=parts, form_route=(form, route),
                                        composition_status=composition, ddi_status=status)
-            if candidate:
-                fallback[tpu] = {candidate.atc}
+            if candidate and len(candidate.atcs) == 1:
+                fallback[tpu] = set(candidate.atcs)
     return len(products), exact, fallback, singles
 
 

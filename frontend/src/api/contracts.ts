@@ -327,6 +327,7 @@ export type IngredientRouteMatch = {
   summary_en: string
   summary_th: string
   references: Array<Reference>
+  classification_uncertain?: boolean
 }
 
 export type Interview = {
