@@ -197,7 +197,7 @@ def test_replacing_a_disputed_label_cannot_remove_the_independence_requirement(c
     case, row_id, original = disputed_case(client, "doctor")
     replacement = deepcopy(original)
     replacement["source"]["id"] = "retaken-crop"
-    replacement["photo"]["region"] = [0.5, 0.1, 0.5, 0.5]
+    replacement["photo"]["region"] = [0.25, 0.1, 0.5, 0.5]
     replacement.update(
         name="Demo Slate", wording="Demo Slate read in another crop of the original Bag A photo.",
         identity_basis="matched_original_package",
