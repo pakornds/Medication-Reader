@@ -1,11 +1,14 @@
 """Transcribe sourced facts from the label-side photo."""
 
 import json
+import re
 from base64 import b64decode
 from binascii import Error as Base64Error
 from collections.abc import Callable
+from io import BytesIO
 from typing import Literal
 
+from PIL import Image, ImageOps
 from pydantic import Field
 
 from app.ai.client import EvidenceImage, OpenAIClient, ProviderError
@@ -16,7 +19,7 @@ from app.schemas.analysis import (
     LabelField,
     validate_analysis_result,
 )
-from app.schemas.evidence import CaseEvidence, ContractModel, Observation, SourceKind, Text
+from app.schemas.evidence import CaseEvidence, ContractModel, EvidenceItem, EvidenceSource, Observation, SourceKind, Text
 from app.schemas.regimen import RegimenParseRequest
 from app.services.regimens import parse_directions
 
@@ -48,6 +51,60 @@ def _matches_media_type(content: bytes, media_type: str) -> bool:
     )
 
 
+def crop_label(photo: EvidenceImage, location: str, source_id: str) -> EvidenceImage:
+    """Coordinates refer to the displayed (EXIF-oriented) original attachment."""
+    parts = [part.strip() for part in location.split(",")]
+    if len(parts) != 4 or not all(
+        re.fullmatch(r"(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)%", part) for part in parts
+    ):
+        raise LabelPhotoError("Provide x, y, width and height as percentages for each label region.")
+    x, y, w, h = [float(p[:-1]) / 100 for p in parts]
+    if not (0 <= x < 1 and 0 <= y < 1 and 0 < w and 0 < h and x + w <= 1 + 1e-12 and y + h <= 1 + 1e-12):
+        raise LabelPhotoError("Select a nonempty region inside the original attachment.")
+    try:
+        with Image.open(BytesIO(photo.content), formats=["PNG", "JPEG", "WEBP"]) as original:
+            if original.width * original.height > 25_000_000:
+                raise LabelPhotoError("The photo exceeds the decoded image size limit.")
+            image = ImageOps.exif_transpose(original)
+            width, height = image.size
+            box = (round(x * width), round(y * height), round((x + w) * width), round((y + h) * height))
+            if box[2] <= box[0] or box[3] <= box[1]:
+                raise LabelPhotoError("Select a region at least one pixel wide and high.")
+            crop = image.crop(box).convert("RGB")
+            crop.info.clear()
+            output = BytesIO()
+            crop.save(output, "PNG")
+    except (OSError, SyntaxError, Image.DecompressionBombError):
+        raise LabelPhotoError("The selected photo could not be decoded.") from None
+    return EvidenceImage(source_id, "image/png", output.getvalue())
+
+
+def read_label(
+    case_id: str, source: EvidenceSource, item: EvidenceItem | None,
+    image: EvidenceImage, location: str | None, provider: OpenAIClient,
+) -> AnalysisResult:
+    evidence = CaseEvidence(case_id=case_id, sources=[source], items=[item] if item else [])
+    manifest = evidence.model_dump(mode="json")
+    manifest["region_locations"] = {item.id: location} if item and location else {}
+    if location:
+        manifest["image_view"] = "The supplied image is already cropped to this region."
+    result = provider.generate(
+        instructions=LABEL_EXTRACTION.instructions,
+        evidence_text=json.dumps(manifest, ensure_ascii=False),
+        output_type=AnalysisResult,
+        images=[image],
+    )
+    try:
+        validate_analysis_result(result, evidence)
+        if item and [row.id for row in result.rows] != [item.row_id]:
+            raise EvidenceValidationError("Expected the selected row.")
+    except EvidenceValidationError:
+        raise ProviderError(
+            "unsupported_label_evidence", "A label transcription did not match the selected region."
+        ) from None
+    return result
+
+
 def transcribe_label_photo(
     request: LabelPhotoRequest, get_provider: Callable[[], OpenAIClient]
 ) -> AnalysisResult:
@@ -70,25 +127,22 @@ def transcribe_label_photo(
         raise LabelPhotoError("The photo bytes must match their declared image type.")
 
     evidence = CaseEvidence(case_id=request.evidence.case_id, sources=[source], items=items)
-    provider_input = evidence.model_dump(mode="json")
-    provider_input["region_locations"] = request.region_locations
-    result = get_provider().generate(
-        instructions=LABEL_EXTRACTION.instructions,
-        evidence_text=json.dumps(provider_input, ensure_ascii=False),
-        output_type=AnalysisResult,
-        images=[EvidenceImage(source.id, request.media_type, content)],
-    )
-    try:
-        validate_analysis_result(result, evidence)
-    except EvidenceValidationError:
-        raise ProviderError(
-            "unsupported_label_evidence", "A label transcription did not match the selected photo."
-        ) from None
-    # A whole-photo upload may describe an unidentified item without a located region.
-    if {item.row_id for item in items} - {row.id for row in result.rows}:
-        raise ProviderError(
-            "unsupported_label_evidence", "A located label item was missing from the transcription."
-        )
+    photo = EvidenceImage(source.id, request.media_type, content)
+    shared_sources = {s.id for s in request.evidence.sources if s.id == source.id or (
+        source.attachment_id and s.attachment_id == source.attachment_id
+    )}
+    shared = sum(i.source_id in shared_sources for i in request.evidence.items) > 1 or len(shared_sources) > 1
+    rows = []
+    provider = get_provider()
+    for item in items or [None]:
+        location = request.region_locations.get(item.id) if item else None
+        if item and shared and not location:
+            raise LabelPhotoError("Each item on a shared attachment needs a bounded region.")
+        image = crop_label(photo, location, source.id) if location else photo
+        rows.extend(read_label(evidence.case_id, source, item, image, location, provider).rows)
+    if len({row.id for row in rows}) != len(rows):
+        raise LabelPhotoError("Use form analysis to reconcile multiple label regions for one row.")
+    result = AnalysisResult(case_id=evidence.case_id, rows=rows)
     for row in result.rows:
         for field in LabelField:
             row.label_fields.setdefault(field, Observation(status="missing"))

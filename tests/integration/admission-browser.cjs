@@ -140,7 +140,8 @@ async function scannedLabels(page) {
   await d.getByLabel("Item photo").setInputFiles(photoPath);
   await d.getByLabel("Bag or package reference").fill("Two labels");
   await d.getByLabel("width (%)", { exact: true }).fill("50");
-  await d.getByLabel("Pairing").selectOption("matched");
+  assert.equal(await d.getByLabel("Pairing").isVisible(), false);
+  await d.getByLabel("This front label region belongs to the selected bag.").check();
   await click(d, "Read selected label region");
   await page.waitForFunction(
     () => document.querySelector("[name=strength]").value === "25 mg",
@@ -156,6 +157,7 @@ async function scannedLabels(page) {
     await d.getByLabel("Original wording or observation").inputValue(),
     "",
   );
+  await d.getByLabel("This front label region belongs to the selected bag.").check();
   await click(d, "Read selected label region");
   await page.waitForFunction(
     () => document.querySelector("[name=strength]").value === "50 mg",

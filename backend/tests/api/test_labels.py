@@ -1,5 +1,8 @@
 import json
-from base64 import b64encode
+from base64 import b64decode, b64encode
+from io import BytesIO
+
+from PIL import Image
 from pathlib import Path
 
 import pytest
@@ -28,7 +31,7 @@ def scenario():
         "source_id": "label-photo",
         "media_type": "image/png",
         "image_base64": b64encode(photo).decode("ascii"),
-        "region_locations": {"label-a": "left", "label-b": "middle"},
+        "region_locations": {"label-a": "0%,0%,50%,100%", "label-b": "50%,0%,50%,100%"},
     }
     row = transfer["response"]["rows"][0]
     row.update(
@@ -58,14 +61,20 @@ async def client(scenario):
         contents = body["input"][0]["content"]
         manifest = json.loads(contents[0]["text"])
         assert [source["id"] for source in manifest["sources"]] == ["label-photo"]
-        assert [item["id"] for item in manifest["items"]] == ["label-a", "label-b"]
-        assert manifest["region_locations"] == expected_request["region_locations"]
-        assert contents[2]["image_url"] == f"data:image/png;base64,{expected_request['image_base64']}"
+        item, = manifest["items"]
+        location = expected_request["region_locations"][item["id"]]
+        assert manifest["region_locations"] == {item["id"]: location}
+        original = Image.open(BytesIO(b64decode(expected_request["image_base64"]))).convert("RGB")
+        left = 0 if item["id"] == "label-a" else original.width // 2
+        expected = original.crop((left, 0, left + original.width // 2, original.height))
+        actual = Image.open(BytesIO(b64decode(contents[2]["image_url"].split(",")[1])))
+        assert actual.size == expected.size and actual.tobytes() == expected.tobytes()
+        scoped = {**response, "rows": [r for r in response["rows"] if r["id"] == item["row_id"]]}
         return json.dumps({
             "status": "completed",
             "output": [{
                 "type": "message",
-                "content": [{"type": "output_text", "text": json.dumps(response)}],
+                "content": [{"type": "output_text", "text": json.dumps(scoped)}],
             }],
         }).encode("utf-8")
 
@@ -144,6 +153,8 @@ async def test_located_region_cannot_be_silently_omitted(client, scenario):
 @pytest.mark.parametrize("evidence", [
     {"source_id": "label-photo", "item_id": "label-b"},
     {"source_id": "ward-record", "item_id": "part-a"},
+    {"source_id": "label-photo"},
+    {"source_id": "superseded-photo", "item_id": "label-a"},
 ])
 async def test_wrong_label_evidence_withholds_result(client, scenario, evidence):
     http, _ = client
@@ -177,3 +188,15 @@ async def test_label_scan_prefills_same_regimen_from_the_located_directions(clie
     assert schedule["time_of_day"] == ["morning"] and schedule["route"] is None
     assert schedule["evidence"]["time_of_day"] == {"source_id": "label-photo", "item_id": "label-a"}
     assert second["regimens"] == []
+
+
+@pytest.mark.parametrize("location", [None, "left label", "90%,0%,20%,100%", "10%,0%,0%,100%"])
+async def test_shared_label_requires_bounded_geometry(client, scenario, location):
+    http, mode = client
+    request, _ = scenario
+    if location is None:
+        del request["region_locations"]["label-a"]
+    else:
+        request["region_locations"]["label-a"] = location
+    response = await http.post("/labels/transcribe", json=request)
+    assert response.status_code == 422 and mode["calls"] == 0
