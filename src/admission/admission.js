@@ -296,6 +296,7 @@ function evidenceForm(row, retake) {
       field("Bag or package reference", "bag") +
       field("Distinct tablet appearance, if a crop", "appearance") +
       locationFields +
+      '<label id="front-attribution"><input type="checkbox" name="front_attributed"> This front label region belongs to the selected bag.</label>' +
       select("Pairing", "pairing", ["uncertain", "matched"]) +
       button("Read selected label region", "scan") +
       "</fieldset>" +
@@ -343,7 +344,7 @@ function evidenceForm(row, retake) {
         photo = kind.endsWith("photo");
       const entry = {
         source: {
-          id: sourceId,
+          id: scanDraft.source,
           kind,
           reporter: get(data, "reporter"),
           source_date: get(data, "date"),
@@ -371,6 +372,7 @@ function evidenceForm(row, retake) {
           media_type: file.type,
           bag: get(data, "bag"),
           pairing: data.get("pairing"),
+          front_attributed: kind === "label_photo" && data.has("front_attributed"),
           appearance: get(data, "appearance"),
           region: ["x", "y", "width", "height"].map(
             (k) => Number(data.get(k)) / 100,
@@ -390,8 +392,11 @@ function evidenceForm(row, retake) {
       );
     },
   );
-  const update = () =>
-    ($("photo").hidden = !form.elements.kind.value.endsWith("photo"));
+  const update = () => {
+    $("photo").hidden = !form.elements.kind.value.endsWith("photo");
+    $("front-attribution").style.display = form.elements.kind.value === "label_photo" ? "" : "none";
+    form.elements.pairing.closest("label").style.display = form.elements.kind.value === "label_photo" ? "none" : "";
+  };
   scanDraft = { source: sourceId, fields: {}, filled: {}, revision: 0 };
   const resetScan = () => {
     const draft = scanDraft;
@@ -413,11 +418,22 @@ function evidenceForm(row, retake) {
     "width",
     "height",
     "pairing",
+    "front_attributed",
   ]) {
-    form.elements.namedItem(key).oninput = resetScan;
+    form.elements.namedItem(key).oninput = () => {
+      resetScan();
+      scanDraft.source = id();
+      if (["image", "bag", "x", "y", "width", "height"].includes(key)) {
+        form.elements.front_attributed.checked = false;
+        form.elements.pairing.value = "uncertain";
+      }
+    };
   }
   form.elements.kind.onchange = () => {
     resetScan();
+    scanDraft.source = id();
+    form.elements.front_attributed.checked = false;
+    form.elements.pairing.value = "uncertain";
     update();
   };
   update();
@@ -426,7 +442,8 @@ async function scan() {
   const f = new FormData(form),
     file = f.get("image"),
     kind = f.get("kind");
-  if (f.get("pairing") !== "matched" || get(f, "appearance"))
+  const attributed = kind === "label_photo" ? f.has("front_attributed") : f.get("pairing") === "matched";
+  if (!attributed || get(f, "appearance"))
     throw new Error("Match the label region to this item first.");
   const draft = scanDraft,
     revision = ++draft.revision;
@@ -714,11 +731,13 @@ function render() {
                 " · " +
                 esc(e.photo.appearance || "Label region") +
                 " · " +
-                (e.photo.pairing === "matched"
+                (e.photo.front_attributed
+                  ? "Attributed front region"
+                  : e.photo.pairing === "matched"
                   ? "Matched"
                   : "Uncertain pairing · targeted retake needed") +
                 "</p>" +
-                (e.photo.pairing === "matched"
+                (e.photo.front_attributed || e.photo.pairing === "matched"
                   ? '<canvas class="crop" data-item="' +
                     row.id +
                     '" data-index="' +

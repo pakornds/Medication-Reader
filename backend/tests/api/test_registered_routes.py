@@ -5,7 +5,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.ai.client import OpenAIClient
 from app.main import create_app
-from test_medication_analysis import multipart_parts, synthetic_case
+from test_medication_analysis import multipart_parts, scoped_ocr, synthetic_case
 
 pytestmark = pytest.mark.anyio
 
@@ -23,11 +23,13 @@ async def client():
     def transport(request, _timeout):
         body = json.loads(request.data)
         calls.append(body)
+        manifest = json.loads(body["input"][0]["content"][0]["text"])
+        output = scoped_ocr(manifest, result) if "items" in manifest else result
         return json.dumps({
             "status": "completed",
             "output": [{
                 "type": "message",
-                "content": [{"type": "output_text", "text": json.dumps(result)}],
+                "content": [{"type": "output_text", "text": json.dumps(output)}],
             }],
         }).encode()
 
@@ -75,7 +77,7 @@ async def test_main_factory_dispatches_sourced_analysis_form(client):
     assert named["reported_use"][0]["evidence"]["source_id"] == "patient-account"
     assert unknown["identity_status"] == "unlabeled"
     assert unknown["reverse_crop"]["item_id"] == "pill-c"
-    assert len(calls) == 1
+    assert len(calls) == 3
     assert calls[0]["model"] == "fixture-model"
     assert calls[0]["store"] is False
     print(json.dumps({

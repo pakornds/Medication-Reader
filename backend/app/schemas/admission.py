@@ -25,6 +25,7 @@ class Photo(ContractModel):
     bag: Text
     pairing: Literal["matched", "uncertain"]
     appearance: Text | None = None
+    front_attributed: bool = False
 
     @model_validator(mode="after")
     def validate_photo(self):
@@ -58,7 +59,10 @@ class SourceEntry(ContractModel):
             raise ValueError("A review entry requires available evidence")
         if (self.source.kind in PHOTO_KINDS) != bool(self.photo):
             raise ValueError("Photo sources require a located image")
-        if self.photo and (self.photo.pairing == "uncertain" or self.photo.appearance):
+        attributed_front = self.photo and self.photo.front_attributed
+        if attributed_front and self.source.kind != "label_photo":
+            raise ValueError("Front-region attribution requires a front label photo")
+        if self.photo and ((self.photo.pairing == "uncertain" and not attributed_front) or self.photo.appearance):
             if any((self.name, self.label_owner, self.directions, self.indication, self.strength, self.form, self.dose, self.scan_fields)):
                 raise ValueError("Unmatched views and appearance crops cannot supply label fields")
         if self.source.kind in {"patient_report", "caregiver_report"} and any(
