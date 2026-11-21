@@ -8,12 +8,14 @@ from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
 from app.api.admission_intake import register_intake
-from app.api.medication_analysis import MAX_FORM_BYTES, PHOTO_TYPES
+from app.api.medication_analysis import PHOTO_TYPES
 from app.schemas.admission import Action, CaptureCommand, CaptureViewRequest, NewEncounter
 from app.schemas.package_capture import RegionLink
 from app.schemas.review import ReviewerIdentity
 from app.services.admissions import AdmissionStore
 from app.services.catalog import catalogue_choices
+
+MAX_CAPTURE_BYTES = 16_000_000
 
 
 def register_admissions(app, hospital, resolve_reviewer):
@@ -64,7 +66,7 @@ def register_admissions(app, hospital, resolve_reviewer):
             raise HTTPException(422, "Submit a capture form.")
         body = bytearray()
         async for chunk in request.stream():
-            if len(body) + len(chunk) > MAX_FORM_BYTES:
+            if len(body) + len(chunk) > MAX_CAPTURE_BYTES:
                 raise HTTPException(413, "Capture exceeds the upload limit.")
             body.extend(chunk)
         header = f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("latin-1")

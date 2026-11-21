@@ -15,7 +15,7 @@ from app.services.medication_analysis import (
     analyze_medication_form,
 )
 
-MAX_FORM_BYTES = 16_000_000
+MAX_ANALYSIS_FORM_BYTES = 40_000_000
 PHOTO_TYPES = frozenset({"image/png", "image/jpeg", "image/webp"})
 FORM_BODY = {
     "requestBody": {
@@ -48,7 +48,7 @@ async def _read_multipart(request: Request) -> tuple[FormAnalysisInput, list[Evi
         raise FormAnalysisError("Submit a multipart form with JSON metadata and optional photos.")
     body = bytearray()
     async for chunk in request.stream():
-        if len(body) + len(chunk) > MAX_FORM_BYTES:
+        if len(body) + len(chunk) > MAX_ANALYSIS_FORM_BYTES:
             raise FormAnalysisError("The form and photos exceed the size limit.")
         body.extend(chunk)
     mime_header = f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("latin-1")

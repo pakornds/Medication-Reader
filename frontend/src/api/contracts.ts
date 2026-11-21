@@ -321,6 +321,14 @@ export type Ingredient = {
   name: string
 }
 
+export type IngredientRouteMatch = {
+  route: "oral"
+  mapping_version: string
+  summary_en: string
+  summary_th: string
+  references: Array<Reference>
+}
+
 export type Interview = {
   action: "interview"
   row_id: string
@@ -650,6 +658,7 @@ export type RuleMatch = {
   updated: string
   references: Array<Reference>
   matched_atcs: [Array<string>, Array<string>]
+  ingredient_route_match?: IngredientRouteMatch | null
 }
 
 export type RunReport = {

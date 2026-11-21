@@ -26,6 +26,7 @@ import { ManualMedicineEntry } from './ManualMedicineEntry'
 import type { ManualEntryDraft } from './manualEntryDraft'
 import { LabelTranscription } from './LabelTranscription'
 import { PhotoSlot } from './PhotoSlot'
+import { MAX_BATCH_PHOTO_BYTES } from './preparePhoto'
 import {
   newNote,
   draftValues,
@@ -58,6 +59,7 @@ export function InputPage({
   const [mode, setMode] = useState<'evidence' | 'manual'>('evidence')
   const [editingSources, setEditingSources] = useState(false)
   const [addSlot, setAddSlot] = useState(false)
+  const [preparingPhotos, setPreparingPhotos] = useState(0)
   const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('idle')
   const [failure, setFailure] = useState<unknown>(null)
   const request = useRef<AbortController | null>(null)
@@ -66,15 +68,15 @@ export function InputPage({
   const hasSuggestions = Boolean(draft.preview?.rows.length) && mode === 'evidence'
   const hasEvidence = evidence.photos.length > 0 || evidence.notes.some((note) => note.text.trim())
   const tooLarge =
-    evidence.photos.length > 16 || evidence.photos.reduce((sum, p) => sum + p.file.size, 0) >= 16_000_000
+    evidence.photos.length > 16 || evidence.photos.reduce((sum, p) => sum + p.file.size, 0) > MAX_BATCH_PHOTO_BYTES
   useEffect(() => () => request.current?.abort(), [])
-  function editEvidence(next: Evidence) {
+  function editEvidence(next: Evidence | ((previous: Evidence) => Evidence)) {
     request.current?.abort()
     setStatus('idle')
-    setDraft(d => updateDraftEvidence(d, next))
+    setDraft(d => updateDraftEvidence(d, typeof next === 'function' ? next(d.evidence) : next))
   }
   function editPhoto(next: Photo) {
-    editEvidence(replacePhoto(evidence, next.id, next))
+    editEvidence(current => replacePhoto(current, next.id, next))
   }
   function slot(kind: PhotoKind, photo?: Photo) {
     return (
@@ -85,9 +87,10 @@ export function InputPage({
         photo={photo}
         photos={evidence.photos}
         t={t}
+        onPreparingChange={preparing => setPreparingPhotos(count => count + (preparing ? 1 : -1))}
         onEdit={editPhoto}
         onReplace={(next) => {
-          if (photo || next) editEvidence(replacePhoto(evidence, photo?.id, next))
+          if (photo || next) editEvidence(current => replacePhoto(current, photo?.id, next))
           if (kind === 'additional_photo' && !photo) setAddSlot(false)
         }}
       />
@@ -142,7 +145,7 @@ export function InputPage({
     ? t.tooLarge
     : !hasEvidence ? t.analyzeHint : ''
   const analysisAction = <div className="stack">
-    <Button variant="primary" disabled={!!reason || status === 'loading'} aria-busy={status === 'loading'} onClick={() => void runAnalysis()}>
+    <Button variant="primary" disabled={!!reason || !!preparingPhotos || status === 'loading'} aria-busy={status === 'loading'} onClick={() => void runAnalysis()}>
       {status === 'loading' ? <LuLoaderCircle aria-hidden="true" className="motion-safe:animate-spin" /> : <LuScanLine aria-hidden="true" />}
       {status === 'loading' ? t.analyzing : t.analyze}
     </Button>

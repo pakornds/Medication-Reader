@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.ai.client import OpenAIClient
 from app.main import create_app
+from app.services.label_directions import LabelDirectionsChoices
 from test_medication_analysis import multipart_parts, scoped_ocr, synthetic_case
 
 
@@ -19,6 +20,8 @@ def test_missing_group_or_its_photo_evidence_rejects_transfer_preview_and_allows
         proposed["rows"].append({**complete["rows"][2], "sources": [{"source_id": source_id}], "reverse_crop": None})
 
     def generate(*, evidence_text, output_type, **kwargs):
+        if output_type is LabelDirectionsChoices:
+            return LabelDirectionsChoices()
         manifest = json.loads(evidence_text)
         result = scoped_ocr(manifest, complete) if "items" in manifest else proposed
         return output_type.model_validate(result)

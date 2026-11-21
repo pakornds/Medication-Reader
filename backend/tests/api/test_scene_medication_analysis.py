@@ -3,6 +3,7 @@ import json
 from base64 import b64decode
 from io import BytesIO
 
+import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
@@ -81,6 +82,152 @@ def test_two_sides_two_distinct_crops_no_duplicate_orders_from_reverse():
         assert preview["dispensing_facilities"][row["id"]]["evidence"] == ref
     assert len(preview["located_regions"]) == 4 and not preview["photo_issues"]
     assert calls.count(("ProposedBounds",(120,80))) == 4 and calls.count(("PrintedLabel",(60,80))) == 4
+
+
+THAI_DIRECTIONS = "รับประทานครั้งละ 1 เม็ด/แคปซูล วันละ 3 ครั้ง หลังอาหาร เช้า เที่ยง เย็น หลังอาหารทันที"
+THAI_CHOICES = {
+    "dose": {"amount": 1, "unit": "tablet or capsule", "quote": "ครั้งละ 1 เม็ด/แคปซูล"},
+    "schedule": {"kind": "frequency", "count": 3, "period": 1, "period_unit": "day", "quote": "วันละ 3 ครั้ง"},
+    "times": {"values": ["morning", "noon", "evening"], "quote": "เช้า เที่ยง เย็น"},
+    "route": {"value": "oral", "quote": "รับประทาน"},
+    "meal": {"value": "immediately after meals", "quote": "หลังอาหารทันที"},
+}
+
+
+@pytest.mark.parametrize("marked", [False, True])
+def test_openai_prefills_fixed_choices_for_exact_thai_label(marked, monkeypatch, tmp_path):
+    monkeypatch.setenv("LOCAL_TMT_DB", str(tmp_path / "no-catalogue.sqlite"))
+    calls = []
+
+    def transport(request, _timeout):
+        body = json.loads(request.data)
+        response_schema = body["text"]["format"]
+        contract = response_schema["name"]
+        calls.append(contract)
+        ref = {"source_id": "left", "item_id": "left"}
+        if contract == "ProposedBounds":
+            output = {"regions": [{"x": 0, "y": 0, "width": 1, "height": 1}]}
+        elif contract == "PrintedLabel":
+            assert response_schema["schema"]["$defs"]["Dose"]["properties"]["unit"]["enum"]
+            output = {"names": ["Ibuprofen"], "directions": THAI_DIRECTIONS, "structured_directions": THAI_CHOICES}
+        elif contract == "LabelAnalysisResult":
+            output = {"case_id": "example", "rows": [{
+                "id": "order-a", "identity_status": "named", "sources": [ref],
+                "observed_names": [{"value": "Ibuprofen", "evidence": ref}],
+                "label_fields": {"directions": {"status": "readable", "value": THAI_DIRECTIONS, "evidence": ref}},
+            }]}
+        elif contract == "LabelDirectionsChoices":
+            assert json.loads(body["input"][0]["content"][0]["text"]) == {"directions": THAI_DIRECTIONS}
+            assert len(body["input"][0]["content"]) == 1
+            output = THAI_CHOICES
+        else:
+            raise AssertionError(f"Unexpected model contract: {contract}")
+        return json.dumps({"status": "completed", "output": [{"type": "message", "content": [
+            {"type": "output_text", "text": json.dumps(output)},
+        ]}]}).encode()
+
+    provider = OpenAIClient(api_key="fixture", model="fixture", transport=transport)
+    with TestClient(create_app(get_provider=lambda: provider)) as client:
+        row, = upload(client, marked=marked)["rows"]
+    schedule, = row["regimens"]
+    assert schedule["basis"] == "documented" and schedule["parse_status"] == "complete"
+    assert schedule["directions_text"] == THAI_DIRECTIONS
+    assert (schedule["dose_amount"], schedule["dose_unit"]) == (1, "tablet or capsule")
+    assert (schedule["frequency_count"], schedule["period_value"], schedule["period_unit"]) == (3, 1, "day")
+    assert schedule["time_of_day"] == ["morning", "noon", "evening"]
+    assert (schedule["route"], schedule["meal_relation"], schedule["as_needed"]) == ("oral", "immediately after meals", None)
+    assert all(ref == row["label_fields"]["directions"]["evidence"] for ref in schedule["evidence"].values())
+    assert calls == (["LabelAnalysisResult", "LabelDirectionsChoices"] if marked else ["ProposedBounds", "PrintedLabel"])
+
+
+def test_label_choices_reject_unsubstantiated_values_and_keep_original():
+    from app.schemas.evidence import EvidenceRef
+    from app.services.label_directions import LabelDirectionsChoices, label_regimen
+
+    choices = LabelDirectionsChoices.model_validate(THAI_CHOICES | {
+        "dose": {"amount": 1, "unit": "tablet", "quote": "ครั้งละ 1 เม็ด"},
+        "schedule": THAI_CHOICES["schedule"] | {"count": 4},
+        "times": THAI_CHOICES["times"] | {"values": ["morning", "evening", "bedtime"]},
+        "as_needed": {"value": True, "quote": "เมื่อมีอาการ"},
+    })
+    schedule = label_regimen(choices, THAI_DIRECTIONS, EvidenceRef(source_id="label"))
+    assert schedule.parse_status == "partial" and schedule.unparsed_text == THAI_DIRECTIONS
+    assert schedule.dose_unit is None and schedule.frequency_count is None and not schedule.time_of_day
+    assert schedule.as_needed is None
+    assert schedule.route == "oral" and schedule.meal_relation == "immediately after meals"
+    assert label_regimen(choices, "ห้าม" + THAI_DIRECTIONS, EvidenceRef(source_id="label")) is None
+
+
+@pytest.mark.parametrize(("text", "quote", "amount", "unit"), [
+    ("Take 1–2 tablets twice daily", "2 tablets", 2, "tablet"),
+    ("Take 1 1/2 tablets daily", "2 tablets", 2, "tablet"),
+    ("Take 1 or 2 tablets twice daily", "2 tablets", 2, "tablet"),
+    ("Take 0,5 mL twice daily", "5 mL", 5, "mL"),
+    ("รับประทานครั้งละ ๑–๒ เม็ด วันละ ๒ ครั้ง", "๒ เม็ด", 2, "tablet"),
+    ("รับประทานครั้งละ 1 หรือ 2 เม็ด", "2 เม็ด", 2, "tablet"),
+    ("ไม่ควรรับประทานครั้งละ 1 เม็ด", "ครั้งละ 1 เม็ด", 1, "tablet"),
+])
+def test_label_choices_cannot_select_part_of_a_dose_range_or_negation(text, quote, amount, unit):
+    from app.schemas.evidence import EvidenceRef
+    from app.services.label_directions import LabelDirectionsChoices, label_regimen
+
+    choices = LabelDirectionsChoices.model_validate({"dose": {"amount": amount, "unit": unit, "quote": quote}})
+    assert label_regimen(choices, text, EvidenceRef(source_id="label")) is None
+
+
+def test_label_choices_cannot_relabel_fragments_of_time_and_route_words():
+    from app.schemas.evidence import EvidenceRef
+    from app.services.label_directions import LabelDirectionsChoices, label_regimen
+
+    ref = EvidenceRef(source_id="label")
+    time = LabelDirectionsChoices.model_validate({"times": {"values": ["noon"], "quote": "noon"}})
+    assert label_regimen(time, "Take 1 tablet every afternoon", ref) is None
+    thai_noon = LabelDirectionsChoices.model_validate({"times": {"values": ["noon"], "quote": "เที่ยง"}})
+    assert label_regimen(thai_noon, "รับประทานก่อนเที่ยงคืน", ref) is None
+    route = LabelDirectionsChoices.model_validate({"route": {"value": "topical", "quote": "ทา"}})
+    assert label_regimen(route, THAI_DIRECTIONS, ref) is None
+
+
+def test_label_choices_keep_unrepresented_qualifications_even_if_model_omits_flag():
+    from app.schemas.evidence import EvidenceRef
+    from app.services.label_directions import LabelDirectionsChoices, label_regimen
+
+    text = "every 8 hours as needed for pain"
+    choices = LabelDirectionsChoices.model_validate({
+        "schedule": {"kind": "interval", "period": 8, "period_unit": "hour", "quote": "every 8 hours"},
+        "as_needed": {"value": True, "quote": "as needed"},
+    })
+    result = label_regimen(choices, text, EvidenceRef(source_id="label"))
+    assert result.parse_status == "partial" and result.unparsed_text == text
+    assert result.as_needed and result.period_value == 8
+
+
+def test_time_quote_cannot_hide_course_duration():
+    from app.schemas.evidence import EvidenceRef
+    from app.services.label_directions import LabelDirectionsChoices, label_regimen
+
+    text = "Take 1 tablet at bedtime for 5 days"
+    choices = LabelDirectionsChoices.model_validate({
+        "dose": {"amount": 1, "unit": "tablet", "quote": "Take 1 tablet"},
+        "times": {"values": ["bedtime"], "quote": "at bedtime for 5 days"},
+    })
+    result = label_regimen(choices, text, EvidenceRef(source_id="label"))
+    assert result.time_of_day == ["bedtime"]
+    assert result.parse_status == "partial" and result.unparsed_text == text
+
+
+@pytest.mark.parametrize(("quote", "value", "normalized"), [
+    ("08:00", "08:00", None),
+    ("08:00 PM", "08:00", None),
+    ("08:00 PM", "20:00", ["20:00"]),
+])
+def test_clock_choice_respects_the_printed_meridiem(quote, value, normalized):
+    from app.schemas.evidence import EvidenceRef
+    from app.services.label_directions import LabelDirectionsChoices, label_regimen
+
+    choices = LabelDirectionsChoices.model_validate({"times": {"values": [value], "quote": quote}})
+    result = label_regimen(choices, "Take 1 tablet at 08:00 PM", EvidenceRef(source_id="label"))
+    assert (result.time_of_day if result else None) == normalized
 
 
 def test_per_crop_failure_does_not_erase_readable_sibling():

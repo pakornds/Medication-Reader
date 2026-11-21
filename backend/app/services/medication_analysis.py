@@ -57,7 +57,7 @@ class AnalysisPreview(AnalysisResult):
 
 
 class ProposedMedication(MedicationSuggestion):
-    # Fixed regimen fields are derived by the application from pass-through source text.
+    # Only isolated label transcripts can supply model-extracted schedule choices.
     regimens: SkipJsonSchema[list[RegimenComponent]] = Field(default_factory=list)
 
     @model_validator(mode="before")
@@ -419,11 +419,23 @@ class FormGrounding:
             if source not in row.sources:
                 row.sources.append(source)
 
+        label_components = []
+        if directions is not None and directions.status == "readable":
+            ref = directions.evidence
+            transcript = self.transcripts.get((ref.source_id, ref.item_id))
+            if transcript:
+                label_components = [
+                    component for component in transcript.regimens
+                    if component.directions_text == directions.value and component.evidence["directions_text"] == ref
+                ]
         row.regimens = []
         facts = [("reported", report.value, report.evidence) for report in row.reported_use]
         if directions is not None and directions.status == "readable":
             facts.insert(0, ("documented", directions.value, directions.evidence))
         for index, (basis, text, source) in enumerate(facts, start=1):
+            if index == 1 and label_components:
+                row.regimens.extend(label_components)
+                continue
             parsed = parse_directions(
                 RegimenParseRequest(
                     evidence=self.form.evidence, row_id=row.id, component_id=f"form-{index}",
