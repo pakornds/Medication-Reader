@@ -263,6 +263,16 @@ def entry_evidence(row_id, entry):
     return source, EvidenceItem(id=row_id, source_id=source.id, row_id=row_id, kind=kind)
 
 
+def verified_regimen_fields(verified, interview_ref):
+    if verified.get("regimens"):
+        return {"regimens": verified["regimens"]}
+    fields = {}
+    for key, interview_key in (("dose", "dose"), ("route", "route"), ("frequency", "schedule")):
+        if value := verified["answer"].get(interview_key):
+            fields[key] = SourcedValue(value=value, evidence=interview_ref)
+    return fields
+
+
 def capture_orientation(media_type, data):
     expected = {"image/jpeg": "JPEG", "image/png": "PNG", "image/webp": "WEBP"}[media_type]
     try:
@@ -729,14 +739,10 @@ class AdmissionStore:
             ref = refs[verified["source_id"]]
             identity = verified["identity"]
             name = SourcedValue(value=identity["name"], evidence=refs[identity["source_id"]])
-            def sourced(key):
-                return SourcedValue(value=answer[key], evidence=ref) if answer[key] else None
-            regimen = ({"regimens": verified["regimens"]} if verified.get("regimens") else
-                       {"dose": sourced("dose"), "route": sourced("route"), "frequency": sourced("schedule")})
             verification = CurrentUseVerification(
                 reviewer=verified["actor"], verified_at=verified["at"], identity=name, evidence=[ref],
                 status="current" if answer["current_use"] == "current" else "no_longer_current",
-                **regimen)
+                **verified_regimen_fields(verified, ref))
             label_fields = {}
             identity_entry = entry_for(row, identity["source_id"])
             identity_observations = entry_observations(identity_entry)

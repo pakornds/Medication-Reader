@@ -78,6 +78,20 @@ def test_verified_components_supply_the_screening_snapshot(client):
     assert report["coverage"]["evaluated_scopes"] == 0
 
 
+def test_legacy_screening_receives_verified_components_with_their_sources(client):
+    case = Case(client, "doctor")
+    row = case.add(record("ward", "prescription", "Demo A", name="Demo A"))
+    case.link(row, record("patient", "patient_report", "1 tablet by mouth each morning"))
+    case.interview(row, "patient", dose=None, route=None, schedule=None)
+    case.send("verify", row_id=row, source_id="patient", regimens=[component(row, "patient", 1, "morning")])
+    result = client.post("/checks", headers=headers("doctor"), json={
+        "case_id": case.state["id"], "admission_revision": case.state["revision"],
+        "kind": "DRP", "context": {"fixture_context": "present"},
+    })
+    assert result.status_code == 200
+    assert result.json()["status"] == "complete"
+
+
 @pytest.mark.parametrize("invalid", ["foreign_row", "foreign_source", "superseded", "incomplete",
                                      "reported_basis", "repeated_id", "appearance"])
 def test_rejects_unattributable_or_incomplete_components_before_handoff(client, invalid):
