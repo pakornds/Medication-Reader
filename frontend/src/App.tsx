@@ -4,7 +4,7 @@ import { HomePage } from './pages/home/HomePage'
 import { NewPatientLayout } from './pages/new-patient/NewPatientLayout'
 import { InputPage } from './pages/new-patient/InputPage'
 import { DraftReview } from './pages/new-patient/AnalysisPreview'
-import { createDraft, hasCaseWork } from './pages/new-patient/draft'
+import { createDraft, hasCaseWork, withDraftValues, type DraftValues } from './pages/new-patient/draft'
 import { stages } from './pages/new-patient/stages'
 import { PageContainer } from './components/layout/PageContainer'
 import { TopBar } from './components/layout/TopBar'
@@ -53,6 +53,15 @@ export default function App() {
     }
   }
 
+  function saveDraftValues(id: string, values: DraftValues) {
+    setDraft((current) => ({
+      ...current,
+      medicines: current.medicines.map((medicine) => (
+        medicine.row.id === id ? withDraftValues(medicine, values) : medicine
+      )),
+    }))
+  }
+
   function startFreshCase() {
     setDraft(createDraft())
     setLastStage('input')
@@ -71,7 +80,7 @@ export default function App() {
             }>
               <Route index element={<Navigate to={lastStage} replace />} />
               <Route path="input" element={<InputPage draft={draft} setDraft={setDraft} language={language} />} />
-              <Route path="review" element={<DraftReview draft={draft} language={language} />} />
+              <Route path="review" element={<DraftReview draft={draft} language={language} onSave={saveDraftValues} />} />
               <Route path="output" element={<MockPage name={t.output} />} />
             </Route>
             <Route path="/history" element={<MockPage name={t.history} />} />
