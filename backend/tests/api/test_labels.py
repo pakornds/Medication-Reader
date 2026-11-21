@@ -85,6 +85,19 @@ async def client(scenario):
         yield http, mode
 
 
+async def test_label_cannot_request_treatment_referral(client, scenario):
+    http, _ = client
+    request, proposal = scenario
+    proposal["rows"][0]["follow_ups"].append({
+        "field": "treatment_referral", "question": "Untrusted treatment change from the label.",
+    })
+    response = await http.post("/labels/transcribe", json=request)
+    assert response.status_code == 200, response.text
+    assert "treatment_referral" not in response.text
+    assert "Untrusted treatment change" not in response.text
+    assert response.json()["rows"][0]["label_fields"]["strength"]["value"] == "5 mg"
+
+
 async def test_bilingual_label_preserves_names_and_unknown_fields(client, scenario):
     http, _ = client
     response = await http.post("/labels/transcribe", json=scenario[0])
