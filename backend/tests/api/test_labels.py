@@ -39,7 +39,7 @@ def scenario():
     )
     row["label_fields"]["directions"]["value"] = "เช้าและเย็น"
     del row["label_fields"]["prescriber_contact"]
-    response = {"case_id": evidence["case_id"], "rows": [row]}
+    response = {"case_id": evidence["case_id"], "rows": [row, transfer["response"]["rows"][1]]}
     return request, response
 
 
@@ -80,7 +80,9 @@ async def test_bilingual_label_preserves_names_and_unknown_fields(client, scenar
     http, _ = client
     response = await http.post("/labels/transcribe", json=scenario[0])
     assert response.status_code == 200, response.text
-    row = response.json()["rows"][0]
+    rows = response.json()["rows"]
+    assert [row["id"] for row in rows] == ["row-a", "row-b"]
+    row = rows[0]
     assert [name["value"] for name in row["observed_names"]] == ["เดโมเอ", "Demo A"]
     strength = row["label_fields"]["strength"]
     assert strength["value"] == "5 mg"
@@ -99,7 +101,7 @@ async def test_bilingual_label_preserves_names_and_unknown_fields(client, scenar
     }, ensure_ascii=False))
 
 
-@pytest.mark.parametrize("invalid", ["not_a_label", "not_a_region", "not_base64"])
+@pytest.mark.parametrize("invalid", ["not_a_label", "not_a_region", "not_base64", "not_an_image", "wrong_type"])
 async def test_bad_photo_requests_do_not_call_provider(client, scenario, invalid):
     http, mode = client
     request, _ = scenario
@@ -107,12 +109,36 @@ async def test_bad_photo_requests_do_not_call_provider(client, scenario, invalid
         request["source_id"] = "reverse-photo"
     elif invalid == "not_a_region":
         request["region_locations"]["pill-c"] = "right"
-    else:
+    elif invalid == "not_base64":
         request["image_base64"] = "not base64"
+    elif invalid == "not_an_image":
+        request["image_base64"] = b64encode(b"not an image").decode()
+    else:
+        request["media_type"] = "image/jpeg"
     response = await http.post("/labels/transcribe", json=request)
     assert response.status_code == 422
     assert response.json()["detail"]["code"] == "invalid_label_photo"
     assert mode["calls"] == 0
+
+
+async def test_oversized_photo_does_not_echo_the_request(client, scenario):
+    http, mode = client
+    scenario[0]["image_base64"] = "A" * 14_000_004
+    response = await http.post("/labels/transcribe", json=scenario[0])
+    assert response.status_code == 422
+    assert len(response.content) < 300
+    assert response.json()["detail"]["code"] == "invalid_label_photo"
+    assert "input" not in response.json()["detail"]
+    assert mode["calls"] == 0
+
+
+async def test_located_region_cannot_be_silently_omitted(client, scenario):
+    http, _ = client
+    request, provider_response = scenario
+    provider_response["rows"].pop()
+    response = await http.post("/labels/transcribe", json=request)
+    assert response.status_code == 502
+    assert response.json()["detail"]["code"] == "unsupported_label_evidence"
 
 
 @pytest.mark.parametrize("evidence", [
