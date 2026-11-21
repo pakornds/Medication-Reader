@@ -99,4 +99,3 @@ def test_conflicting_quantities_keep_each_active_source_without_selecting_a_valu
         {"value": "21 tablets", "evidence": {"source_id": "first", "item_id": row}},
         {"value": "14 tablets", "evidence": {"source_id": "second", "item_id": row}},
     ]
-
