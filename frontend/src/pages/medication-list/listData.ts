@@ -1,9 +1,9 @@
 import { searchProducts } from '../../api/reconciliation'
-import type { CatalogueMatch, Evidence, FacilityContact, MedicineEvidence, Preview } from '../new-patient/draft'
+import type { CatalogueMatch, Evidence, FacilityContact, Medicine, MedicineEvidence, Preview } from '../new-patient/draft'
 import { regimenText } from '../../i18n/regimen'
 import type { Language } from '../../i18n/messages'
 import { rowName, scanEvidence } from '../new-patient/draft'
-import { emptySchedule, fromComponent, hasFields, periods, type Schedule } from '../new-patient/regimen'
+import { basisFor, emptySchedule, fromComponent, hasFields, periods, type Schedule, type Statement } from '../new-patient/regimen'
 
 export type ListRow = MedicineEvidence & {
   match?: CatalogueMatch
@@ -20,6 +20,7 @@ export type RowEdit = {
   quantity: string
   schedules: Schedule[]
   basis: 'documented' | 'reported'
+  scheduleSources?: Record<string, { basis: RowEdit['basis']; wording: string }>
   facility?: FacilityContact & { organization?: string }
 }
 
@@ -35,14 +36,25 @@ export function values(row: ListRow): RowEdit {
   }
 }
 
-export function manualRow(match: CatalogueMatch): ListRow {
-  return {
-    match,
+export function manualRow(medicine: Medicine, statements: Statement[]): ListRow {
+  const row: ListRow = {
+    ...medicine,
+    match: medicine.catalogue,
+    manualName: medicine.row.observed_names[0]?.value,
     alternatives: [],
-    evidence: { photos: [], notes: [], question: '' },
-    row: {
-      id: crypto.randomUUID(), identity_status: 'named', observed_names: [], sources: [],
-      label_fields: {}, reported_use: [], discrepancies: [], follow_ups: [],
+  }
+  const active = statements.filter(statement => statement.note.text.trim() || statement.schedules.some(hasFields))
+  if (!active.length) return row
+  return {
+    ...row,
+    edit: {
+      ...values(row),
+      wording: active.map(statement => statement.note.text.trim()).filter(Boolean).join(' / '),
+      basis: basisFor(active[0].note.kind),
+      schedules: active.flatMap(statement => statement.schedules),
+      scheduleSources: Object.fromEntries(active.flatMap(statement => statement.schedules.map(schedule => [
+        schedule.id, { basis: basisFor(statement.note.kind), wording: statement.note.text.trim() },
+      ]))),
     },
   }
 }
@@ -110,6 +122,7 @@ export function exportRows(rows: ListRow[]) {
     const product = row.match?.product
     const edit = values(row)
     const facility = edit.facility ?? row.facility
+    const record = row.evidence.notes.find(note => note.kind === 'other_record')
     return {
       product_name: product?.label ?? row.manualName ?? '',
       ingredient: product?.source_generic ?? '',
@@ -118,10 +131,13 @@ export function exportRows(rows: ListRow[]) {
       strength: product?.strength ?? row.manualStrength ?? row.row.label_fields.strength?.value ?? null,
       dosage_form: product?.dose_form ?? row.manualForm ?? row.row.label_fields.form?.value ?? null,
       directions: edit.wording,
-      directions_source: edit.basis === 'reported' ? 'patient_report' : row.row.sources.length ? 'documented' : 'manual_entry',
+      directions_source: edit.basis === 'reported' ? 'patient_report'
+        : row.evidence.photos.length || row.evidence.notes.some(note => note.text.trim()) ? 'documented' : 'manual_entry',
       quantity_as_written: edit.quantity,
       schedules: edit.schedules.filter(hasFields).map(schedule => ({
-        basis: row.edit ? edit.basis : row.row.regimens?.find(c => c.component_id === schedule.id)?.basis ?? edit.basis,
+        basis: edit.scheduleSources?.[schedule.id]?.basis
+          ?? (row.edit ? edit.basis : row.row.regimens?.find(c => c.component_id === schedule.id)?.basis ?? edit.basis),
+        directions_as_written: edit.scheduleSources?.[schedule.id]?.wording || null,
         dose_amount: schedule.amount ? Number(schedule.amount) : null,
         dose_unit: schedule.unit || null,
         schedule_type: schedule.mode || null,
@@ -139,12 +155,12 @@ export function exportRows(rows: ListRow[]) {
         kind: row.evidence.photos.length ? 'label_photo' : row.evidence.notes.length ? 'note' : 'manual_entry',
         date: row.evidence.photos[0]?.date || row.evidence.notes[0]?.date || null,
         organization: facility?.organization ?? row.evidence.notes.find(note => note.kind === 'other_record')?.author ?? null,
-        type: facility?.organization_type ?? null,
-        department: facility?.department_or_ward ?? null,
-        phone: facility?.organization_phone ?? null,
-        extension: facility?.organization_phone_extension ?? null,
-        address: facility?.organization_address ?? null,
-        email: facility?.organization_email ?? null,
+        type: facility?.organization_type ?? record?.facilityContact?.organization_type ?? null,
+        department: facility?.department_or_ward ?? record?.facilityContact?.department_or_ward ?? null,
+        phone: facility?.organization_phone ?? record?.facilityContact?.organization_phone ?? null,
+        extension: facility?.organization_phone_extension ?? record?.facilityContact?.organization_phone_extension ?? null,
+        address: facility?.organization_address ?? record?.facilityContact?.organization_address ?? null,
+        email: facility?.organization_email ?? record?.facilityContact?.organization_email ?? null,
       },
     }
   })

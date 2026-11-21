@@ -21,7 +21,7 @@ The development server proxies requests to FastAPI at `http://127.0.0.1:8000`. S
 
 | Page | What staff can do |
 | --- | --- |
-| Input | Upload labels, paste a written list or select a local TMT product. Scan results appear as editable rows with their original sources. |
+| Input | Upload labels, paste a written list or open **Enter medicine manually**. The manual form fills strength and form from the selected product. **Fill fields from wording** fills the editable dose and schedule fields. All three paths feed the same list. |
 | Review | Edit the same rows, check interactions and duplicate ingredients, and select the rows for handoff. |
 | Output | Copy a tab-separated list or download structured JSON for entry in the hospital system. |
 

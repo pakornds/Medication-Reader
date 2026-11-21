@@ -1,20 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
-import { LuArrowRight, LuCamera, LuClipboard, LuDownload, LuFileText, LuPlus, LuScanLine } from 'react-icons/lu'
+import { LuArrowRight, LuCamera, LuClipboard, LuDownload, LuFileText, LuListPlus, LuScanLine } from 'react-icons/lu'
 import { PageContainer } from '../../components/layout/PageContainer'
 import { TopBar } from '../../components/layout/TopBar'
 import { Button } from '../../components/ui/Button'
 import { InputField } from '../../components/ui/InputField'
 import { analyze, applyLocatedRegions } from '../../api/reconciliation'
 import { intake } from '../../i18n/intake'
+import { regimenText } from '../../i18n/regimen'
 import type { Language } from '../../i18n/messages'
 import { analysisErrorMessage, analysisProviderMessage } from '../new-patient/analysisError'
 import { createDraft, newNote, replacePhoto, type Photo, type PhotoKind } from '../new-patient/draft'
 import { FacilityDetails } from '../new-patient/FacilityDetails'
+import { ManualMedicineEntry } from '../new-patient/ManualMedicineEntry'
 import { NewPatientLayout } from '../new-patient/NewPatientLayout'
 import { PhotoSlot } from '../new-patient/PhotoSlot'
 import { canShare, exportRows, listName, manualRow, say, scannedRows, scheduleSummary, values, type ListRow } from './listData'
-import { ListMedicine, PickProduct } from './ListMedicine'
+import { ListMedicine } from './ListMedicine'
 import { ListChecks } from './ListChecks'
 import { ScanHistory } from './ScanHistory'
 import { recordAnalysis } from '../../../../src/lib/history/import-history'
@@ -28,8 +30,8 @@ export default function MedicationListApp() {
   const [rows, setRows] = useState<ListRow[]>([])
   const [selection, setSelection] = useState<string[]>([])
   const [exported, setExported] = useState<ListRow[] | null>(null)
-  const [adding, setAdding] = useState(false)
-  const [inputMode, setInputMode] = useState<'photo' | 'text'>('photo')
+  const [hasManualWork, setHasManualWork] = useState(false)
+  const [inputMode, setInputMode] = useState<'photo' | 'manual' | 'text'>('photo')
   const [extraPhotos, setExtraPhotos] = useState(false)
   const [status, setStatus] = useState<'idle' | 'scanning'>('idle')
   const [scanError, setScanError] = useState('')
@@ -53,7 +55,7 @@ export default function MedicationListApp() {
     setRows([])
     setSelection([])
     setExported(null)
-    setAdding(false)
+    setHasManualWork(false)
     setInputMode('photo')
     setExtraPhotos(false)
     setScanError('')
@@ -147,7 +149,7 @@ export default function MedicationListApp() {
   const hasEvidence = hasPhotos || hasText
   const canScan = hasEvidence && evidence.photos.length <= 16
     && evidence.photos.reduce((sum, photo) => sum + photo.file.size, 0) < 16_000_000
-  const hasWork = rows.length > 0 || hasEvidence || adding
+  const hasWork = rows.length > 0 || hasEvidence || hasManualWork
 
   return <>
     <TopBar language={language} onLanguage={setLanguage} listWorkspace />
@@ -161,30 +163,14 @@ export default function MedicationListApp() {
       <Route path="/new-patient" element={<NewPatientLayout key={draft.caseId} language={language} hasWork={hasWork} onStartFresh={reset}/>}>
         <Route index element={<Navigate to="input" replace/>}/>
         <Route path="input" element={<div className="med-list intake stack">
-          <header className="spread"><h1>{t('Add medicines', 'เพิ่มรายการยา')}</h1>
-            <Button onClick={() => setAdding(value => !value)} aria-expanded={adding}><LuPlus aria-hidden="true"/>{t('Add medicine', 'เพิ่มยาเอง')}</Button>
-          </header>
-          {adding && <section className="intake-panel stack">
-            <PickProduct language={language} onPick={match => {
-              setRows(current => [...current, manualRow(match)])
-              setExported(null)
-              setAdding(false)
-            }}/>
-            <Button variant="text" className="self-start" onClick={() => {
-              const row: ListRow = {
-                alternatives: [], evidence: { photos: [], notes: [], question: '' },
-                row: { id: crypto.randomUUID(), identity_status: 'named', observed_names: [], sources: [],
-                  label_fields: {}, reported_use: [], discrepancies: [], follow_ups: [] },
-              }
-              setRows(current => [...current, row])
-              setExported(null)
-              setAdding(false)
-            }}>{t('Add a row without a catalogue match', 'เพิ่มรายการที่ไม่พบในบัญชียา')}</Button>
-          </section>}
+          <h1>{t('Add medicines', 'เพิ่มรายการยา')}</h1>
           <section className="intake-panel stack">
             <div className="input-modes list-input-modes" role="group" aria-label={t('Input method', 'วิธีป้อนข้อมูล')}>
               <button type="button" aria-pressed={inputMode === 'photo'} aria-controls="photo-input" onClick={() => setInputMode('photo')}>
                 <LuCamera aria-hidden="true"/>{t('Upload photos', 'อัปโหลดภาพ')}{hasPhotos && <span className="count">{evidence.photos.length}</span>}
+              </button>
+              <button type="button" aria-pressed={inputMode === 'manual'} aria-controls="manual-input" onClick={() => setInputMode('manual')}>
+                <LuListPlus aria-hidden="true"/>{labels.manual}
               </button>
               <button type="button" aria-pressed={inputMode === 'text'} aria-controls="text-input" onClick={() => setInputMode('text')}>
                 <LuFileText aria-hidden="true"/>{t('Paste text', 'วางข้อความ')}{hasText && <span className="count">{evidence.notes.filter(note => note.text.trim()).length}</span>}
@@ -202,6 +188,14 @@ export default function MedicationListApp() {
             {evidence.photos.filter(photo => photo.kind === 'additional_photo').map(photo => photoSlot(photo.kind, photo))}
             {extraPhotos ? photoSlot('additional_photo') : <Button variant="text" className="self-start" onClick={() => setExtraPhotos(true)}>{labels.addPhoto}</Button>}
             </div></div>
+            <div id="manual-input" hidden={inputMode !== 'manual'}>
+              <ManualMedicineEntry t={labels} rt={regimenText[language]} caseId={draft.caseId} handoff
+                onWorkChange={setHasManualWork}
+                onAdd={(medicine, statements) => {
+                  setRows(current => [...current, manualRow(medicine, statements)])
+                  setExported(null)
+                }}/>
+            </div>
             <div id="text-input" hidden={inputMode !== 'text'}>
               <div className="stack">{[...evidence.notes].sort((left, right) => Number(right.kind === 'other_record') - Number(left.kind === 'other_record')).map(note => {
                 function patch(change: Partial<typeof note>) {
@@ -226,12 +220,12 @@ export default function MedicationListApp() {
                 })}>{t('Add another record', 'เพิ่มเอกสารอื่น')}</Button>
               </div>
             </div>
-            <div className="actions">
+            {inputMode !== 'manual' && <div className="actions">
               <Button variant="primary" disabled={!canScan || status === 'scanning'} aria-busy={status === 'scanning'} onClick={() => void analyzeEvidence()}>
                 <LuScanLine aria-hidden="true"/>{status === 'scanning' ? labels.analyzing : t('Analyze evidence', 'วิเคราะห์หลักฐาน')}
               </Button>
               {hasPhotos && hasText && <small>{t('Includes photos and text', 'รวมภาพและข้อความ')}</small>}
-            </div>
+            </div>}
             {!canScan && hasEvidence && <p role="alert">{labels.tooLarge}</p>}
             {scanError && <p role="alert">{scanError}</p>}
             {draft.preview?.photo_issues?.map(issue => <p role="status" key={[issue.attachment_id, issue.item_id, issue.code].join(':')}>
@@ -306,7 +300,9 @@ function Handoff({ rows, remaining, language, onReset }: {
       .filter(value => value && !name.toLowerCase().includes(value.toLowerCase()))
     return [[name, ...presentation].join(' · '), row.match?.product.tpu ?? '',
       edit.schedules.map(schedule => scheduleSummary(schedule, language)).filter(Boolean).join(' / '),
-      edit.wording, edit.quantity, edit.basis === 'reported' ? t('Patient report', 'ผู้ป่วยบอก') : t('Documented', 'ตามเอกสาร'),
+      edit.wording, edit.quantity, edit.basis === 'reported' ? t('Patient report', 'ผู้ป่วยบอก')
+        : row.evidence.photos.length || row.evidence.notes.some(note => note.text.trim())
+          ? t('Documented', 'ตามเอกสาร') : t('Manual entry', 'กรอกเอง'),
       (edit.facility ?? row.facility)?.organization ?? '']
   })
   const clipboard = [columns[0] && [

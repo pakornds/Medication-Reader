@@ -5,7 +5,7 @@ import { useLayoutEffect, useState } from 'react'
 import { LuPlus } from 'react-icons/lu'
 import type { IntakeText } from '../../i18n/intake'
 import { DirectionsEditor } from './DirectionsEditor'
-import { hasFields, newStatement, toComponents } from './regimen'
+import { hasFields, newStatement, toComponents, type Statement } from './regimen'
 import type { RegimenText } from '../../i18n/regimen'
 import { MedicinePicker } from './MedicinePicker'
 import { newNote, type CatalogueMatch, type FacilityContact, type Medicine } from './draft'
@@ -16,11 +16,13 @@ export function ManualMedicineEntry({
   caseId,
   onAdd,
   onWorkChange,
+  handoff = false,
 }: {
   rt: RegimenText
   caseId: string
   t: IntakeText
-  onAdd: (medicine: Medicine) => void
+  onAdd: (medicine: Medicine, statements: Statement[]) => void
+  handoff?: boolean
   onWorkChange: (hasWork: boolean) => void
 }) {
   const [selected, setSelected] = useState<CatalogueMatch>()
@@ -67,7 +69,7 @@ export function ManualMedicineEntry({
         discrepancies: [],
         follow_ups: [],
       },
-    })
+    }, statements)
     setSelected(undefined)
     setName('')
     setForm('')
@@ -125,8 +127,8 @@ export function ManualMedicineEntry({
           />
         </div>
         <label>
-          {t.manualSource}
-          <textarea required value={source} onChange={(e) => setSource(e.target.value)} />
+          {t.manualSource}{handoff && <small>· {t.optional}</small>}
+          <textarea required={!handoff} value={source} onChange={(e) => setSource(e.target.value)} />
         </label>
         <details><summary>{t.organization}</summary><div className="field-pair">
           <InputField label={t.organization} value={organization} onChange={e=>setOrganization(e.target.value)}/>
@@ -145,6 +147,7 @@ export function ManualMedicineEntry({
               rowId={rowId}
               t={rt}
               setPendingParses={setPendingParses}
+              allowStructuredOnly={handoff}
               onChange={(next) =>
                 setStatements((current) =>
                   current.map((s) => (s.note.id === next.note.id ? next : s)),
@@ -172,7 +175,7 @@ export function ManualMedicineEntry({
         <Button
           variant="primary"
           type="submit"
-          disabled={!name.trim() || !source.trim() || pendingParses > 0}
+          disabled={!name.trim() || (!handoff && !source.trim()) || pendingParses > 0}
         >
           <LuPlus />
           {t.addMedicine}

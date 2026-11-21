@@ -130,18 +130,48 @@ async function run() {
       key === 'medication-reader:analyzed-at:' + value && /^\d{4}-\d{2}-\d{2}T.*Z$/.test(value)))
     const checks = await context.newPage()
     await checks.goto(base + '/new-patient/input')
+    await checks.getByRole('button', { name: 'Enter medicine manually' }).click()
     for (const code of ['117365', '263158']) {
-      await checks.getByRole('button', { name: 'Add medicine', exact: true }).click()
       await checks.getByRole('combobox', { name: 'Product name or code' }).fill(code)
       await checks.getByRole('option').filter({ hasText: code }).first().click()
+      if (code === '117365') {
+        assert.ok(await checks.getByLabel('Strength', { exact: true }).inputValue())
+        assert.ok(await checks.getByLabel('Form', { exact: true }).inputValue())
+        await checks.getByLabel('Directions as written or reported').fill('1 tablet each morning')
+        await checks.getByRole('button', { name: 'Fill fields from wording' }).click()
+        await checks.waitForFunction(() => {
+          const morning = [...document.querySelectorAll('#manual-input button')].find(b => b.textContent.trim() === 'Morning')
+          return morning?.getAttribute('aria-pressed') === 'true'
+        })
+        assert.equal(await checks.getByLabel('Dose per use').inputValue(), '1')
+        await checks.getByRole('button', { name: 'Upload photos' }).click()
+        await checks.getByRole('button', { name: 'Enter medicine manually' }).click()
+        assert.equal(await checks.getByLabel('Dose per use').inputValue(), '1')
+      }
+      await checks.getByRole('button', { name: 'Add to draft' }).click()
     }
+    await checks.getByRole('combobox', { name: 'Product name or code' }).fill('Synthetic unlisted medicine')
+    await checks.getByLabel('Dose per use').fill('2')
+    await checks.getByLabel('Dose unit').fill('tablets')
+    await checks.getByRole('button', { name: 'Evening' }).click()
+    await checks.getByRole('button', { name: 'Add to draft' }).click()
     await checks.getByRole('link', { name: 'Continue to Review' }).click()
     await checks.getByRole('button', { name: 'Check medicines' }).click()
     await checks.getByText('FEST flags this combination to avoid').waitFor()
     const rule = checks.getByText('Source conditions and references')
     await rule.click()
     await checks.locator('.check-finding a').first().waitFor()
-    console.log('PASS photo and text input, bulk review, local check, handoff, and timestamp-only history')
+    await checks.getByRole('button', { name: 'Select all ready' }).click()
+    await checks.getByRole('button', { name: 'Prepare handoff' }).click()
+    const manualDownload = checks.waitForEvent('download')
+    await checks.getByRole('button', { name: 'Download JSON' }).click()
+    const manual = JSON.parse(await readFile(await (await manualDownload).path(), 'utf8')).medicines
+    assert.equal(manual.find(medicine => medicine.tpu === '117365').schedules[0].times[0], 'morning')
+    const unlisted = manual.find(medicine => medicine.product_name === 'Synthetic unlisted medicine')
+    assert.equal(unlisted.tpu, null)
+    assert.equal(unlisted.schedules[0].dose_amount, 2)
+    assert.deepEqual(unlisted.schedules[0].times, ['evening'])
+    console.log('PASS photos, pasted text, structured manual entry, local checks, handoff, and history')
   } finally { await browser.close() }
 }
 run().catch(error => { console.error(error); process.exitCode = 1 })

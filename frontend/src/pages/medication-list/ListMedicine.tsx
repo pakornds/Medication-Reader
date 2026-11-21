@@ -86,7 +86,7 @@ export function ListMedicine({ row, language, selected, onSelect, onChange, onRe
       </div>}
       <div className="field-pair">
         <label>{rt.kind}<select value={edit.basis} onChange={e => onChange({
-          ...row, edit: { ...edit, basis: e.target.value as typeof edit.basis },
+          ...row, edit: { ...edit, basis: e.target.value as typeof edit.basis, scheduleSources: undefined },
         })}>
           <option value="documented">{rt.other_record}</option>
           <option value="reported">{rt.patient_report}</option>
@@ -96,7 +96,7 @@ export function ListMedicine({ row, language, selected, onSelect, onChange, onRe
         })}/>
       </div>
       <label>{rt.wording}<textarea rows={2} value={edit.wording} onChange={e => onChange({
-        ...row, edit: { ...edit, wording: e.target.value },
+        ...row, edit: { ...edit, wording: e.target.value, scheduleSources: undefined },
       })}/></label>
       {edit.schedules.map((schedule, i) => <div className="stack" key={schedule.id}>
         <ScheduleEditor s={schedule} t={rt} showCompletion={false} onChange={next => onChange({

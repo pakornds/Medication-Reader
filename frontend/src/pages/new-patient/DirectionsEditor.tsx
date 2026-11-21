@@ -190,7 +190,9 @@ export function DirectionsEditor({
   t,
   onChange,
   setPendingParses,
+  allowStructuredOnly = false,
 }: {
+  allowStructuredOnly?: boolean
   setPendingParses: Dispatch<SetStateAction<number>>
   statement: Statement
   caseId: string
@@ -244,8 +246,8 @@ export function DirectionsEditor({
       <div className="field-pair">
         <InputField
           label={t.wording}
-          required={schedules.some(hasFields)}
-          pattern={schedules.some(hasFields) ? '.*\\S.*' : undefined}
+          required={!allowStructuredOnly && schedules.some(hasFields)}
+          pattern={!allowStructuredOnly && schedules.some(hasFields) ? '.*\\S.*' : undefined}
           value={note.text}
           onBlur={() => {
             if (!statement.boundWording && note.text.trim() && schedules.some(hasFields))
@@ -297,6 +299,7 @@ export function DirectionsEditor({
           <ScheduleEditor
             s={s}
             t={t}
+            showCompletion={!allowStructuredOnly}
             onChange={(next) =>
               edit({
                 ...statement,
