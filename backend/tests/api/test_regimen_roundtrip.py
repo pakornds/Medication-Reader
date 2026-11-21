@@ -62,9 +62,9 @@ def test_invalid_source_or_basis_cannot_seed_a_regimen(change):
 def test_edit_verify_approve_and_read_back_the_exact_regimen():
     with TestClient(create_app()) as client:
         documented = parsed(client, "1 tablet each morning")
-        reported = parsed(client, "1 tablet each evening", basis="reported", source=REPORT)
+        reported = parsed(client, "1 tablet by mouth each evening", basis="reported", source=REPORT)
         verified = deepcopy(documented)
-        verified.update(component_id="actual", basis="verified", directions_text="1 tablet each evening",
+        verified.update(component_id="actual", basis="verified", directions_text="1 tablet by mouth each evening",
                         time_of_day=["evening"], route="oral")
         verified["evidence"].update(directions_text=REPORT, time_of_day=REPORT, route=REPORT)
         identity = {"value": "Demo tablet", "evidence": LABEL}
