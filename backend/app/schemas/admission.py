@@ -7,6 +7,7 @@ from pydantic import Field, model_validator
 
 from .analysis import LabelField
 from .package_capture import PackageCapture, Revision, Side
+from .regimen import RegimenComponent, validate_component_list
 from .evidence import Observation, PHOTO_KINDS, ContractModel, EvidenceSource, Text
 from app.services.labels import _matches_media_type
 
@@ -151,6 +152,12 @@ class Verify(ContractModel):
     identity_source_id: Text | None = None
     resolution: Text | None = None
     confirmed_product: ConfirmedProduct | None = None
+    regimens: list[RegimenComponent] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def verified_components(self):
+        validate_component_list(self.regimens, verified=True)
+        return self
 
 
 class Proposal(ContractModel):

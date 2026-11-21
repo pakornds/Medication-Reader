@@ -4,7 +4,7 @@ from pydantic import Field
 
 from app.schemas.evidence import CaseEvidence, EvidenceItem, EvidenceRef, SourcedValue
 from app.schemas.review import CurrentUseVerification, ReviewRow
-from app.services.admissions import active, needs_identity, reviewable_entry, screening_verification
+from app.services.admissions import active, needs_identity, reviewable_entry, screening_verification, verified_regimen_fields
 from app.services.checks import DEMO_IDS
 
 
@@ -46,14 +46,10 @@ def encounter_rows(case: dict) -> tuple[CaseEvidence, list[ReviewRow]]:
                     status = "no_longer_current"
             demo_id = identity.value.casefold().replace(" ", "-") if identity else None
 
-            def sourced(field):
-                value = answer.get(field)
-                return SourcedValue(value=value, evidence=cited) if value else None
-
             current = CurrentUseVerification(
                 reviewer=verification["actor"], verified_at=verification["at"], status=status,
                 identity=identity, normalized_medication_id=demo_id if demo_id in DEMO_IDS else None,
-                dose=sourced("dose"), route=sourced("route"), frequency=sourced("schedule"), evidence=[cited],
+                evidence=[cited], **verified_regimen_fields(verification, cited),
             )
         rows.append(EncounterScreeningRow(
             id=row["id"], revision=case["revision"], sources=list(refs.values()), verification=current,
