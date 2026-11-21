@@ -31,6 +31,12 @@ def test_transfer_preserves_independent_origins_and_unknowns(transfer):
     sources = {source.id: source for source in request.evidence.sources}
     assert sources["label-photo"].organization == "ศักดาเวชการ"
     assert sources["label-photo"].contact == "075-356XXXX"
+    assert sources["label-photo"].organization_phone == "075-356XXXX"
+    assert sources["label-photo"].organization_phone_extension == "12"
+    assert sources["label-photo"].organization_address == "99 ถนนตัวอย่าง เขตสมมติ"
+    assert sources["ward-record"].organization_type == "hospital"
+    assert sources["ward-record"].organization_email == "ward@example.invalid"
+    assert sources["ward-record"].organization_phone is None
     assert sources["ward-record"].department_or_ward == "Demo Ward 2"
     assert sources["patient-account"].reporter == "Demo patient"
     assert sources["patient-account"].collector == "Demo intake nurse"
@@ -78,6 +84,46 @@ def test_report_cannot_be_relabelled_as_printed_directions(transfer):
     result = AnalysisResult.model_validate(transfer["response"])
     with pytest.raises(EvidenceValidationError, match="require label or record"):
         validate_analysis_result(result, request.evidence)
+
+
+def test_mixed_photo_keeps_each_facility_contact_on_its_own_label(transfer):
+    manifest = transfer["request"]["evidence"]
+    manifest["sources"].append({
+        "id": "hospital-label",
+        "attachment_id": "demo-photo-1",
+        "kind": "label_photo",
+        "organization": "Demo Hospital",
+        "organization_type": "hospital",
+        "organization_phone": "02-XXX-XXXX",
+    })
+    label_b = next(item for item in manifest["items"] if item["id"] == "label-b")
+    label_b["source_id"] = "hospital-label"
+    row = transfer["response"]["rows"][1]
+    hospital_ref = {"source_id": "hospital-label", "item_id": "label-b"}
+    row["sources"] = [hospital_ref]
+    row["dispensing_source_id"] = "hospital-label"
+    row["observed_names"][0]["evidence"] = hospital_ref
+    row["label_fields"]["strength"]["evidence"] = hospital_ref
+
+    request = AnalysisRequest.model_validate(transfer["request"])
+    result = validate_analysis_result(AnalysisResult.model_validate(transfer["response"]), request.evidence)
+    sources = {source.id: source for source in request.evidence.sources}
+    clinic, hospital = [sources[item.dispensing_source_id] for item in result.rows[:2]]
+    assert clinic.attachment_id == hospital.attachment_id == "demo-photo-1"
+    assert clinic.organization_phone == "075-356XXXX"
+    assert hospital.organization_phone == "02-XXX-XXXX"
+    assert hospital.organization_address is None
+    assert result.rows[2].dispensing_source_id is None
+
+
+def test_legacy_untyped_contact_is_preserved(transfer):
+    transfer["request"]["evidence"]["sources"][0] = {
+        "id": "label-photo", "kind": "label_photo", "contact": "ติดต่อห้องยา"
+    }
+    source = AnalysisRequest.model_validate(transfer["request"]).evidence.sources[0]
+    assert source.contact == "ติดต่อห้องยา"
+    assert source.organization_phone is None
+    assert source.organization_address is None
 
 
 def test_wrong_row_reverse_crop_is_rejected(transfer):

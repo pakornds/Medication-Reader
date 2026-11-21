@@ -14,8 +14,9 @@ publishes the mounted operations through FastAPI.
 | Simulated checks | `CheckRequest`, `CheckSummary` |
 | Recoverable service failures | `ServiceError` |
 
-The case manifest tracks organization, ward, reporter, collector, contact and
-source date independently. An unavailable record stays visible with a reason
+Each logical source can carry an organization name, type, department or ward, facility address, facility phone and extension, and institutional email. Separate logical sources can share an `attachment_id` when one upload shows several organizations. `EvidenceRef` identifies the logical source and located item. Existing payloads with only `contact` remain readable. Preserve this value verbatim when its type or owner is unknown. See [source fields and attribution](medication-reader-v1.md#source-fields-and-attribution).
+
+An unavailable record stays visible with a reason
 and can be the subject of a follow-up. Only available evidence supports a
 claim. Keep the form question separate from the report and other notes.
 

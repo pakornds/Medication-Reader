@@ -6,7 +6,12 @@
         {
           "id": "label-photo",
           "kind": "label_photo",
+          "attachment_id": "demo-photo-1",
           "organization": "ศักดาเวชการ",
+          "organization_type": "clinic",
+          "organization_address": "99 ถนนตัวอย่าง เขตสมมติ",
+          "organization_phone": "075-356XXXX",
+          "organization_phone_extension": "12",
           "contact": "075-356XXXX",
           "source_date": "2026-11-21"
         },
@@ -19,6 +24,8 @@
           "id": "ward-record",
           "kind": "transfer_record",
           "organization": "Demo receiving hospital",
+          "organization_type": "hospital",
+          "organization_email": "ward@example.invalid",
           "department_or_ward": "Demo Ward 2",
           "source_date": "2026-11-21"
         },
