@@ -12,30 +12,29 @@ In the fixture-only, 12-hour Medication Reader demo, community and hospital phar
 
 ```mermaid
 flowchart TD
-  manual["Add medicine: select name, strength and form"] --> row["Editable medicine row"]
-  scan["Scan label or mixed bag"] --> extract["Extract fields and link each to its source"]
-  note["Optional typed report or transfer note"] --> extract
-  extract -->|Named item| lookup["Look up candidate products and retain original evidence"]
-  extract -->|Unknown item| unknown["Keep an unknown row with its crop when available"]
-  lookup -->|Prefill for review| row
-  unknown -->|Prefill for review| row
-  row --> review["Review inline: correct fields, compare sources and verify actual use"]
-  review -->|Needs evidence| pending["Keep pending with a follow-up question"]
-  pending -.->|New evidence| row
-  review -->|Verified| eligible["Select eligible rows for import"]
-  review --> interview["Interview and print a dated worksheet"]
-  interview --> verify["Assigned nurse, doctor or pharmacist verifies routine rows"]
-  verify --> finish["Explicitly finish reconciliation"]
-  verify --> refer["Refer outstanding unknown items and evidence"]
-  refer --> pharmacy["Assigned pharmacist reviews individual items"]
-  pharmacy -->|Resolved| finish
-  pharmacy -->|Insufficient evidence| refer
-  finish --> reviewed["Dated record available across staff sessions"]
-  review --> handoff["Print or display dated handoff with row statuses"]
-  eligible --> approve["Pharmacist: Approve and import selected rows"]
-  approve --> receipt["Server validates selection and writes to mock hospital and returns a UTC receipt"]
-  review -.->|Optional after verification| checks["Doctor or pharmacist screens current medicines and reviews coverage"]
-  checks -.->|Clarify evidence and rerun| row
+  manual["Search catalogue as you type; select one product"] --> row["Editable medicine row with source and structured directions"]
+  front["Photo 1: lay out items label-side up"] --> locate["Locate each label or unknown item"]
+  reverse["Optional photo 2: flip the same items in place"] --> pair["Staff match a reverse crop to its front item"]
+  locate --> pair
+  locate --> extract["Analyze evidence or transcribe a located label"]
+  pair --> extract
+  note["Patient report or transfer record"] --> extract
+  extract -->|"Named or unidentified prefill"| row
+  row --> compare["Check original evidence, correct fields and compare catalogue candidates"]
+  compare --> save["Save the draft into the assigned encounter"]
+  save --> interview["Interview and record actual use per medicine"]
+  interview --> verify["Assigned clinician verifies individual rows"]
+  interview --> refer["Refer unresolved identity with its evidence"]
+  refer -->|"Independent confirmation by pharmacist"| verify
+  refer -->|"Still unknown"| pending["Keep pending with follow-up; exclude from import"]
+  verify --> finish["Record completion or pharmacist handoff"]
+  verify -.-> checks["Optional local interaction and duplicate-ingredient checks; show unassessed rows"]
+  save -.-> print["Print dated worksheet or handoff"]
+  verify --> output["Preview eligible rows and exclusions"]
+  pending --> output
+  output --> approve["Assigned pharmacist approves and imports the selected rows once"]
+  approve --> receipt["Mock hospital writes selected rows and returns a dated receipt"]
+  receipt --> history["Browser history keeps the successful timestamp"]
 ```
 
 1. **Add a medicine manually.** Search and select one catalogue product. The combined name, strength and form appear on one editable row immediately. Keep the product ID, name, strength and form in separate fields internally. Staff enter the patient’s dose, schedule and source on that row. Manual selection bypasses AI extraction. If the catalogue has no match, enter the evidenced name, strength and form in the same row and leave the catalogue ID blank.
@@ -119,7 +118,7 @@ For different morning and evening amounts, create two components with their resp
 | Verification | An assigned nurse, doctor or pharmacist records identity, current-use status, actual regimen and supporting evidence. For a confirmed catalogue match, keep the TPU code as a string and the release version. Product strength and dispensing unit describe the reference product. The patient's regimen comes from case evidence. Carry a verified stopped medicine in the history with its status. Exclude it from the active list. |
 | Mock import | One final pharmacist action approves the selected row revisions and initiates mock import. Successful import returns row IDs and a UTC timestamp. Pending rows stay visible. Only the successful import timestamp enters local history. |
 
-**Implementation status.** The backend parses supported Thai and English transcriptions into fixed regimen components. Unrecognized directions retain their original wording for review. The synthetic review workspace exercises editing, verification, one final pharmacist action and readback from the in-memory mock hospital. The label transcription service uses the same parser to prefill the scanned row from its validated directions. The integrated upload workspace and production connectivity remain open. Legacy imports with sourced dose, route and frequency remain readable. The local TMT lookup uses release TMTRF20200217. [Regimen schema](../../backend/app/schemas/regimen.py) · [Run the review demo](reconciliation-contract.md#try-the-regimen-round-trip) · [Catalogue scope](../data/tmt-2020.md)
+**Implementation status.** The backend parses supported Thai and English transcriptions into fixed regimen components. Unrecognized directions retain their original wording for review. The synthetic review workspace exercises editing, verification, one final pharmacist action and readback from the in-memory mock hospital. The label transcription service uses the same parser to prefill the scanned row from its validated directions. The React staff workspace connects source capture, clinical review, import and receipt readback to the synthetic admission service. Production hospital connectivity remains open. Legacy imports with sourced dose, route and frequency remain readable. The local TMT lookup uses release TMTRF20200217. [Regimen schema](../../backend/app/schemas/regimen.py) · [Run the review demo](reconciliation-contract.md#try-the-regimen-round-trip) · [Catalogue scope](../data/tmt-2020.md)
 
 ## Medication agent analysis form
 

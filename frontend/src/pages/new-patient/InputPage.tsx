@@ -1,3 +1,5 @@
+import { FacilityDetails } from './FacilityDetails'
+import type { RegionBounds } from '../../api/contracts'
 import { regimenText } from '../../i18n/regimen'
 import { SectionHeading } from '../../components/ui/SectionHeading'
 import { InputField } from '../../components/ui/InputField'
@@ -20,6 +22,7 @@ import { intake } from '../../i18n/intake'
 import type { Language } from '../../i18n/messages'
 import { AnalysisPreview } from './AnalysisPreview'
 import { ManualMedicineEntry } from './ManualMedicineEntry'
+import { LabelTranscription } from './LabelTranscription'
 import { PhotoSlot } from './PhotoSlot'
 import {
   newNote,
@@ -41,10 +44,12 @@ export function InputPage({
   draft,
   setDraft,
   language,
+  proposePhoto,
 }: {
   draft: Draft
   setDraft: Dispatch<SetStateAction<Draft>>
   language: Language
+  proposePhoto?: (photo:Photo)=>Promise<RegionBounds[]>
 }) {
   const t = intake[language]
   const setHasManualWork = useOutletContext<(hasWork: boolean) => void>()
@@ -72,6 +77,7 @@ export function InputPage({
       <PhotoSlot
         key={photo?.id || kind}
         kind={kind}
+        proposePhoto={proposePhoto}
         photo={photo}
         photos={evidence.photos}
         t={t}
@@ -200,6 +206,12 @@ export function InputPage({
                       evidence.photos.find((p) => p.kind === 'reverse_photo'),
                     )}
                   </div>
+                  <LabelTranscription draft={draft} language={language}
+                    key={evidence.photos.map(p=>p.id + p.regions.map(r=>[r.id,r.rowId,r.box.x,r.box.y,r.box.w,r.box.h].join('.')).join(',')).join('|')}
+                    onUse={row=>setDraft(current=>{
+                      if(current.caseId!==draft.caseId || current.evidence!==evidence || current.medicines.some(m=>m.row.id===row.id)) return current
+                      return {...current, medicines:[...current.medicines,{row,evidence,origin:'analysis'}]}
+                    })}/>
                   {evidence.photos
                     .filter((p) => p.kind === 'additional_photo')
                     .map((p) => slot(p.kind, p))}
@@ -268,6 +280,7 @@ export function InputPage({
                             onChange={(e) => patchNote(note.id, { date: e.target.value })}
                           />
                         </div>
+                        {note.kind==='other_record' && <FacilityDetails t={t} value={note.facilityContact} onChange={facilityContact=>patchNote(note.id,{facilityContact})}/>}
                       </details>
                     </section>
                   ))}

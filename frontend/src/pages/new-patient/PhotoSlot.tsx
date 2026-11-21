@@ -1,3 +1,4 @@
+import type { RegionBounds } from '../../api/contracts'
 import { InputField } from '../../components/ui/InputField'
 import { Button } from '../../components/ui/Button'
 import { useRef, useState } from 'react'
@@ -11,10 +12,11 @@ type Props = {
   photo?: Photo
   photos: Photo[]
   t: IntakeText
+  proposePhoto?: (photo: Photo) => Promise<RegionBounds[]>
   onReplace: (next?: Photo) => void
   onEdit: (next: Photo) => void
 }
-export function PhotoSlot({ kind, photo, photos, t, onReplace, onEdit }: Props) {
+export function PhotoSlot({ kind, photo, photos, t, onReplace, onEdit, proposePhoto }: Props) {
   const [error, setError] = useState(false)
   const browse = useRef<HTMLInputElement>(null)
   const camera = useRef<HTMLInputElement>(null)
@@ -23,7 +25,7 @@ export function PhotoSlot({ kind, photo, photos, t, onReplace, onEdit }: Props) 
     if (
       !['image/png', 'image/jpeg', 'image/webp'].includes(file.type) ||
       !file.size ||
-      file.size >= 16_000_000
+      file.size > 4_000_000
     ) {
       setError(true)
       return
@@ -65,6 +67,7 @@ export function PhotoSlot({ kind, photo, photos, t, onReplace, onEdit }: Props) 
         <>
           <PhotoItems
             key={photo.id}
+            proposePhoto={proposePhoto}
             photo={photo}
             photos={photos}
             t={t}

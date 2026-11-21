@@ -175,7 +175,9 @@ function renderRow(document, row, options) {
   if (pendingIdentity) article.append(node(document, "p", "Identity unresolved"));
   if (verification) {
     let status = "Current use uncertain";
-    if (verification.status === "no_longer_current") {
+    if (verification.status === "not_owned") {
+      status = "Verified as belonging to someone else";
+    } else if (verification.status === "no_longer_current") {
       status = "No longer current";
     } else if (verification.status === "current") {
       if (confirmedName) status = "Verified current";
@@ -284,7 +286,7 @@ function renderRow(document, row, options) {
   lines.className = "handoff-notes";
   lines.setAttribute("aria-hidden", "true");
   notes.append(lines);
-  return { article, identity, stopped: verification?.status === "no_longer_current" };
+  return { article, identity, status: verification?.status };
 }
 
 /** Render a #2 review snapshot. Include medication-handoff.css in the host page. */
@@ -299,17 +301,21 @@ export function renderMedicationHandoff(container, {
   handoff.append(node(document, "h1", heading), dateNode(document, datedAt));
   const active = node(document, "section");
   const history = node(document, "section");
+  const otherOwner = node(document, "section");
   active.append(node(document, "h2", "Active review list"));
   history.append(node(document, "h2", "Medication history"));
+  otherOwner.append(node(document, "h2", "Medicines belonging to someone else"));
   const rowNames = new Map();
   for (const row of rows) {
-    const { article, identity, stopped } = renderRow(document, row, { evidence, decisions, referrals, cropUrl, mode });
+    const { article, identity, status } = renderRow(document, row, { evidence, decisions, referrals, cropUrl, mode });
     rowNames.set(row.id, identity);
-    (stopped ? history : active).append(article);
+    const section = status === "not_owned" ? otherOwner : status === "no_longer_current" ? history : active;
+    section.append(article);
   }
   if (active.childNodes.length === 1) active.append(node(document, "p", "No active or pending rows."));
   handoff.append(active);
   if (history.childNodes.length > 1) handoff.append(history);
+  if (otherOwner.childNodes.length > 1) handoff.append(otherOwner);
 
   if (checks.length) {
     const optional = node(document, "section");

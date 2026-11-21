@@ -15,7 +15,7 @@ import {
 } from './regimen'
 import type { NoteKind } from './draft'
 
-function ScheduleEditor({
+export function ScheduleEditor({
   s,
   onChange,
   t,

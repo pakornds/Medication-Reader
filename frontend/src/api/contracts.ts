@@ -3,20 +3,20 @@
 export type Action = {
   revision: number
   request_id: string
-  command: AddRow | AddEvidence | Interview | Verify | Proposal | Decision | Refer | Finish | Import
+  command: AddRow | AddEvidence | RegisterDocument | RecordUnavailableSource | Interview | Verify | Proposal | Decision | Refer | Finish | Import | AttestCurrentUse | AssessIdentityIncident
 }
 
 export type AddEvidence = {
   action: "link"
   row_id: string
-  entry: SourceEntry
+  entry: SourceEntry | DocumentExcerpt
   confirmed: true
   replaces?: string | null
 }
 
 export type AddRow = {
   action: "add"
-  entry: SourceEntry
+  entry: SourceEntry | DocumentExcerpt
 }
 
 export type AnalysisPreview = {
@@ -42,6 +42,19 @@ export type ApprovedSnapshot = {
   rows: Array<ReviewRow>
 }
 
+export type AssessIdentityIncident = {
+  action: "assess_identity_incident"
+  incident_id: string
+  outcome: "confirmed_medication_error" | "not_confirmed" | "needs_review"
+  assessment: string
+}
+
+export type AttestCurrentUse = {
+  action: "attest_current_use"
+  row_id: string
+  source_id: string
+}
+
 export type CandidateRequest = {
   evidence: CaseEvidence
   observation: PillObservation
@@ -59,6 +72,7 @@ export type CaptureCommand = {
   request_id: string
   manifest: PackageCapture
   existing_rows?: Partial<Record<string, string>>
+  replaces_view?: CaptureViewRequest | null
 }
 
 export type CaptureViewRequest = {
@@ -70,7 +84,7 @@ export type CaptureViewRequest = {
 export type CaseEvidence = {
   case_id: string
   sources: Array<EvidenceSource>
-  items?: Array<EvidenceItem>
+  items?: Array<QuotedEvidenceItem | EvidenceItem>
 }
 
 export type CheckExclusion = {
@@ -92,6 +106,7 @@ export type CheckSummary = {
   source?: ReferenceVersion | null
   evaluated?: Array<CheckedScope>
   excluded?: Array<CheckExclusion>
+  warnings?: Array<string>
   findings?: Array<CheckFinding>
 }
 
@@ -100,12 +115,9 @@ export type CheckedScope = {
   rule_id?: string | null
 }
 
-export type CoverageRequest = {
-  kind: "DDI" | "DRP"
-  enabled: boolean
-  rows: Array<ReviewRow>
-  context?: Record<string, string | number | number | boolean>
-  evidence: CaseEvidence
+export type ConfirmedProduct = {
+  tpu: string
+  tmt_release: string
 }
 
 export type CurrentUseVerification = {
@@ -157,10 +169,34 @@ export type DispensingFacility = {
   organization_email?: string | null
 }
 
+export type DocumentExcerpt = {
+  wording: string
+  name?: string | null
+  strength?: string | null
+  form?: string | null
+  dose?: string | null
+  record_basis?: "documented_interview" | "discontinuation_order" | null
+  identity_basis?: "matched_original_package" | "dispensing_confirmation" | "item_specific_record" | null
+  label_owner?: string | null
+  directions?: string | null
+  indication?: string | null
+  directions_status?: "missing" | "unreadable"
+  case_id: string
+  source_id: string
+}
+
 export type DuplicateLookup = {
   status: "potential" | "lookup_complete" | "unassessed"
   reasons: Array<string>
   ingredients?: Array<Ingredient>
+}
+
+export type EncounterCheck = {
+  case_id: string
+  admission_revision: number
+  kind: "DDI" | "DRP"
+  enabled?: boolean
+  context?: Partial<Record<"fixture_context", "present" | "flagged">>
 }
 
 export type EvidenceItem = {
@@ -284,11 +320,6 @@ export type LabelPhotoRequest = {
   region_locations?: Partial<Record<string, string>>
 }
 
-export type LocalScreeningRequest = {
-  evidence: CaseEvidence
-  rows: Array<ReviewRow>
-}
-
 export type LocalScreeningResult = {
   snapshot_id: string
   tmt_release: string
@@ -296,6 +327,7 @@ export type LocalScreeningResult = {
   ddi_unavailable_reason: string | null
   ddi_scope: string
   mapping_version: string
+  warnings?: Array<string>
   checked_at: string
   rows: Array<ScreenedRow>
   pairs: Array<ScreenedPair>
@@ -446,6 +478,20 @@ export type Proposal = {
   reference: string
 }
 
+export type QuotedEvidenceItem = {
+  id: string
+  source_id: string
+  row_id: string
+  kind: "record_excerpt"
+  excerpt: string
+}
+
+export type RecordUnavailableSource = {
+  action: "record_unavailable_source"
+  source: EvidenceSource
+  follow_up?: string | null
+}
+
 export type Refer = {
   action: "refer"
   row_ids: Array<string>
@@ -461,6 +507,13 @@ export type Reference = {
 export type ReferenceVersion = {
   name: string
   version: string
+}
+
+export type RegimenAnalysisUnavailable = {
+  row_id: string
+  status?: "unavailable"
+  missing_fields: Array<"dose" | "route" | "schedule">
+  reason: string
 }
 
 export type RegimenComponent = {
@@ -509,6 +562,12 @@ export type RegionLink = {
   attachment_id: string
   revision: number
   region_id: string
+}
+
+export type RegisterDocument = {
+  action: "register_document"
+  source: EvidenceSource
+  wording: string
 }
 
 export type ReverseMatch = {
@@ -596,6 +655,11 @@ export type ScreeningScope = {
   follow_up_ids?: Array<string>
 }
 
+export type ScreeningTarget = {
+  case_id: string
+  admission_revision: number
+}
+
 export type ServiceError = {
   code: string
   message: string
@@ -619,19 +683,19 @@ export type SnapshotVersion = {
 }
 
 export type SourceEntry = {
-  source: EvidenceSource
   wording: string
   name?: string | null
   strength?: string | null
   form?: string | null
   dose?: string | null
   record_basis?: "documented_interview" | "discontinuation_order" | null
-  scan_fields?: Partial<Record<LabelField, Observation>>
   identity_basis?: "matched_original_package" | "dispensing_confirmation" | "item_specific_record" | null
   label_owner?: string | null
   directions?: string | null
   indication?: string | null
   directions_status?: "missing" | "unreadable"
+  source: EvidenceSource
+  scan_fields?: Partial<Record<LabelField, Observation>>
   photo?: Photo | null
 }
 
@@ -656,6 +720,8 @@ export type Verify = {
   source_id: string
   identity_source_id?: string | null
   resolution?: string | null
+  confirmed_product?: ConfirmedProduct | null
+  regimens?: Array<RegimenComponent>
 }
 
 export type VersionedScreeningReport = {
@@ -670,4 +736,5 @@ export type VersionedScreeningReport = {
   scopes: Array<ScreeningScope>
   mapping_version: string
   warnings?: Array<string>
+  regimen_analysis?: Array<RegimenAnalysisUnavailable>
 }

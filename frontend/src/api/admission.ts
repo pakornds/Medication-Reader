@@ -1,9 +1,14 @@
+import type { CatalogueMatch, Suggestion } from '../pages/new-patient/draft'
 import type { Decision, ImportReceipt, Interview, PackageCapture, ReviewerIdentity, SourceEntry } from './contracts'
 
 type InterviewAnswers = Omit<Interview, 'action' | 'row_id'>
 type IdentifiedItem = { name: string; source_id: string }
 
 export interface AdmissionRow {
+  intake_sources?: Suggestion[]
+  intake_corrections?: Partial<Record<'name' | 'strength' | 'form' | 'directions', string>>
+  intake?: Suggestion
+  intake_catalogue?: CatalogueMatch | null
   id: string
   package_id?: string
   capture_item_id?: string
@@ -27,6 +32,7 @@ export interface AdmissionRow {
 }
 
 export interface Encounter {
+  intake_attachments?: string[]
   id: string
   patient_alias: string
   assigned: string[]
@@ -46,7 +52,7 @@ export type AdmissionEvent = {
   revision: number
   rows: string[]
 } & (
-  | { action: 'capture' | 'finish'; sources: string[] }
+  | { action: 'intake' | 'capture' | 'finish'; sources: string[] }
   | { action: 'add' | 'link'; sources: string[]; replaces: string | null }
   | { action: 'interview'; answer: InterviewAnswers; sources: string[] }
   | { action: 'propose'; proposal: NonNullable<AdmissionRow['proposal']> }

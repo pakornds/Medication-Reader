@@ -1,3 +1,4 @@
+import { FacilityDetails } from './FacilityDetails'
 import { InputField } from '../../components/ui/InputField'
 import { Button } from '../../components/ui/Button'
 import { useLayoutEffect, useState } from 'react'
@@ -7,7 +8,7 @@ import { DirectionsEditor } from './DirectionsEditor'
 import { hasFields, newStatement, toComponents } from './regimen'
 import type { RegimenText } from '../../i18n/regimen'
 import { MedicinePicker } from './MedicinePicker'
-import { newNote, type CatalogueMatch, type Medicine } from './draft'
+import { newNote, type CatalogueMatch, type FacilityContact, type Medicine } from './draft'
 
 export function ManualMedicineEntry({
   t,
@@ -27,11 +28,14 @@ export function ManualMedicineEntry({
   const [strength, setStrength] = useState('')
   const [form, setForm] = useState('')
   const [source, setSource] = useState('')
+  const [organization, setOrganization] = useState('')
+  const [sourceDate, setSourceDate] = useState('')
+  const [facilityContact, setFacilityContact] = useState<FacilityContact>({})
   const [quantity, setQuantity] = useState('')
   const [rowId, setRowId] = useState(() => crypto.randomUUID())
   const [statements, setStatements] = useState(() => [newStatement()])
   const [pendingParses, setPendingParses] = useState(0)
-  const hasWork = Boolean(name || selected || strength || form || source || quantity ||
+  const hasWork = Boolean(name || selected || strength || form || source || organization || sourceDate || Object.values(facilityContact).some(Boolean) || quantity ||
     statements.length > 1 || statements.some(({ note, schedules }) =>
       note.text || note.kind !== 'other_record' || schedules.some(hasFields)))
   useLayoutEffect(() => {
@@ -41,7 +45,7 @@ export function ManualMedicineEntry({
   function add() {
     if (pendingParses > 0) return
     const directions = statements.filter((s) => s.note.text.trim())
-    const note = { ...newNote('other_record'), text: source.trim() }
+    const note = { ...newNote('other_record'), text: source.trim(), author:organization.trim(), date:sourceDate, facilityContact }
     const evidence = { source_id: note.id }
     const label_fields = Object.fromEntries(
       Object.entries({ strength, form, amount_prescribed: quantity })
@@ -69,6 +73,9 @@ export function ManualMedicineEntry({
     setForm('')
     setStrength('')
     setSource('')
+    setOrganization('')
+    setSourceDate('')
+    setFacilityContact({})
     setQuantity('')
     setRowId(crypto.randomUUID())
     setStatements([newStatement()])
@@ -121,6 +128,10 @@ export function ManualMedicineEntry({
           {t.manualSource}
           <textarea required value={source} onChange={(e) => setSource(e.target.value)} />
         </label>
+        <details><summary>{t.organization}</summary><div className="field-pair">
+          <InputField label={t.organization} value={organization} onChange={e=>setOrganization(e.target.value)}/>
+          <InputField label={t.date} type="date" value={sourceDate} onChange={e=>setSourceDate(e.target.value)}/>
+        </div><FacilityDetails t={t} value={facilityContact} onChange={setFacilityContact}/></details>
         <InputField
           label={rt.quantity}
           value={quantity}

@@ -1,3 +1,4 @@
+import type { IntakeCommand } from '../workflow/admitDraft'
 import type * as C from './contracts'
 import type { AdmissionCandidate, Encounter, EncounterSummary } from './admission'
 
@@ -72,6 +73,7 @@ export function createClient(baseUrl = '', reviewerToken?: string) {
     candidates: (input: C.CandidateRequest) => json<C.CandidateResult>('/pill-candidates', body(input)),
     session: () => json<{ actor: C.ReviewerIdentity; catalogue: Array<{ id: string; name: string }> }>('/admissions/session'),
     encounters: () => json<EncounterSummary[]>('/admissions'),
+    admitIntake: (input: IntakeCommand) => json<Encounter>('/admissions/intake', body(input)),
     createEncounter: (input: C.NewEncounter) => json<Encounter>('/admissions', body(input)),
     encounter: (id: string) => json<Encounter>(admission(id)),
     admissionCandidates: (id: string) => json<AdmissionCandidate[]>(admission(id) + '/candidates'),
@@ -94,8 +96,8 @@ export function createClient(baseUrl = '', reviewerToken?: string) {
     approve: (input: C.ApprovalRequest) => json<C.PharmacistApproval>('/imports/approvals', body(input)),
     importRows: (input: C.ImportRequest) => json<C.ImportReceipt>('/imports', body(input)),
     receipts: (timestamp: string) => json<C.HospitalRecord[]>('/imports?' + new URLSearchParams({ imported_at: timestamp })),
-    check: (input: C.CoverageRequest) => json<C.CheckSummary>('/checks', body(input)),
-    localCheck: (input: C.LocalScreeningRequest) => json<C.LocalScreeningResult>('/checks/local', body(input)),
+    check: (input: C.EncounterCheck) => json<C.CheckSummary>('/checks', body(input)),
+    localCheck: (input: C.ScreeningTarget) => json<C.LocalScreeningResult>('/checks/local', body(input)),
     updateSnapshot: (id: string, input: C.SnapshotUpdate) =>
       json<C.SnapshotVersion>(admission(id) + '/review-snapshot', body(input, 'PUT')),
     snapshot: (id: string) => json<C.SnapshotVersion>(admission(id) + '/review-snapshot'),

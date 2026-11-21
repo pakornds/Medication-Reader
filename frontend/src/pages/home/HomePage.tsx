@@ -7,14 +7,14 @@ const instructions = {
   en: {
     intro: 'Open New Patient to start a medication reconciliation or return to your active case.',
     input: 'Photograph the label sides together. For an optional second photo, flip the same items in place to show the pill sides. Add reports, source notes, or manual entries as needed.',
-    review: 'Open the cited sources and compare label directions with reported use. Recording verified current use is planned.',
-    output: 'The planned Output tools include printing a dated handoff with pending items and letting a pharmacist approve and import selected eligible rows into the mock hospital.',
+    review: 'Open the cited sources and compare label directions with reported use. Verify current use or refer an unresolved medicine to pharmacy.',
+    output: 'Print a dated handoff with pending medicines. An assigned pharmacist can approve and import selected eligible rows into the mock hospital.',
   },
   th: {
     intro: 'เลือกผู้ป่วยใหม่เพื่อเริ่มทบทวนรายการยาหรือกลับไปยังเคสที่กำลังทำอยู่',
     input: 'ถ่ายด้านฉลากของยาทุกรายการในภาพเดียว หากถ่ายภาพที่สอง ให้พลิกยาแต่ละรายการที่ตำแหน่งเดิมเพื่อถ่ายด้านเม็ดยา เพิ่มข้อมูลที่ผู้ป่วยแจ้ง บันทึกจากแหล่งอื่น หรือกรอกรายการยาเองตามต้องการ',
-    review: 'เปิดดูแหล่งข้อมูลและเปรียบเทียบวิธีใช้บนฉลากกับวิธีใช้ที่ผู้ป่วยแจ้ง การบันทึกผลการตรวจสอบการใช้ยาปัจจุบันจะเพิ่มในภายหลัง',
-    output: 'มีแผนเพิ่มการพิมพ์เอกสารส่งต่อที่ระบุวันที่และแสดงรายการที่ยังรอทบทวน รวมถึงให้เภสัชกรอนุมัติและนำเข้ารายการที่เลือกและผ่านเกณฑ์ไปยังระบบโรงพยาบาลจำลอง',
+    review: 'เปิดดูแหล่งข้อมูลและเปรียบเทียบวิธีใช้บนฉลากกับวิธีใช้ที่ผู้ป่วยแจ้ง ยืนยันการใช้ยาปัจจุบันหรือส่งรายการยาที่ยังไม่ทราบชนิดให้เภสัชกร',
+    output: 'พิมพ์เอกสารส่งต่อที่ระบุวันที่และแสดงรายการที่ยังรอทบทวน รวมถึงให้เภสัชกรอนุมัติและนำเข้ารายการที่เลือกและผ่านเกณฑ์ไปยังระบบโรงพยาบาลจำลอง',
   },
 }
 

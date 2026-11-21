@@ -170,3 +170,34 @@
   .regimen-readback dl { margin-block: .5rem; }
   .regimen-readback dt { font-size: .8rem; color: var(--text-2); }
 }
+
+@layer components {
+  .connected-workspace { padding-bottom: 3rem; }
+  .connected-workspace > .intake { padding-bottom: 0; }
+  .staff-desk { max-width: 48rem; margin-inline: auto; }
+  .staff-access { border-block-start: 1px solid var(--line); padding: .85rem 0; }
+  .staff-login,.staff-session,.staff-queue li { display:flex; gap:.75rem; align-items:center; flex-wrap:wrap; }
+  .staff-login { align-items:end; }
+  .staff-login label { display:grid; gap:.25rem; font-size:.875rem; font-weight:600; }
+  .staff-login input { background:var(--bg-2); color:var(--text-1); border:1px solid var(--line); border-radius:.5rem; padding:.55rem .7rem; }
+  .staff-session > button,.staff-queue button { margin-inline-start:auto; }
+  .staff-queue li { border-top: 1px solid var(--line); padding:.65rem 0; }
+  .staff-queue small { display:block; }
+  .page-heading { font-size:1.75rem; font-weight:700; }
+}
+@layer components {
+  .label-transcription form { margin-block-start:.75rem; }
+  .intake .label-unknown { display:flex; gap:.5rem; align-items:center; }
+}
+@layer components {
+  .scan-catalogue > div { margin-block-start: .8rem; }
+  .catalogue-comparison { border-inline-start: 2px solid var(--accent); padding-inline-start: .9rem; }
+  .catalogue-comparison dl { display:flex; gap:1rem; flex-wrap:wrap; margin-block:.4rem; }
+  .catalogue-comparison dt { font-size:.8rem; color:var(--text-2); }
+  .catalogue-comparison button { display:block; margin-block-start:.5rem; }
+}
+@layer components {
+  .input-access { margin-block-end: .8rem; color: var(--text-2); font-size:.875rem; }
+  .input-access summary { cursor:pointer; width:fit-content; color:var(--accent); }
+  .input-access .staff-access { border:0; }
+}

@@ -1,3 +1,4 @@
+import { ScanCatalogue } from './ScanCatalogue'
 import { regimenText, type RegimenText } from '../../i18n/regimen'
 import { RegimenReadback } from './RegimenReadback'
 import { Button } from '../../components/ui/Button'
@@ -17,6 +18,7 @@ import {
   rowName,
   scanEvidence,
   type Draft,
+  type CatalogueMatch,
   type DraftValues,
   type Evidence,
   type Fact,
@@ -35,7 +37,7 @@ function Citation({ reference, evidence, t }: { reference: Ref; evidence: Eviden
       <details className="citation">
         <summary>{t[note.kind]}</summary>
         <blockquote>{note.text}</blockquote>
-        <small>{[note.author, note.date].filter(Boolean).join(' · ')}</small>
+        <small>{[note.author, note.facilityContact?.department_or_ward, note.facilityContact?.organization_address, note.facilityContact?.organization_phone, note.facilityContact?.organization_phone_extension, note.facilityContact?.organization_email, note.date].filter(Boolean).join(' · ')}</small>
       </details>
     )
   const resolved = photoCitation(evidence, reference)
@@ -53,7 +55,7 @@ function Citation({ reference, evidence, t }: { reference: Ref; evidence: Eviden
             : <EvidenceImage file={photo.file} />}
         </div>
       )}
-      <small>{[photo.file.name, region?.organization, photo.date].filter(Boolean).join(' · ')}</small>
+      <small>{[photo.file.name, region?.organization, region?.facilityContact?.department_or_ward, region?.facilityContact?.organization_address, region?.facilityContact?.organization_phone, region?.facilityContact?.organization_phone_extension, region?.facilityContact?.organization_email, photo.date].filter(Boolean).join(' · ')}</small>
     </details>
   )
 }
@@ -306,7 +308,9 @@ function DraftEditor({ medicine, t, onSave }: { medicine: Medicine; t: IntakeTex
   )
 }
 
-export function DraftReview({ draft, language, onSave }: {
+export function DraftReview({ draft, language, onSave, onCatalogue, embedded = false }: {
+  embedded?: boolean
+  onCatalogue?: (medicine: Medicine, match: CatalogueMatch | undefined) => void
   draft: Draft
   language: Language
   onSave: (id: string, values: DraftValues) => void
@@ -314,7 +318,7 @@ export function DraftReview({ draft, language, onSave }: {
   const t = intake[language]
   return (
     <div className="intake stack">
-      <h1>{language === 'th' ? 'ทบทวน' : 'Review'}</h1>
+      {!embedded && <h1>{language === 'th' ? 'ทบทวน' : 'Review'}</h1>}
       {!draft.medicines.length && <p>{t.noMedicines}</p>}
       {draft.medicines.map((medicine) => {
         const { row, catalogue, corrections, linkedScans } = medicine
@@ -354,6 +358,7 @@ export function DraftReview({ draft, language, onSave }: {
                 <RowEvidence {...scan} rt={regimenText[language]} t={t} />
               </section>
             ))}
+            {medicine.origin==='analysis' && row.identity_status==='named' && onCatalogue && <ScanCatalogue medicine={medicine} language={language} onChange={match=>onCatalogue(medicine,match)}/> }
           </article>
         )
       })}

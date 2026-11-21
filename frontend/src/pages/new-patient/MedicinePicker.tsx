@@ -7,9 +7,10 @@ import type { CatalogueMatch, Product } from './draft'
 
 type Result = Awaited<ReturnType<typeof searchProducts>> & { term: string }
 
-export function MedicinePicker({ t, name, selected, onChange, onSelect }: {
+export function MedicinePicker({ t, name, selected, onChange, onSelect, autoFocus=false }: {
   t: IntakeText
   name: string
+  autoFocus?: boolean
   selected?: CatalogueMatch
   onChange: (value: string) => void
   onSelect: (match: CatalogueMatch) => void
@@ -137,7 +138,7 @@ export function MedicinePicker({ t, name, selected, onChange, onSelect }: {
         <input id={id} role="combobox" aria-autocomplete="list" aria-expanded={visible}
           aria-controls={visible ? listId : undefined}
           aria-activedescendant={visible && active ? optionId(active.tpu) : undefined}
-          autoComplete="off" maxLength={120} value={name} onKeyDown={navigate}
+          autoFocus={autoFocus} autoComplete="off" maxLength={120} value={name} onKeyDown={navigate}
           onFocus={() => setOpen(true)} onClick={() => setOpen(true)} onBlur={close}
           onChange={e => {
             setOpen(true)
@@ -162,7 +163,7 @@ export function MedicinePicker({ t, name, selected, onChange, onSelect }: {
               </li>
             ))}
           </ul>
-          {message && <p className="medicine-message" role="status">{message}</p>}
+          {message && <p className="medicine-message" role="status">{message}{settled && !matches.length && result && <small> · {result.tmt_release}</small>}</p>}
         </div>
       )}
     </div>
