@@ -47,7 +47,7 @@ export default function App() {
   const generation = useRef(0)
   const openRequest = useRef(0)
   const navigate = useNavigate()
-  const [lastStage,setLastStage] = useState('input')
+  const [lastStage,setLastStage] = useState<string | null>(null)
   const stage = useMatch('/new-patient/:stage')?.params.stage
   const t = messages[language], w = caseText[language]
   if (stage && stage !== lastStage && stages.some(item=>item===stage)) setLastStage(stage)
@@ -132,6 +132,8 @@ export default function App() {
     if (generation.current!==generationAtRender) return
     setRecord(prev=>prev && prev.encounter.id===encounter.id && prev.encounter.revision>encounter.revision ? prev : {encounter,synced,savedRevision:encounter.revision})
   }
+  const hasWork = Boolean(record) || hasCaseWork(draft)
+  const canResume = lastStage !== null || hasWork
   const current=record && !record.captureOnly && (!record.synced || record.synced.medicines === draft.medicines)
   async function proposePhoto(photo:Photo) {
     if(!session) throw new Error(w.needsLogin)
@@ -149,13 +151,13 @@ export default function App() {
   const error=requestError && <p role="alert">{w.queueError}</p>
   const placeholderOutput=<section className="intake stack"><h1>{t.output}</h1><p>{w.needsReview}</p><Link className="text-action" to="/new-patient/review">{w.goReview}</Link></section>
   return <>
-    <TopBar language={language} onLanguage={changeLanguage}/>
+    <TopBar language={language} onLanguage={changeLanguage} canResume={canResume}/>
     <main className="pt-7"><PageContainer><Routes>
-      <Route path="/" element={<><HomePage language={language}/><div className="staff-desk intake stack">
+      <Route path="/" element={<><HomePage language={language} canResume={canResume} hasWork={hasWork} onStartFresh={startFreshCase}/><div className="staff-desk intake stack">
         {access}{error}{session && <EncounterQueue key={session.actor.id} session={session} language={language} onOpen={id=>void openEncounter(id)}/>}
       </div></>}/>
-      <Route path="/new-patient" element={<NewPatientLayout key={draft.caseId} language={language} hasWork={Boolean(record)||hasCaseWork(draft)} onStartFresh={startFreshCase}/>}>
-        <Route index element={<Navigate to={lastStage} replace/>}/>
+      <Route path="/new-patient" element={<NewPatientLayout key={draft.caseId} language={language} hasWork={hasWork} onStartFresh={startFreshCase}/>}>
+        <Route index element={<Navigate to={lastStage ?? 'input'} replace/>}/>
         <Route path="input" element={(record?.synced===null && !record.captureOnly) ?
           <div className="intake stack"><h1>{t.input}</h1><p>{w.syncedInput}</p><Link className="text-action" to="/new-patient/review">{w.goReview}</Link></div> :
           <>{localDemo ? access : <details className="input-access"><summary>{session ? session.actor.name : language==='th'?'สิทธิ์เจ้าหน้าที่':'Staff access'}</summary>{access}</details>}<InputPage key={draft.caseId} draft={draft} setDraft={setDraft} language={language} proposePhoto={session?proposePhoto:undefined}/></>}/>
