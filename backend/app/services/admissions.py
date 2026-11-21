@@ -56,6 +56,7 @@ def sources_used_by_rows(case, source_id):
 
 
 def check_document_id(case, source):
+    require(source["id"] not in case.get("unavailable_sources", {}), "Source ID is reserved for unavailable evidence.")
     require(source["id"] not in case.get("retired_capture_sources", ()), "Use a new logical source ID.")
     require(all(s["id"] != source["id"] or s == source for s in case.get("capture", {}).get("sources", ())),
             "The document source conflicts with capture evidence.")
