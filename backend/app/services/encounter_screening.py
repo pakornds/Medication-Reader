@@ -4,7 +4,7 @@ from pydantic import Field
 
 from app.schemas.evidence import CaseEvidence, EvidenceItem, EvidenceRef, SourcedValue
 from app.schemas.review import CurrentUseVerification, ReviewRow
-from app.services.admissions import active, needs_identity, reviewable_entry
+from app.services.admissions import active, needs_identity, reviewable_entry, screening_verification
 from app.services.checks import DEMO_IDS
 
 
@@ -28,7 +28,7 @@ def encounter_rows(case: dict) -> tuple[CaseEvidence, list[ReviewRow]]:
             ref = EvidenceRef(source_id=source["id"], item_id=row["id"])
             refs[source["id"]] = ref
             items.append(EvidenceItem(id=row["id"], source_id=ref.source_id, row_id=row["id"], kind=kind))
-        verification = row["verified"] or {}
+        verification = screening_verification(row)
         decision = verification.get("identity") or {}
         identity = None
         if decision.get("source_id") in refs and not needs_identity(row):

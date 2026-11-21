@@ -1,7 +1,9 @@
 """Run each public screening entry point against real assigned admission state."""
 
+import json
 import sqlite3
 from contextlib import closing
+from pathlib import Path
 
 import pytest
 
@@ -9,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from app.api import checks, local_screening
 from app.regimen_demo import create_app as create_regimen_demo
+from test_admission_package_capture import picture, submit
 from test_local_screening import refs
 from test_review_reports import Encounter, _DOCTOR, _NURSE, _PHARMACIST, _source, client, fixture_case
 
@@ -147,3 +150,55 @@ def test_regimen_demo_applies_same_local_screening_boundary(client, refs):
         assigned = Encounter(demo, _DOCTOR)
         target.update(case_id=assigned.case["id"], admission_revision=assigned.case["revision"])
         assert demo.post("/checks/local", json=target, headers=_DOCTOR).status_code == 200
+
+
+def test_attested_use_and_missing_regimen_on_both_legacy_engines(client, refs):
+    encounter = Encounter(client)
+    for idx, name in enumerate(("Demo A", "Demo B", "Demo Blue tablet", "Demo Pink tablet")):
+        sid = f"src-{idx}"
+        encounter.apply("add", entry=_source(sid, f"Documented prior interview for {name}.", name))
+        rid = list(encounter.case["rows"])[-1]
+        encounter.apply("interview", row_id=rid, source_id=sid, ownership="patient", current_use="current",
+                        dose=None if idx % 2 == 0 else "fixture", route="oral", schedule="scheduled")
+        encounter.apply("attest_current_use", row_id=rid, source_id=sid)
+        assert encounter.case["rows"][rid]["verified"] is None
+    target = {"case_id": encounter.case["id"], "admission_revision": encounter.case["revision"]}
+    report = client.post("/checks/local", json=target, headers=_DOCTOR).json()
+    pair = next(p for p in report["pairs"] if p["row_ids"] == ["item-3", "item-4"])
+    assert pair["duplicate"]["status"] == "potential"
+    sim = client.post("/checks", json={**target, "kind": "DRP", "context": {"fixture_context": "present"}},
+                      headers=_DOCTOR).json()
+    assert any(scope["row_ids"] == ["item-2"] for scope in sim["evaluated"])
+    assert any(x["scope"]["row_ids"] == ["item-1"] and "dose" in x["reason"] for x in sim["excluded"])
+
+
+def test_capture_only_pending_rows_remain_in_mixed_report_with_item_specific_citations(client, refs):
+    encounter = Encounter(client)
+    for name in ("Demo Amber", "Demo Slate"):
+        encounter.apply("add", entry=_source(name, f"Documented prior interview for {name}.", name))
+        row_id = list(encounter.case["rows"])[-1]
+        encounter.apply("interview", row_id=row_id, source_id=name, ownership="patient", current_use="current",
+                        dose="fixture", route="oral", schedule="scheduled")
+        encounter.apply("verify", row_id=row_id, source_id=name)
+    capture_path = Path(__file__).parents[3] / "fixtures/package-capture/two-photos.json"
+    manifest = json.loads(capture_path.read_text().replace("demo-two-photos", encounter.case["id"]))
+
+    response = submit(client, encounter.path, {
+        "revision": encounter.case["revision"], "request_id": "capture", "manifest": manifest,
+    }, {"front": picture(6), "reverse": picture(1)}, role="doctor")
+    assert response.status_code == 200
+    encounter.case = response.json()
+    encounter.update_snapshot()
+    for kind in ("DDI", "DRP"):
+        report = encounter.run(kind).json()
+        assert report["coverage"]["total_scopes"] == 15
+        for package in manifest["packages"]:
+            for item in package["items"]:
+                rid = encounter.case["capture_rows"][item["row_id"]]
+                scope = next(s for s in report["scopes"] if set(s["row_ids"]) == {"item-1", rid})
+                assert scope["outcome"] == "unevaluated"
+                cited = [json.loads(e.removeprefix("capture:")) for e in scope["evidence_ids"]
+                         if e.startswith("capture:")]
+                assert sorted(cited) == sorted([e["source_id"], e["item_id"]] for e in item["evidence"])
+        if kind == "DRP":
+            assert report["coverage"]["evaluated_scopes"] == 1
