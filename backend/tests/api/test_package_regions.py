@@ -1,8 +1,10 @@
 import base64
 import json
 from pathlib import Path
+from io import BytesIO
 
 import pytest
+from PIL import Image
 from fastapi.testclient import TestClient
 
 from app.ai.client import OpenAIClient
@@ -23,7 +25,8 @@ def photo_request(scene="clear", side="front"):
     }
     return {
         "capture": capture, "side": side, **capture[side],
-        "display_png_base64": base64.b64encode((SCENES / f"{scene}.png").read_bytes()).decode(),
+        "media_type": "image/png",
+        "image_base64": base64.b64encode((SCENES / f"{scene}.png").read_bytes()).decode(),
     }
 
 
@@ -55,9 +58,11 @@ def test_registered_endpoint_returns_revision_bound_editable_geometry(scene, sid
     }
     body, = calls
     content = body["input"][0]["content"]
-    assert [entry["image_url"] for entry in content if entry["type"] == "input_image"] == [
-        "data:image/png;base64," + payload["display_png_base64"]
-    ]
+    image_url, = [entry["image_url"] for entry in content if entry["type"] == "input_image"]
+    assert image_url.startswith("data:image/png;base64,")
+    with Image.open(BytesIO(base64.b64decode(image_url.split(",")[1]))) as actual:
+        with Image.open(SCENES / f"{scene}.png") as expected:
+            assert actual.tobytes() == expected.convert("RGB").tobytes()
     assert body["store"] is False
     assert "synthetic-case" not in json.dumps(content)
 
@@ -90,7 +95,30 @@ def test_obsolete_or_mismatched_view_is_rejected_before_provider(change):
 def test_invalid_image_does_not_reach_the_provider():
     calls = []
     with client_for({}, calls) as client:
-        response = client.post(URL, json={**photo_request(), "display_png_base64": "garbage"})
+        response = client.post(URL, json={**photo_request(), "image_base64": "garbage"})
     assert response.status_code == 422
     assert response.json()["detail"]["recoverable"]
     assert calls == []
+
+
+def test_rotated_original_is_sent_in_display_coordinates_once():
+    payload = photo_request()
+    original = Image.new("RGB", (80, 40), "white")
+    original.paste("black", (0, 0, 40, 40))
+    exif = Image.Exif()
+    exif[274] = 6
+    photo = BytesIO()
+    original.save(photo, "JPEG", exif=exif)
+    payload.update(media_type="image/jpeg", image_base64=base64.b64encode(photo.getvalue()).decode())
+    calls = []
+    with client_for({"regions": [BOX_A]}, calls) as client:
+        assert client.post(URL, json=payload).status_code == 422
+        payload["capture"]["front"]["exif_orientation"] = 6
+        assert client.post(URL, json=payload).status_code == 200
+    body, = calls
+    url = body["input"][0]["content"][-1]["image_url"]
+    with Image.open(BytesIO(base64.b64decode(url.split(",")[1]))) as upright:
+        assert upright.size == (40, 80)
+        assert upright.getpixel((20, 10)) == (0, 0, 0)
+        assert upright.getpixel((20, 70)) == (255, 255, 255)
+        assert not upright.getexif()
