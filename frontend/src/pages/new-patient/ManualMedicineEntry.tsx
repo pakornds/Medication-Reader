@@ -1,10 +1,10 @@
 import { InputField } from '../../components/ui/InputField'
 import { Button } from '../../components/ui/Button'
-import { useState } from 'react'
+import { useLayoutEffect, useState } from 'react'
 import { LuPlus } from 'react-icons/lu'
 import type { IntakeText } from '../../i18n/intake'
 import { DirectionsEditor } from './DirectionsEditor'
-import { newStatement, toComponents } from './regimen'
+import { hasFields, newStatement, toComponents } from './regimen'
 import type { RegimenText } from '../../i18n/regimen'
 import { MedicinePicker } from './MedicinePicker'
 import { newNote, type CatalogueMatch, type Medicine } from './draft'
@@ -14,11 +14,13 @@ export function ManualMedicineEntry({
   rt,
   caseId,
   onAdd,
+  onWorkChange,
 }: {
   rt: RegimenText
   caseId: string
   t: IntakeText
   onAdd: (medicine: Medicine) => void
+  onWorkChange: (hasWork: boolean) => void
 }) {
   const [selected, setSelected] = useState<CatalogueMatch>()
   const [name, setName] = useState('')
@@ -29,6 +31,13 @@ export function ManualMedicineEntry({
   const [rowId, setRowId] = useState(() => crypto.randomUUID())
   const [statements, setStatements] = useState(() => [newStatement()])
   const [pendingParses, setPendingParses] = useState(0)
+  const hasWork = Boolean(name || selected || strength || form || source || quantity ||
+    statements.length > 1 || statements.some(({ note, schedules }) =>
+      note.text || note.kind !== 'other_record' || schedules.some(hasFields)))
+  useLayoutEffect(() => {
+    onWorkChange(hasWork)
+    return () => onWorkChange(false)
+  }, [hasWork, onWorkChange])
   function add() {
     if (pendingParses > 0) return
     const directions = statements.filter((s) => s.note.text.trim())
