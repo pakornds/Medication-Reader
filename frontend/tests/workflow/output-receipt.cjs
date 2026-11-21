@@ -52,7 +52,8 @@ async function assertOutcome(page, timestamp) {
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
 }
 
-async function exercise(browser, phone) {
+async function exercise(browser, scenario) {
+  const phone = scenario !== 'desktop'
   const page = await browser.newPage({
     viewport: phone ? { width: 390, height: 844 } : { width: 1280, height: 900 },
     isMobile: phone,
@@ -69,6 +70,14 @@ async function exercise(browser, phone) {
     }
     await page.getByRole('listitem').filter({ hasText: encounter.patient_alias })
       .getByRole('button', { name: 'Open review' }).click()
+    let allowRefresh
+    const approveCommitted = new Promise(resolve => { allowRefresh = resolve })
+    if (scenario === 'refresh') {
+      await page.route('**' + encounterPath, async route => {
+        await approveCommitted
+        await route.continue()
+      })
+    }
     await link(page, '/new-patient/output').click()
     const selected = page.getByRole('checkbox', { name: /Demo Amber/ })
     await selected.check()
@@ -80,19 +89,32 @@ async function exercise(browser, phone) {
       const response = await route.fetch()
       assert.equal(response.status(), 200)
       // Commit the first write at the real hospital before dropping the response.
+      if (scenario === 'refresh') {
+        allowRefresh()
+        await exact(page, 'heading', 'Import confirmed').waitFor()
+      }
       if (requests.length === 1) await route.abort('failed')
       else await route.fulfill({ response })
     })
     const approve = exact(page, 'button', 'Approve and import selected medicines')
+    const droppedResponse = scenario === 'refresh'
+      ? page.waitForEvent('requestfailed', request => request.url().endsWith('/actions'))
+      : null
     await approve.click()
-    if (phone) {
+    if (scenario === 'retry') {
       await page.getByRole('alert').filter({ hasText: /Retry the same selection/ }).waitFor()
       assert.ok(await selected.isChecked())
       assert.equal(await page.evaluate(() => localStorage.length), 0)
       await approve.click()
     }
     await exact(page, 'heading', 'Import confirmed').waitFor()
-    if (phone) {
+    if (droppedResponse) {
+      await droppedResponse
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+      assert.equal(await page.getByText(/Retry the same selection/).count(), 0)
+      assert.equal(requests.length, 1)
+    }
+    if (scenario === 'retry') {
       assert.equal(requests.length, 2)
       assert.deepEqual(requests[0], requests[1])
     }
@@ -127,9 +149,8 @@ async function exercise(browser, phone) {
 ;(async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH })
   try {
-    await exercise(browser, false)
-    await exercise(browser, true)
-    console.log('PASS Output receipts: desktop approval and phone retry, one imported and one pending after reopening.')
+    for (const scenario of ['desktop', 'retry', 'refresh']) await exercise(browser, scenario)
+    console.log('PASS Output receipts: desktop approval, phone retry, and a receipt refresh before the response drops.')
   } finally {
     await browser.close()
   }

@@ -67,7 +67,7 @@ function Output({ language, client, actor, encounter, onEncounter }: Props) {
   const t = text[language]
   const [selection, setSelection] = useState({ revision: encounter.revision, ids: [] as string[] })
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<ErrorKey | null>(null)
+  const [failure, setFailure] = useState<{ key: ErrorKey; revision: number; ids: string[] } | null>(null)
   const [historyUnavailable, setHistoryUnavailable] = useState(false)
   const running = useRef(false)
   const mounted = useRef(true)
@@ -103,20 +103,23 @@ function Output({ language, client, actor, encounter, onEncounter }: Props) {
   const selected = selection.revision === encounter.revision
     ? ready.filter(row => selection.ids.includes(row.id)) : []
   const remaining = rows.length - imported.length - selected.length
+  const error = failure && !receiptForApproval(encounter, failure.revision, actor.id, failure.ids)
+    ? failure.key : null
 
   function toggle(id: string) {
     setSelection({ revision: encounter.revision, ids: selected.some(row => row.id === id)
       ? selected.filter(row => row.id !== id).map(row => row.id)
       : [...selected.map(row => row.id), id] })
-    setError(null)
+    setFailure(null)
   }
 
   async function submit() {
     if (!pharmacist || !selected.length || running.current) return
     running.current = true
     setBusy(true)
-    setError(null)
+    setFailure(null)
     const ids = selected.map(row => row.id).sort()
+    const fail = (key: ErrorKey) => setFailure({ key, revision: encounter.revision, ids })
     try {
       const updated = await client.action(encounter.id, {
         revision: encounter.revision,
@@ -128,7 +131,7 @@ function Output({ language, client, actor, encounter, onEncounter }: Props) {
       if (receipt) {
         const saved = saveReceipt(receipt)
         if (mounted.current) setHistoryUnavailable(!saved)
-      } else if (mounted.current) setError('noReceipt')
+      } else if (mounted.current) fail('noReceipt')
       onEncounter(updated)
     } catch (e) {
       if (!mounted.current) return
@@ -138,11 +141,11 @@ function Output({ language, client, actor, encounter, onEncounter }: Props) {
           if (mounted.current) {
             onEncounter(latest)
             setSelection({ revision: latest.revision, ids: [] })
-            setError('conflict')
+            fail('conflict')
           }
-        } catch { if (mounted.current) setError('refreshFailed') }
+        } catch { if (mounted.current) fail('refreshFailed') }
       } else {
-        setError(e instanceof ApiError && (e.status === 401 || e.status === 403)
+        fail(e instanceof ApiError && (e.status === 401 || e.status === 403)
           ? 'denied' : e instanceof ApiError && e.status < 500 ? 'rejected' : 'failed')
       }
     } finally {
