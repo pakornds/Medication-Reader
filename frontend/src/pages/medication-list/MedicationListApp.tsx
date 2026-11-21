@@ -13,14 +13,14 @@ import { createDraft, newNote, replacePhoto, type Evidence, type Photo, type Pho
 import { FacilityDetails } from '../new-patient/FacilityDetails'
 import { ManualMedicineEntry } from '../new-patient/ManualMedicineEntry'
 import { createManualEntryDraft, hasManualEntryWork } from '../new-patient/manualEntryDraft'
-import { NewPatientLayout } from '../new-patient/NewPatientLayout'
+import { StartFreshCase } from '../new-patient/StartFreshCase'
 import { PhotoSlot } from '../new-patient/PhotoSlot'
 import { MAX_BATCH_PHOTO_BYTES } from '../new-patient/preparePhoto'
 import { canShare, exportRows, listName, manualRow, say, scannedRows, scheduleSummary, values, type ListRow } from './listData'
 import { ListMedicine } from './ListMedicine'
 import { ListChecks } from './ListChecks'
 import { ScanHistory } from './ScanHistory'
-import { saveHandoff } from './handoffHistory'
+import { readHandoffs, saveHandoff } from './handoffHistory'
 import { recordAnalysis } from '../../../../src/lib/history/import-history'
 import './medication-list.css'
 
@@ -168,15 +168,20 @@ export default function MedicationListApp() {
     || evidence.photos.reduce((sum, photo) => sum + photo.file.size, 0) > MAX_BATCH_PHOTO_BYTES
   const canScan = hasEvidence && !tooLarge && !preparingPhotos
   const hasWork = rows.length > 0 || hasEvidence || hasManualEntryWork(manualDraft)
+  const handoffs = pathname === '/' ? readHandoffs() : []
+  const latest = handoffs?.[0]
   const modes = [
-    { mode: 'photo', label: t('Upload photos', 'อัปโหลดภาพ'), count: evidence.photos.length },
-    { mode: 'manual', label: labels.manual, count: 0 },
-    { mode: 'text', label: t('Paste text', 'วางข้อความ'), count: evidence.notes.filter(note => note.text.trim()).length },
+    { mode: 'photo', label: t('Upload photos', 'อัปโหลดภาพ'), count: evidence.photos.length,
+      detail: t('Labels on bags, boxes or blister packs', 'ฉลากบนถุง กล่อง หรือแผงยา') },
+    { mode: 'manual', label: labels.manual, count: 0,
+      detail: t('Search the Thai medicine catalogue', 'ค้นหาในบัญชียาไทย') },
+    { mode: 'text', label: t('Paste text', 'วางข้อความ'), count: evidence.notes.filter(note => note.text.trim()).length,
+      detail: t('A medicine list or transfer note', 'รายการยาหรือบันทึกส่งต่อ') },
   ] as const
 
   return <>
     <TopBar language={language} onLanguage={setLanguage} listWorkspace />
-    <main className="med-workspace"><PageContainer><Routes>
+    <main className="med-workspace"><PageContainer><Routes key={draft.caseId}>
       <Route path="/" element={<section className="med-list intake list-home">
         <header className="list-page-heading spread">
           <h1>{t('Medication reconciliation', 'การทบทวนรายการยา')}</h1>
@@ -184,17 +189,38 @@ export default function MedicationListApp() {
             {t('Return to your draft', 'กลับไปที่ฉบับร่าง')}
           </Link>}
         </header>
-        <nav className="list-home-methods" aria-label={t('Input method', 'วิธีป้อนข้อมูล')}>
-          {modes.map(({ mode, label }) => <Link key={mode} to="/new-patient/input" onClick={() => setInputMode(mode)}>
-            {label}
-          </Link>)}
-        </nav>
+        <div className="list-home-columns">
+          <section aria-labelledby="home-intake">
+            <h2 id="home-intake">{t('Start from', 'เริ่มจาก')}</h2>
+            <nav className="list-home-methods" aria-labelledby="home-intake">
+              {modes.map(({ mode, label, detail }) => <Link key={mode} to="/new-patient/input"
+                aria-labelledby={`home-label-${mode}`} aria-describedby={`home-description-${mode}`}
+                onClick={() => setInputMode(mode)}>
+                <span id={`home-label-${mode}`}>{label}</span>
+                <small id={`home-description-${mode}`}>{detail}</small>
+              </Link>)}
+            </nav>
+          </section>
+          <section className="list-home-history" aria-labelledby="home-handoff">
+            <h2 id="home-handoff">{t('Latest handoff', 'รายการส่งต่อล่าสุด')}</h2>
+            {latest ? <>
+              <time dateTime={latest.createdAt}>{new Intl.DateTimeFormat(language === 'th' ? 'th-TH' : 'en-GB', {
+                dateStyle: 'medium', timeStyle: 'short',
+              }).format(new Date(latest.createdAt))}</time>
+              <p>{latest.medicines.length} {t(latest.medicines.length === 1 ? 'medicine' : 'medicines', 'รายการยา')}</p>
+              <Link className="text-action" to="/history">{t('Open history', 'เปิดประวัติ')}</Link>
+            </> : <p>{handoffs === null
+              ? t('History is unavailable in this browser.', 'เบราว์เซอร์นี้เปิดประวัติไม่ได้')
+              : t('No completed handoffs on this device.', 'ยังไม่มีรายการส่งต่อที่เสร็จแล้วบนอุปกรณ์นี้')}</p>}
+          </section>
+        </div>
       </section>}/>
-      <Route path="/new-patient" element={<NewPatientLayout key={draft.caseId} language={language} hasWork={hasWork} onStartFresh={reset}/>}>
+      <Route path="/new-patient">
         <Route index element={<Navigate to="input" replace/>}/>
         <Route path="input" element={<div className="med-list intake stack list-input-page">
-          <header className="list-page-heading">
+          <header className="list-page-heading spread">
             <h1>{t('Add medicines', 'เพิ่มรายการยา')}</h1>
+            <StartFreshCase language={language} hasWork={hasWork} onStartFresh={reset}/>
           </header>
           <div className="list-input-workspace">
             <section className="intake-panel stack list-input-source" aria-label={t('Add medicines', 'เพิ่มรายการยา')}>

@@ -76,7 +76,14 @@ async function run() {
     await page.getByRole('link', { name: 'Upload photos', exact: true }).click()
     await page.getByRole('heading', { name: 'Add medicines' }).waitFor()
     const image = await readFile(resolve(__dirname, '../../../backend/tests/fixtures/ai/label-side.png'))
-    await page.locator('input[type=file]').first().setInputFiles({ name: 'synthetic-labels.jpg', mimeType: 'image/jpeg', buffer: image })
+    const front = page.getByRole('region', { name: 'Label side', exact: true })
+    const captureAvailable = await page.evaluate(() => 'capture' in HTMLInputElement.prototype)
+    assert.equal(await front.getByRole('button', { name: 'Take photo', exact: true }).count(), Number(captureAvailable))
+    const picker = page.waitForEvent('filechooser')
+    await front.getByRole('button', { name: 'Choose photo', exact: true }).click()
+    const chooser = await picker
+    assert.equal(await chooser.element().getAttribute('capture'), null)
+    await chooser.setFiles({ name: 'synthetic-labels.jpg', mimeType: 'image/jpeg', buffer: image })
     await page.getByRole('button', { name: 'Analyze evidence' }).click()
     const cards = page.locator('.list-medicine')
     await cards.nth(2).waitFor()
@@ -231,7 +238,29 @@ async function run() {
     await finding.getByText('Source conditions and references', { exact: true }).click()
     await finding.getByText('FEST classifications for this rule · B01AC06', { exact: true }).waitFor()
     await finding.getByText(/Applies when.+Gjelder ikke ved lokal bruk/).waitFor()
-    console.log('PASS photos, pasted text, structured manual entry, unmatched handoffs, exact and conditional checks, and reopenable history')
+    const cameraPage = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
+    try {
+      await cameraPage.addInitScript(() => {
+        // Desktop Chromium does not expose the native mobile capture property.
+        if (!('capture' in HTMLInputElement.prototype)) {
+          Object.defineProperty(HTMLInputElement.prototype, 'capture', {
+            configurable: true, get() { return this.getAttribute('capture') ?? '' },
+          })
+        }
+      })
+      await cameraPage.goto(base + '/new-patient/input')
+      const cameraInput = cameraPage.waitForEvent('filechooser')
+      await cameraPage.getByRole('region', { name: 'Label side', exact: true })
+        .getByRole('button', { name: 'Take photo', exact: true }).click()
+      const capture = await cameraInput
+      assert.equal(await capture.element().getAttribute('capture'), 'environment')
+      assert.equal(await capture.element().getAttribute('accept'), 'image/*')
+      await capture.setFiles({ name: 'synthetic-capture.png', mimeType: 'image/png', buffer: image })
+      await cameraPage.getByRole('button', { name: 'Analyze evidence' }).filter({ visible: true }).waitFor()
+      await cameraPage.waitForFunction(() => [...document.querySelectorAll('button')]
+        .some(button => button.textContent.trim() === 'Analyze evidence' && !button.disabled))
+    } finally { await cameraPage.close() }
+    console.log('PASS upload and native capture wiring, pasted text, structured manual entry, unmatched handoffs, exact and conditional checks, and reopenable history')
   } finally { await browser.close() }
 }
 run().catch(error => { console.error(error); process.exitCode = 1 })

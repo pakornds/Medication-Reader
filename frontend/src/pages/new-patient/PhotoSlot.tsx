@@ -23,6 +23,7 @@ export function PhotoSlot({ kind, photo, photos, t, onReplace, onEdit, proposePh
   const pending = useRef<AbortController>(null)
   const browse = useRef<HTMLInputElement>(null)
   const camera = useRef<HTMLInputElement>(null)
+  const canRequestCamera = 'capture' in HTMLInputElement.prototype
   useEffect(() => () => pending.current?.abort(), [])
   async function choose(file?: File) {
     if (!file || pending.current) return
@@ -50,7 +51,7 @@ export function PhotoSlot({ kind, photo, photos, t, onReplace, onEdit, proposePh
     <input
       type="file"
       hidden
-      accept={PHOTO_ACCEPT}
+      accept={capture ? 'image/*' : PHOTO_ACCEPT}
       ref={capture ? camera : browse}
       aria-label={capture ? t.camera : t.browse}
       capture={capture ? 'environment' : undefined}
@@ -101,13 +102,13 @@ export function PhotoSlot({ kind, photo, photos, t, onReplace, onEdit, proposePh
       )}
       <div className="actions">
         {filePicker(false)}
-        {filePicker(true)}
+        {canRequestCamera && filePicker(true)}
         <Button disabled={preparing} onClick={() => browse.current?.click()}>
           {photo ? t.replace : t.browse}
         </Button>
-        <Button variant="text" disabled={preparing} onClick={() => camera.current?.click()}>
+        {canRequestCamera && <Button variant="text" disabled={preparing} onClick={() => camera.current?.click()}>
           {t.camera}
-        </Button>
+        </Button>}
         {(photo || kind === 'additional_photo') && (
           <Button
             variant="text"

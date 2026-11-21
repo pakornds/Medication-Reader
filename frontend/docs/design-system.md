@@ -109,7 +109,9 @@ Use native links for destinations and buttons for actions. Give enabled buttons 
 
 ## Layout and spacing
 
-Use a shared `PageContainer` for horizontal gutters and content width. The project name **MedRec TH** in the header links to the home page. The main navigation contains **Medication list** and **History**, with language and theme controls at the far end. The staff workspace uses **New Patient** for its workspace link. On small screens the navigation can wrap under the header controls. The workspace steps show Input, Review and Output, with the active step marked by `aria-current="step"`. Use `aria-current="page"` for the current main destination. Use a separate control to start a fresh case.
+Use a shared `PageContainer` for the header and page gutters. **MedRec TH** links to Home. In the medication list workspace, Input, Review and Output share the header with History and the language and theme controls. On phones, the steps span a row under those controls. History links back to the medicine list. The staff workspace has its own **New Patient** link and a separate step row. Mark active stages with `aria-current="step"` and current page links with `aria-current="page"`. Put **Start fresh case** on Input in the medication list workflow and keep the confirmation before discarding a draft.
+
+Put Home’s input methods beside the latest local handoff summary. On a phone, show the input methods first. The handoff summary shows the date and medicine count. Medicine details remain on History.
 
 | Layout choice | Starting value |
 | --- | --- |

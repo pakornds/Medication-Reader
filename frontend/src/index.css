@@ -72,7 +72,7 @@
   .workspace-header { border-bottom: 1px solid var(--line); background: var(--bg-2); }
   .workspace-header-inner {
     display: flex; align-items: center; gap: clamp(.75rem, 3vw, 2rem);
-    max-width: 74rem; min-height: 3.25rem; margin-inline: auto; padding-inline: clamp(1rem, 3vw, 2rem);
+    max-width: 70rem; min-height: 3.25rem; margin-inline: auto;
   }
   .workspace-brand {
     display: inline-flex; align-items: center; min-height: 44px;
@@ -81,6 +81,10 @@
   .workspace-brand:hover { color: var(--accent); }
   .workspace-navigation, .workspace-preferences { display: flex; gap: .4rem; align-items: center; }
   .workspace-preferences { margin-inline-start: auto; gap: 0; }
+  .workspace-header--list .workspace-navigation { margin-inline-start: auto; }
+  .workspace-header--list .workspace-preferences {
+    margin-inline-start: 0; border-inline-start: 1px solid var(--line); padding-inline-start: .35rem;
+  }
   .workspace-link {
     display: inline-flex; align-items: center; justify-content: center;
     min-height: 44px; padding-inline: .7rem; border-bottom: 2px solid transparent;
@@ -93,26 +97,34 @@
     margin: 0 auto 1.35rem; max-width: 70rem;
     border-bottom: 1px solid var(--line);
   }
-  .workspace-stages nav { display: grid; grid-template-columns: repeat(3, minmax(6.5rem, 1fr)); gap: .25rem; }
-  .workspace-stages nav a {
+  .stage-navigation { display: grid; grid-template-columns: repeat(3, minmax(6.5rem, 1fr)); gap: .25rem; }
+  .stage-navigation a {
     display: flex; align-items: center; justify-content: center; gap: .5rem;
     min-height: 44px; border-bottom: 2px solid transparent; padding-inline: .45rem; color: var(--text-2);
     font-size: .875rem; font-weight: 600; line-height: 1.35;
   }
-  .workspace-stages nav a > span {
+  .stage-navigation a > span {
     font-variant-numeric: tabular-nums;
   }
-  .workspace-stages nav a:hover { background: var(--bg-hover); }
-  .workspace-stages nav a[aria-current=step] { border-color: var(--accent); color: var(--accent); }
+  .stage-navigation a:hover { background: var(--bg-hover); }
+  .stage-navigation a[aria-current=step] { border-color: var(--accent); color: var(--accent); }
   .workspace-stages .workspace-reset { align-self: center; color: var(--text-2); padding-inline: .5rem; }
   @media (max-width: 43rem) {
     .workspace-header-inner { flex-wrap: wrap; gap: .25rem 1rem; }
-    .workspace-navigation { width: 100%; order: 1; }
+    .workspace-header:not(.workspace-header--list) .workspace-navigation { width: 100%; order: 1; }
+    .workspace-header--list .workspace-header-inner { gap: 0 .3rem; }
+    .workspace-header--list .workspace-link { padding-inline: .45rem; }
+    .workspace-header--list .workspace-preferences { padding-inline-start: .15rem; }
+    .workspace-header--list .preference-button { padding-inline: .35rem; }
+    .workspace-header--list .stage-navigation {
+      flex-basis: 100%; order: 1; grid-template-columns: repeat(3, minmax(0, 1fr));
+      border-top: 1px solid var(--line);
+    }
   }
   @media (max-width: 34rem) {
     .workspace-stages { display: grid; grid-template-columns: minmax(0, 1fr); gap: .2rem; padding-block-end: .2rem; }
-    .workspace-stages nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    .workspace-stages nav a { padding-inline: .25rem; }
+    .workspace-stages .stage-navigation { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .stage-navigation a { padding-inline: .25rem; }
     .workspace-stages .workspace-reset { justify-self: end; min-height: 44px; }
   }
 }

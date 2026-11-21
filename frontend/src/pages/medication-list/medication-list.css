@@ -1,5 +1,5 @@
 body:has(.med-workspace) { background: var(--bg-2); }
-.med-workspace { padding-top: .5rem; }
+.med-workspace { padding-top: clamp(1rem, 2.5vw, 2rem); }
 .med-list {
   margin-inline: auto;
   max-width: 70rem;
@@ -12,15 +12,30 @@ body:has(.med-workspace) { background: var(--bg-2); }
 .list-page-heading { margin-block-end: .25rem; }
 .list-page-heading p { color: var(--text-2); margin-block-start: .3rem; }
 
-.list-home { padding-block-start: clamp(1.5rem, 5vw, 3.75rem); }
-.list-home-methods { margin-block-start: 1.25rem; max-width: 42rem; border-block: 1px solid var(--line); }
+.list-home { padding-block-start: clamp(.5rem, 3vw, 2rem); }
+.list-home > header { padding-block-end: clamp(.85rem, 3vw, 1.75rem); border-bottom: 1px solid var(--line); }
+.list-home-columns {
+  display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  align-items: start; gap: clamp(1.25rem, 4vw, 3rem);
+  padding-block-start: clamp(1rem, 2vw, 1.4rem);
+}
+.list-home-methods { margin-top: .65rem; border-block: 1px solid var(--line); }
 .list-home-methods a {
-  display: flex; align-items: center; min-height: 3rem;
-  padding-inline: .55rem; color: var(--accent); font-weight: 600;
+  display: grid; align-content: center; gap: .15rem; min-height: 3.75rem;
+  padding: .55rem .7rem; color: var(--accent); font-weight: 600;
 }
 .list-home-methods a + a { border-top: 1px solid var(--line); }
-.list-home-methods a:hover { background: var(--bg-hover); text-decoration: underline; }
+.list-home-methods a:hover { background: var(--bg-hover); }
+.list-home-methods a:hover span { text-decoration: underline; }
 .list-home-methods a:focus-visible { outline-offset: -2px; }
+.list-home-methods small { font-weight: 400; }
+.list-home-history {
+  border-inline-start: 1px solid var(--line); padding-inline-start: clamp(1rem, 3vw, 1.75rem);
+}
+.list-home-history :is(p, time) { display: block; margin-top: .35rem; color: var(--text-2); }
+.list-home-history time { margin-top: .75rem; color: var(--text-1); font-variant-numeric: tabular-nums; }
+.list-home-history a { margin-top: .3rem; min-height: 44px; }
+.list-input-page .workspace-reset { align-self: center; }
 
 .list-input-workspace {
   display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
@@ -98,6 +113,11 @@ body:has(.med-workspace) { background: var(--bg-2); }
 
 @media (max-width: 51rem) {
   .list-input-workspace { grid-template-columns: minmax(0, 1fr); }
+  .list-home-columns { grid-template-columns: minmax(0, 1fr); }
+  .list-home-history {
+    border-inline-start: 0; border-top: 1px solid var(--line);
+    padding-inline-start: 0; padding-block-start: .9rem;
+  }
   .list-review-columns { display: none; }
   .list-medicine-main:has(.list-row-select) { grid-template-columns: 2.75rem minmax(0, 1fr); }
   .list-medicine-main > .list-row-select ~ div { grid-column: 2; }
