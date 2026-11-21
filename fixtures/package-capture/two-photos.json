@@ -1,0 +1,281 @@
+{
+  "version": "1",
+  "case_id": "demo-two-photos",
+  "front": {
+    "attachment_id": "table-front",
+    "revision": 1,
+    "exif_orientation": 6,
+    "coordinate_space": "exif_transposed_display",
+    "regions": [
+      {
+        "id": "front-a",
+        "bounds": {
+          "x": 0.05,
+          "y": 0.1,
+          "width": 0.25,
+          "height": 0.35
+        }
+      },
+      {
+        "id": "front-b-round",
+        "bounds": {
+          "x": 0.4,
+          "y": 0.12,
+          "width": 0.08,
+          "height": 0.12
+        }
+      },
+      {
+        "id": "front-b-oval",
+        "bounds": {
+          "x": 0.51,
+          "y": 0.13,
+          "width": 0.12,
+          "height": 0.08
+        }
+      },
+      {
+        "id": "front-c",
+        "bounds": {
+          "x": 0.67,
+          "y": 0.1,
+          "width": 0.23,
+          "height": 0.35
+        }
+      },
+      {
+        "id": "front-unassigned",
+        "bounds": {
+          "x": 0.05,
+          "y": 0.7,
+          "width": 0.2,
+          "height": 0.2
+        }
+      }
+    ]
+  },
+  "reverse": {
+    "attachment_id": "table-reverse",
+    "revision": 2,
+    "exif_orientation": 1,
+    "coordinate_space": "exif_transposed_display",
+    "regions": [
+      {
+        "id": "reverse-a",
+        "bounds": {
+          "x": 0.05,
+          "y": 0.1,
+          "width": 0.25,
+          "height": 0.35
+        }
+      },
+      {
+        "id": "reverse-c",
+        "bounds": {
+          "x": 0.68,
+          "y": 0.11,
+          "width": 0.23,
+          "height": 0.34
+        }
+      }
+    ]
+  },
+  "packages": [
+    {
+      "id": "package-a",
+      "front_regions": [
+        {
+          "case_id": "demo-two-photos",
+          "side": "front",
+          "attachment_id": "table-front",
+          "revision": 1,
+          "region_id": "front-a"
+        }
+      ],
+      "items": [
+        {
+          "row_id": "order-a",
+          "kind": "order",
+          "evidence": [
+            {
+              "item_id": "label-a",
+              "source_id": "clinic-a",
+              "kind": "label",
+              "region": {
+                "case_id": "demo-two-photos",
+                "side": "front",
+                "attachment_id": "table-front",
+                "revision": 1,
+                "region_id": "front-a"
+              }
+            },
+            {
+              "item_id": "label-a-reverse",
+              "source_id": "clinic-a-reverse",
+              "kind": "label",
+              "region": {
+                "case_id": "demo-two-photos",
+                "side": "reverse",
+                "attachment_id": "table-reverse",
+                "revision": 2,
+                "region_id": "reverse-a"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "package-b",
+      "front_regions": [
+        {
+          "case_id": "demo-two-photos",
+          "side": "front",
+          "attachment_id": "table-front",
+          "revision": 1,
+          "region_id": "front-b-round"
+        },
+        {
+          "case_id": "demo-two-photos",
+          "side": "front",
+          "attachment_id": "table-front",
+          "revision": 1,
+          "region_id": "front-b-oval"
+        }
+      ],
+      "items": [
+        {
+          "row_id": "pending-b-round",
+          "kind": "pending_appearance",
+          "evidence": [
+            {
+              "item_id": "crop-b-round",
+              "source_id": "bag-b",
+              "kind": "appearance",
+              "region": {
+                "case_id": "demo-two-photos",
+                "side": "front",
+                "attachment_id": "table-front",
+                "revision": 1,
+                "region_id": "front-b-round"
+              }
+            }
+          ]
+        },
+        {
+          "row_id": "pending-b-oval",
+          "kind": "pending_appearance",
+          "evidence": [
+            {
+              "item_id": "crop-b-oval",
+              "source_id": "bag-b",
+              "kind": "appearance",
+              "region": {
+                "case_id": "demo-two-photos",
+                "side": "front",
+                "attachment_id": "table-front",
+                "revision": 1,
+                "region_id": "front-b-oval"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "package-c",
+      "front_regions": [
+        {
+          "case_id": "demo-two-photos",
+          "side": "front",
+          "attachment_id": "table-front",
+          "revision": 1,
+          "region_id": "front-c"
+        }
+      ],
+      "items": [
+        {
+          "row_id": "order-c",
+          "kind": "order",
+          "evidence": [
+            {
+              "item_id": "label-c",
+              "source_id": "clinic-c",
+              "kind": "label",
+              "region": {
+                "case_id": "demo-two-photos",
+                "side": "front",
+                "attachment_id": "table-front",
+                "revision": 1,
+                "region_id": "front-c"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "reverse_matches": [
+    {
+      "package_id": "package-a",
+      "region": {
+        "case_id": "demo-two-photos",
+        "side": "reverse",
+        "attachment_id": "table-reverse",
+        "revision": 2,
+        "region_id": "reverse-a"
+      },
+      "status": "confirmed"
+    },
+    {
+      "package_id": "package-b",
+      "region": {
+        "case_id": "demo-two-photos",
+        "side": "reverse",
+        "attachment_id": "table-reverse",
+        "revision": 2,
+        "region_id": "reverse-a"
+      },
+      "status": "candidate"
+    },
+    {
+      "package_id": "package-c",
+      "region": {
+        "case_id": "demo-two-photos",
+        "side": "reverse",
+        "attachment_id": "table-reverse",
+        "revision": 2,
+        "region_id": "reverse-c"
+      },
+      "status": "confirmed"
+    }
+  ],
+  "sources": [
+    {
+      "id": "clinic-a",
+      "kind": "label_photo",
+      "attachment_id": "table-front",
+      "organization": "Demo Clinic A",
+      "organization_type": "clinic"
+    },
+    {
+      "id": "clinic-a-reverse",
+      "kind": "reverse_photo",
+      "attachment_id": "table-reverse",
+      "organization": "Demo Clinic A",
+      "organization_type": "clinic"
+    },
+    {
+      "id": "bag-b",
+      "kind": "label_photo",
+      "attachment_id": "table-front"
+    },
+    {
+      "id": "clinic-c",
+      "kind": "label_photo",
+      "attachment_id": "table-front",
+      "organization": "Demo Clinic C",
+      "organization_type": "clinic"
+    }
+  ]
+}
