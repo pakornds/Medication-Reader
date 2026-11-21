@@ -17,6 +17,8 @@ from app.schemas.analysis import (
     validate_analysis_result,
 )
 from app.schemas.evidence import CaseEvidence, ContractModel, Observation, SourceKind, Text
+from app.schemas.regimen import RegimenParseRequest
+from app.services.regimens import parse_directions
 
 
 class LabelPhotoRequest(ContractModel):
@@ -90,4 +92,12 @@ def transcribe_label_photo(
     for row in result.rows:
         for field in LabelField:
             row.label_fields.setdefault(field, Observation(status="missing"))
+        # The validated transcript is the source for structured directions on scan rows.
+        directions = row.label_fields[LabelField.DIRECTIONS]
+        row.regimens = []
+        if directions.status == "readable":
+            row.regimens = parse_directions(RegimenParseRequest(
+                evidence=evidence, row_id=row.id, component_id="label-directions",
+                basis="documented", directions_text=directions.value, source=directions.evidence,
+            )).regimens
     return result
