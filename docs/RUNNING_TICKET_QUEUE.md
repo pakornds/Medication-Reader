@@ -45,6 +45,12 @@ If ownership changes, completed work appears or paths conflict, pause the affect
 
 When you need another worker's answer, post the question on their ticket, address their recorded worker name and link your own issue. Reply in that thread and link the decision from both tickets. Continue independent work while waiting. If an implementation decision remains unclear after checking the ticket and relevant docs, ask the user a specific question before proceeding with the affected work. Continue independent work while waiting and record the answer on the ticket. If a required API key, account permission, or user-only setup step is missing, ask the user in Codex chat. Name the setting, explain what it enables, and say where to configure it securely. Ask for confirmation once configured. Never request the secret value in chat or on GitHub. Record only the blocker on the issue, continue independent work, and retry the affected check without exposing credentials.
 
+### Cross-ticket handoffs
+
+When a decision or merged change affects another ticket, leave one handoff comment on each affected issue. Address the worker polling that issue. If sessions share a GitHub account, include the worker name or run ID from the claim. For an unclaimed issue, address the next worker. Link the originating decision or PR and, for merged work, its commit on the default branch. State exactly what the recipient needs to preserve, change, or verify. Link the ticket that owns any separate follow-up. The recipient reads the comment on claim, resume, or the next three-minute poll and replies in the same thread when coordination is needed. A context handoff leaves the current claim in place.
+
+For example, the [handoff on #89](https://github.com/pakornds/Medication-Reader/issues/89#issuecomment-7059203486) points to the merged policy, asks the worker to preserve the source for each dispensing-facility attribution, and directs disputed-identity follow-up to #104.
+
 Use ordinary GitHub issue comments for questions and replies. Each active worker reads its ticket on the three-minute poll and answers in the same thread. If the recipient has stopped, resume its session or hand off the ticket. Polling uses the worker's existing GitHub access and requires no additional API key.
 
 ## Review the PR

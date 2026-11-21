@@ -47,7 +47,7 @@ Open cards have exactly one `status:*` label and one priority label. Use `priori
 ## Issue workflow
 GitHub Issues are the work queue for Codex and other coding agents. Keep the issue's
 status label, `## Status` block, and checklist current as work progresses. Record
-state changes on the ticket using the comment format below.
+state changes on the ticket using the comment format below. When a decision or merge affects another ticket, leave a [handoff on the receiving issue](docs/RUNNING_TICKET_QUEUE.md#cross-ticket-handoffs).
 
 1. **Pick** an open issue labeled `agent-ready` + `status:todo` whose `Depends on` issues are all `status:done`.
    Choose the highest priority among eligible tickets. Confirm the dependency PRs are merged into `main`. Check owned paths and existing work across active tickets.
