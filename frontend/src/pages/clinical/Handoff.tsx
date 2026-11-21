@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { renderMedicationHandoff } from '../../../../src/components/print/medication-handoff.mjs'
 import '../../../../src/components/print/medication-handoff.css'
+import { entryCrop } from './locatedEvidence'
 import type { Encounter } from '../../api/admission'
 import type { EvidenceItem, EvidenceRef, RegimenComponent } from '../../api/contracts'
 import { active, entryName, reported, supportsIdentity, type Entry, type Say } from './review'
@@ -16,21 +17,6 @@ function cited(rowId:string, entry:Entry, items:EvidenceItem[], original?:Eviden
   return {source_id:sid,item_id:itemId}
 }
 
-async function crop(entry:Entry) {
-  if (!entry.photo) return null
-  const image=new Image()
-  image.src='data:'+entry.photo.media_type+';base64,'+entry.photo.data
-  try {await image.decode()} catch {return null}
-  const [x,y,w,h]=entry.photo.region
-  const canvas=document.createElement('canvas')
-  const width=w*image.naturalWidth, height=h*image.naturalHeight
-  const scale=Math.min(1,420/Math.max(width,height))
-  canvas.width=Math.max(1,Math.round(width*scale)); canvas.height=Math.max(1,Math.round(height*scale))
-  const context=canvas.getContext('2d')
-  if (!context) return null
-  context.drawImage(image,x*image.naturalWidth,y*image.naturalHeight,width,height,0,0,canvas.width,canvas.height)
-  return canvas.toDataURL()
-}
 export function Handoff({encounter,t}:{encounter:Encounter;t:Say}) {
   const [open,setOpen]=useState(false)
   const [ready,setReady]=useState(false)
@@ -64,7 +50,7 @@ export function Handoff({encounter,t}:{encounter:Encounter;t:Say}) {
           dose:v.answer.dose && fact(v.answer.dose,v.source_id),route:v.answer.route && fact(v.answer.route,v.source_id),
           frequency:v.answer.schedule && fact(v.answer.schedule,v.source_id),regimens:v.regimens}
         const reverse=entries.find(e=>e.photo?.appearance && e.photo.pairing==='matched' && e.source.kind==='reverse_photo')
-        if(reverse){const url=await crop(reverse);if(url)crops.set(reverse.source.id,url)}
+        if(reverse){const url=await entryCrop(reverse).catch(()=>null);if(url)crops.set(reverse.source.id,url)}
         return {...row.intake,id:row.id,sources:[...refs.values()],identity_status:row.unknown?'unlabeled':'named',
           unknown_label:row.unknown?(row.intake?.unknown_label || t('Unidentified medicine','ยาที่ยังระบุไม่ได้')):null,observed_names:entries.filter(supportsIdentity).map(e=>fact(entryName(e),e.source.id)),
           reported_use:entries.filter(reported).map(e=>fact(e.wording,e.source.id)),label_fields:fields,verification:verified,

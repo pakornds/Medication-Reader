@@ -139,8 +139,12 @@ def save_intake(store, actor, request: IntakeSubmission):
         previous = store.records.get(case_id)
         if previous:
             store.get(actor, case_id)
+        for side, aid in request.current_views.items():
+            kind = "label_photo" if side == "front" else "reverse_photo"
+            require(any(s.kind == kind and s.attachment_id == aid for m in medicines for s in m.sources),
+                    "A current view must cite a supplied original on the same side.")
         images, orientations = _prepare_images(request, store.originals.get(case_id, {}), medicines)
-        if previous and previous.get("intake_digests") == digests:
+        if previous and previous.get("intake_digests") == digests and previous.get("intake_current_views", {}) == request.current_views:
             return previous
         require(request.revision == (previous["revision"] if previous else 0),
                 "Encounter changed. Refresh before sending this draft.", 409)
@@ -190,13 +194,13 @@ def save_intake(store, actor, request: IntakeSubmission):
                 row["intake_corrections"] = original.corrections.copy()
             case["rows"][rid] = row
         from app.services.admission_intake_capture import sync_capture
-        sync_capture(case, medicines, orientations)
+        sync_capture(case, medicines, orientations, request.current_views)
         if previous and previous.get("intake_capture_fingerprint"):
             require(sha256(repr(previous.get("capture")).encode()).hexdigest() == previous["intake_capture_fingerprint"]
                     or case.get("capture") == previous.get("capture"), "The package layout changed. Refresh before updating intake.", 409)
         if case.get("capture"):
             case["intake_capture_fingerprint"] = sha256(repr(case["capture"]).encode()).hexdigest()
-        case.update(intake_digests=digests, intake_attachments=sorted(images))
+        case.update(intake_digests=digests, intake_attachments=sorted(images), intake_current_views=request.current_views)
         case["revision"] += 1
         case["events"].append(dict(action="intake", actor=actor.model_dump(), at=now(), revision=case["revision"],
                                    rows=sorted(changed), sources=sorted(registry)))

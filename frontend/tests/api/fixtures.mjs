@@ -34,7 +34,7 @@ try {
   await writeFile(source, 'import type * as C from ' + JSON.stringify(contract) + '\n' +
     'import type { AdmissionEvent } from ' + JSON.stringify(admission) + '\n' + statements.join(';\n'))
   const program = ts.createProgram([source], {
-    strict: true, noEmit: true, types: [], target: ts.ScriptTarget.ES2023,
+    strict: true, jsx: ts.JsxEmit.ReactJSX, noEmit: true, types: [], target: ts.ScriptTarget.ES2023,
     module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler,
     allowImportingTsExtensions: true, skipLibCheck: true,
   })

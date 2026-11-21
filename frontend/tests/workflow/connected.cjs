@@ -88,7 +88,10 @@ async function verifyProduct(page, rowId) {
   await interview.getByLabel('Actual route').fill('oral')
   await interview.getByLabel('Actual schedule').fill('each evening')
   await interview.getByLabel('Reported reason for use').fill('Synthetic admission review')
+  const interviewSaved = page.waitForResponse(r => r.url().endsWith('/actions') && r.request().postDataJSON()?.command.action === 'interview')
   await button(page, 'Save interview').click()
+  const recorded = await interviewSaved
+  assert.equal(recorded.status(), 200, await recorded.text())
   const verify = page.locator('form').filter({ has: button(page, 'Verify this medicine') })
   await verify.waitFor()
   await verify.getByLabel('Verify a structured dosing schedule').check()
@@ -242,11 +245,92 @@ async function mobile(browser) {
   await ctx.close()
 }
 
+async function namedPhoto(browser) {
+  const ctx = await browser.newContext({ viewport: { width: 1050, height: 800 } })
+  const page = await ctx.newPage()
+  page.setDefaultTimeout(10000)
+  await page.goto(ui + '/new-patient/input')
+  const result = await fetch(api + '/checks/local/products?q=117365')
+  assert.equal(result.status, 200)
+  const product = (await result.json()).products.find(p => p.tpu === '117365')
+  const photo = await page.evaluate(name => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 1200; canvas.height = 180
+    const surface = canvas.getContext('2d')
+    surface.fillStyle = '#fff'; surface.fillRect(0, 0, canvas.width, canvas.height)
+    surface.fillStyle = '#111'; surface.font = '22px sans-serif'
+    surface.fillText('Synthetic catalogue comparison fixture', 20, 55)
+    surface.fillText(name, 20, 110)
+    return canvas.toDataURL('image/png').split(',')[1]
+  }, product.label)
+  const front = page.getByRole('region', { name: 'Label side', exact: true })
+  await front.locator('input[type=file]').first().setInputFiles({
+    name: 'synthetic-label.png', mimeType: 'image/png', buffer: Buffer.from(photo, 'base64'),
+  })
+  await button(front, 'Use whole image').click()
+  await page.getByText('Record what I can read', { exact: true }).click()
+  await label(page, 'Name as written').fill(product.label)
+  await button(page, 'Use this label in draft').click()
+  await stage(page, 'review')
+  const compare = page.locator('.scan-catalogue')
+  await compare.locator('summary').click()
+  const picker = compare.getByRole('combobox')
+  assert.equal(await picker.inputValue(), product.label)
+  const compareWith = async code => {
+    await picker.fill(code)
+    await compare.getByRole('option').filter({ hasText: 'TPU ' + code }).click()
+  }
+  await compareWith('1044462')
+  const nameWarning = compare.getByText(/The observed name does not appear/)
+  await nameWarning.waitFor()
+  assert.equal(await page.getByRole('heading', { name: product.label }).count(), 1)
+  await compareWith('117365')
+  assert.equal(await nameWarning.count(), 0, 'An exact observed and catalogue name should agree.')
+  await button(compare, 'Confirm this catalogue product').click()
+  await button(compare, 'Remove catalogue selection').click()
+  assert.equal(await page.getByRole('heading', { name: product.label }).count(), 1)
+  await compareWith('117365')
+  await button(compare, 'Confirm this catalogue product').click()
+  await signIn(page, nurse)
+  const saved = page.waitForResponse(r => r.url().endsWith('/admissions/intake') && r.request().method() === 'POST')
+  await button(page, 'Save draft and open clinical review').click()
+  const response = await saved
+  assert.equal(response.status(), 200, await response.text())
+  const encounter = await response.json(), [row] = Object.values(encounter.rows)
+  assert.equal(row.intake_catalogue.product.tpu, '117365')
+  assert.equal(row.intake.observed_names[0].value, product.label)
+  assert.ok(row.entries.some(e => e.photo && e.source.kind === 'label_photo' && e.name === product.label))
+  assert.equal(row.verified, null)
+  await label(page, 'Original interview wording').fill('This medicine is mine. I stopped taking it.')
+  await label(page, 'Whose medicine?').selectOption('patient')
+  await label(page, 'Current use').selectOption('reported_stopped')
+  await button(page, 'Save interview').click()
+  const verify = page.locator('form').filter({ has: button(page, 'Verify this medicine') })
+  await verify.getByLabel('Confirm an exact TMT product').check()
+  await verify.getByRole('combobox', { name: 'Product name or code' }).fill('1044462')
+  await verify.getByRole('option').filter({ hasText: 'TPU 1044462' }).click()
+  const nextVerify = () => page.waitForResponse(r =>
+    r.url().endsWith('/actions') && r.request().postDataJSON()?.command.action === 'verify')
+  const rejection = nextVerify()
+  await button(verify, 'Verify this medicine').click()
+  const rejected = await rejection
+  assert.equal(rejected.status(), 422)
+  assert.equal((await assignedEncounter(encounter.id)).rows[row.id].verified, null)
+  await verify.getByRole('button', { name: /Use the intake selection/ }).click()
+  const acceptance = nextVerify()
+  await button(verify, 'Verify this medicine').click()
+  const accepted = await acceptance
+  assert.equal(accepted.status(), 200, await accepted.text())
+  assert.equal((await accepted.json()).rows[row.id].verified.identity.normalized_medication_id, '117365')
+  await ctx.close()
+}
+
 ;(async () => {
   const browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {})
   try {
     await workflow(browser)
     await mobile(browser)
+    await namedPhoto(browser)
     console.log('PASS normal React staff routes: real TMT and regimen parser, located unreadable photo, admission handoff, nurse verification, pharmacist import retry, server receipt, signed-out reload, Thai mobile and dark theme.')
   } finally { await browser.close() }
 })().catch(error => { console.error(error); process.exitCode = 1 })

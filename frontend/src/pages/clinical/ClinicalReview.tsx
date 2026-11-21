@@ -7,6 +7,8 @@ import type { Language } from '../../i18n/messages'
 import { regimenText } from '../../i18n/regimen'
 import { RegimenReadback } from '../new-patient/RegimenReadback'
 import { Handoff } from './Handoff'
+import { LocatedImage } from './LocatedImage'
+import { rowRegions } from './locatedEvidence'
 import { InterviewForm } from './InterviewForm'
 import { VerifyForm } from './VerifyForm'
 import { IdentityReview } from './IdentityReview'
@@ -28,6 +30,7 @@ function ReviewSession({language,client,actor,encounter,onEncounter}:Props) {
   const row=encounter.rows[selected] || rows[0]
   const verified=row && verification(row)
   const corrections=row ? intakeCorrections(row) : []
+  const regions=row ? rowRegions(encounter,row) : []
   const [busy,setBusy]=useState(false)
   const locked=useRef(false)
   const [error,setError]=useState('')
@@ -78,9 +81,11 @@ function ReviewSession({language,client,actor,encounter,onEncounter}:Props) {
             <strong>{sourceLabel(entry,t)}</strong>
             <blockquote>{entry.wording}</blockquote>
             <small>{[entry.source.source_date,entry.source.department_or_ward,entry.source.organization_address,entry.source.organization_phone].filter(Boolean).join(' · ')}</small>
-            {entry.photo && <svg className="clinical-crop" viewBox={entry.photo.region.join(' ')} role="img" aria-label={t('Located photo evidence','บริเวณหลักฐานในภาพ')}>
-              <image width="1" height="1" preserveAspectRatio="none" href={'data:'+entry.photo.media_type+';base64,'+entry.photo.data}/></svg>}
+            {entry.photo && <LocatedImage entry={entry} region={regions.find(r=>r.source_id===entry.source.id)} caseId={encounter.id} client={client} t={t}/>}
           </section>)}
+          {regions.filter(r=>!row.entries.some(e=>e.source.id===r.source_id)).map(r=><section key={r.item_id}>
+            <strong>{r.region.side==='front' ? t('Package front','ด้านฉลากของบรรจุภัณฑ์') : t('Matched package reverse','ด้านหลังบรรจุภัณฑ์ที่จับคู่แล้ว')}</strong>
+            <LocatedImage region={r} caseId={encounter.id} client={client} t={t}/></section>)}
           {row.intake?.regimens?.map(c=><RegimenReadback key={c.component_id} component={c} t={regimenText[language]}/>)}
         </details>
         {row.interview && <section className="clinical-inset"><h4>{t('Recorded interview','ข้อมูลสัมภาษณ์ที่บันทึก')}</h4>

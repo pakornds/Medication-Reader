@@ -150,3 +150,28 @@ def test_admission_source_ids_cannot_be_recycled_by_intake(client):
     for name in ("row-b", "row-c"):
         submit(client, {**command, "revision": case["revision"], "rows": [*command["rows"], medicine(name)]}, 409)
     assert len(client.get("/admissions/" + case["id"], headers=headers("nurse")).json()["rows"]) == 2
+
+
+def test_linked_prior_scene_retains_original_but_current_crop_uses_selected_view(client):
+    def scan(key):
+        reference = {"source_id": key, "item_id": key}
+        return dict(row=dict(id=key, identity_status="named", sources=[reference],
+                        observed_names=[dict(value="Synthetic A", evidence=reference)]),
+                    origin="analysis", sources=[dict(id=key, kind="label_photo", attachment_id=key+"-photo")],
+                    items=[dict(id=key, source_id=key, row_id=key, kind="label_region")], notes={},
+                    regions={key: dict(x=0, y=0, width=1, height=1)}, physical_items={key:key})
+
+    initial = scan("old")
+    initial["linked"] = [scan("recent")]
+    command = submission(initial)
+    for key, color in [("old", "red"), ("recent", "blue")]:
+        img = BytesIO()
+        Image.new("RGB", (4, 4), color).save(img, "PNG")
+        command["originals"][key+"-photo"] = dict(media_type="image/png", data=b64encode(img.getvalue()).decode())
+    command["current_views"] = {"front": "recent-photo"}
+    case = submit(client, command)
+    assert case["capture"]["front"]["attachment_id"] == "recent-photo"
+    assert [v["id"] for v in case["capture"]["front"]["regions"]] == ["recent"]
+    assert {e["source"]["attachment_id"] for e in case["rows"]["old"]["entries"]} == {"old-photo", "recent-photo"}
+    assert len(case["rows"]["old"]["intake_sources"]) == 2
+    assert case["intake_attachments"] == ["old-photo", "recent-photo"]

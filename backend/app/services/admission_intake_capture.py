@@ -5,7 +5,7 @@ from app.schemas.package_capture import PackageCapture
 from app.services.admissions import require
 
 
-def sync_capture(case, medicines, orientations):
+def sync_capture(case, medicines, orientations, current_views):
     by_side = defaultdict(dict)
     attachments = {}
     front_by_source = {}
@@ -17,6 +17,9 @@ def sync_capture(case, medicines, orientations):
             if source.kind not in {"label_photo", "reverse_photo"}:
                 continue
             side = "front" if source.kind == "label_photo" else "reverse"
+            if side in current_views and current_views[side] != source.attachment_id:
+                # Linked historical observations remain on their own located immutable original.
+                continue
             require(attachments.setdefault(side, source.attachment_id) == source.attachment_id,
                     "Review the current front and reverse photos before continuing; multiple originals occupy one view.")
             sources[source.id] = source

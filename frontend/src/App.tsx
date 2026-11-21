@@ -115,7 +115,7 @@ export default function App() {
       <Route path="/" element={<><HomePage language={language}/><div className="staff-desk intake stack">
         {access}{error}{session && <EncounterQueue key={session.actor.id} session={session} language={language} onOpen={id=>void openEncounter(id)}/>}
       </div></>}/>
-      <Route path="/new-patient" element={<NewPatientLayout language={language} hasWork={Boolean(record)||hasCaseWork(draft)} onStartFresh={startFreshCase}/>}>
+      <Route path="/new-patient" element={<NewPatientLayout key={draft.caseId} language={language} hasWork={Boolean(record)||hasCaseWork(draft)} onStartFresh={startFreshCase}/>}>
         <Route index element={<Navigate to={lastStage} replace/>}/>
         <Route path="input" element={(record?.synced===null && !record.captureOnly) ?
           <div className="intake stack"><h1>{t.input}</h1><p>{w.syncedInput}</p><Link className="text-action" to="/new-patient/review">{w.goReview}</Link></div> :

@@ -3,20 +3,20 @@
 export type Action = {
   revision: number
   request_id: string
-  command: AddRow | AddEvidence | RecordUnavailableSource | Interview | Verify | Proposal | Decision | Refer | Finish | Import | AttestCurrentUse | AssessIdentityIncident
+  command: AddRow | AddEvidence | RegisterDocument | RecordUnavailableSource | Interview | Verify | Proposal | Decision | Refer | Finish | Import | AttestCurrentUse | AssessIdentityIncident
 }
 
 export type AddEvidence = {
   action: "link"
   row_id: string
-  entry: SourceEntry
+  entry: SourceEntry | DocumentExcerpt
   confirmed: true
   replaces?: string | null
 }
 
 export type AddRow = {
   action: "add"
-  entry: SourceEntry
+  entry: SourceEntry | DocumentExcerpt
 }
 
 export type AnalysisPreview = {
@@ -84,7 +84,7 @@ export type CaptureViewRequest = {
 export type CaseEvidence = {
   case_id: string
   sources: Array<EvidenceSource>
-  items?: Array<EvidenceItem>
+  items?: Array<QuotedEvidenceItem | EvidenceItem>
 }
 
 export type CheckExclusion = {
@@ -167,6 +167,22 @@ export type DispensingFacility = {
   organization_phone?: string | null
   organization_phone_extension?: string | null
   organization_email?: string | null
+}
+
+export type DocumentExcerpt = {
+  wording: string
+  name?: string | null
+  strength?: string | null
+  form?: string | null
+  dose?: string | null
+  record_basis?: "documented_interview" | "discontinuation_order" | null
+  identity_basis?: "matched_original_package" | "dispensing_confirmation" | "item_specific_record" | null
+  label_owner?: string | null
+  directions?: string | null
+  indication?: string | null
+  directions_status?: "missing" | "unreadable"
+  case_id: string
+  source_id: string
 }
 
 export type DuplicateLookup = {
@@ -462,6 +478,14 @@ export type Proposal = {
   reference: string
 }
 
+export type QuotedEvidenceItem = {
+  id: string
+  source_id: string
+  row_id: string
+  kind: "record_excerpt"
+  excerpt: string
+}
+
 export type RecordUnavailableSource = {
   action: "record_unavailable_source"
   source: EvidenceSource
@@ -538,6 +562,12 @@ export type RegionLink = {
   attachment_id: string
   revision: number
   region_id: string
+}
+
+export type RegisterDocument = {
+  action: "register_document"
+  source: EvidenceSource
+  wording: string
 }
 
 export type ReverseMatch = {
@@ -653,19 +683,19 @@ export type SnapshotVersion = {
 }
 
 export type SourceEntry = {
-  source: EvidenceSource
   wording: string
   name?: string | null
   strength?: string | null
   form?: string | null
   dose?: string | null
   record_basis?: "documented_interview" | "discontinuation_order" | null
-  scan_fields?: Partial<Record<LabelField, Observation>>
   identity_basis?: "matched_original_package" | "dispensing_confirmation" | "item_specific_record" | null
   label_owner?: string | null
   directions?: string | null
   indication?: string | null
   directions_status?: "missing" | "unreadable"
+  source: EvidenceSource
+  scan_fields?: Partial<Record<LabelField, Observation>>
   photo?: Photo | null
 }
 

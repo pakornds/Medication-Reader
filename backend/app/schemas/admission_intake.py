@@ -47,5 +47,6 @@ class Original(ContractModel):
 class IntakeSubmission(ContractModel):
     case_id: UUID
     revision: int = Field(ge=0)
+    current_views: dict[Literal["front", "reverse"], Text] = Field(default_factory=dict)
     rows: list[IntakeMedicine]
     originals: dict[Text, Original]
