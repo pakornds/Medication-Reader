@@ -15,6 +15,7 @@ from app.api.imports import create_import_router
 from app.api.local_products import router as products_router
 from app.api.local_screening import router as local_screening_router
 from app.api.labels import create_labels_router
+from app.api.package_regions import create_package_regions_router
 from app.api.medication_analysis import create_medication_analysis_router
 from app.api.pill_candidates import router as pill_candidates_router
 from app.api.pills import create_pills_router
@@ -53,6 +54,7 @@ def register_feature_routes(
 ) -> None:
     register_admissions(app, hospital, resolve_reviewer)
     app.include_router(create_labels_router(get_provider))
+    app.include_router(create_package_regions_router(get_provider))
     app.include_router(create_pills_router(get_provider))
     app.include_router(pill_candidates_router)
     app.include_router(create_medication_analysis_router(get_provider))
