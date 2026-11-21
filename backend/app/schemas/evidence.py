@@ -11,6 +11,10 @@ class ContractModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class EvidenceValidationError(ValueError):
+    """A field cites evidence outside its supported case or item."""
+
+
 class SourceKind(StrEnum):
     LABEL_PHOTO = "label_photo"
     REVERSE_PHOTO = "reverse_photo"

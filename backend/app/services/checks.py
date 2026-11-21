@@ -102,9 +102,8 @@ def _drp_scopes(request: CoverageRequest):
         verification = row.verification
         if reason is not None:
             yield scope, reason, None
-        elif not all(
-            field is not None and _traceable(field.evidence, row.id, request.evidence)
-            for field in (verification.dose, verification.route, verification.frequency)
+        elif not verification.has_complete_regimen() or not all(
+            _traceable(ref, row.id, request.evidence) for ref in verification.regimen_references()
         ):
             yield scope, "Verified dose, route and frequency require traceable evidence.", None
         elif request.context.get("fixture_context") not in {"present", "flagged"}:

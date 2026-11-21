@@ -26,7 +26,8 @@ flowchart TD
   review --> handoff["Print or display dated handoff with row statuses"]
   eligible --> approve["Pharmacist: Approve and import selected rows"]
   approve --> receipt["Server validates selection and writes to mock hospital and returns a UTC receipt"]
-  review -.->|Optional after verification| checks["Run supported checks and show coverage"]
+  review -.->|Optional after verification| checks["Screen verified medicines and show findings and gaps"]
+  checks -.->|Clarify evidence and rerun| row
 ```
 
 1. **Add a medicine manually.** Search and select one catalogue product. The combined name, strength and form appear on one editable row immediately. Keep the product ID, name, strength and form in separate fields internally. Staff enter the patient’s dose, schedule and source on that row. Manual selection bypasses AI extraction. If the catalogue has no match, enter the evidenced name, strength and form in the same row and leave the catalogue ID blank.
@@ -72,7 +73,7 @@ Facility contact fields are optional. A missing phone or address cannot establis
 
 ### Fixed fields for directions
 
-The proposed extraction produces one record per medication, source and schedule component. Every record has the same fields. `basis` is `documented` for a label or record, `reported` for a patient or caregiver account, or `verified` after clinician review. Only the first two can be generated during extraction.
+Directions extraction produces one record per medication, source and schedule component. The parent row or parser response supplies the row ID. Every record has the same fields. `basis` is `documented` for a label or record, `reported` for a patient or caregiver account, or `verified` after clinician review. Only the first two can be generated during extraction.
 
 | Field | Type | Synthetic label example |
 | --- | --- | --- |
@@ -108,7 +109,7 @@ For different morning and evening amounts, create two components with their resp
 | Verification | A pharmacist or doctor records identity, current-use status, actual regimen and supporting evidence. For a confirmed catalogue match, keep the TPU code as a string and the release version. Product strength and dispensing unit describe the reference product. The patient's regimen comes from case evidence. Carry a verified stopped medicine in the history with its status. Exclude it from the active list. |
 | Mock import | One final pharmacist action approves the selected row revisions and initiates mock import. Successful import returns row IDs and a UTC timestamp. Pending rows stay visible. Only the successful import timestamp enters local history. |
 
-**Implementation status.** The fixed regimen fields above extend the current backend schema. Today, documented directions are a sourced text observation and verification contains sourced dose, route and frequency. The local TMT lookup works with release TMTRF20200217. The diagram shows its proposed place in the workflow. One final approval describes the staff interaction. The current backend exposes separate approval and import operations. Public demo cases use synthetic fixtures. [Analysis schema](../../backend/app/schemas/analysis.py) · [Verification schema](../../backend/app/schemas/review.py) · [Catalogue release and scope](../data/tmt-2020.md)
+**Implementation status.** The backend parses supported Thai and English transcriptions into fixed regimen components. Unrecognized directions retain their original wording for review. The synthetic review workspace exercises editing, verification, one final pharmacist action and readback from the in-memory mock hospital. A production scan-to-row integration remains open. Legacy imports with sourced dose, route and frequency remain readable. The local TMT lookup uses release TMTRF20200217. [Regimen schema](../../backend/app/schemas/regimen.py) · [Run the review demo](reconciliation-contract.md#try-the-regimen-round-trip) · [Catalogue scope](../data/tmt-2020.md)
 
 ## Medication agent analysis form
 
@@ -128,7 +129,7 @@ Use synthetic labeled, unlabeled, mixed, and blurry images, bilingual labels, co
 
 ## Optional DDI and DRP summaries
 
-The reviewer can request either a drug–drug interaction (DDI) summary or a drug-related problem (DRP) summary. The two-photo draft, the reviewer handoff, and pharmacist approval work with both summaries off. Enable a check only when a versioned, clinically validated reference or rule set is available for the intended scope. DDI checks require reviewer-verified current medications with supported normalized identities. DRP checks also require the verified regimen and any patient context specified by each rule. The model transcribes evidence and does not generate clinical findings. Synthetic fixtures can demonstrate the interface with simulated findings clearly labeled as demo data.
+The reviewer can request either a drug–drug interaction (DDI) summary or a drug-related problem (DRP) summary. The two-photo draft, the reviewer handoff, and pharmacist approval work with both summaries off. Enable a check only when a versioned, clinically validated reference or rule set is available for the intended scope. DDI checks require reviewer-verified current medications with supported normalized identities. DRP checks also require the verified regimen and any patient context specified by each rule. The model transcribes evidence and does not generate clinical findings. Synthetic fixtures demonstrate the existing backend checks. The proposed pharmacist panel, versioned rule catalogue and optional evidence-bound LLM explanation are specified in the [DDI and DRP review design](ddi-drp-review.md).
 
 - Show the source or rule-set name and version, when the checks ran, the medications or pairs actually evaluated, and the DRP rules applied. Tie each possible finding to the affected rows and its supporting source or rule.
 - Report skipped medications, pairs, or rules with reasons such as unresolved identity, missing patient context, unsupported products, or an unavailable or stale source. Distinguish **Not run**, **Unavailable**, **Partial coverage**, and completed checks. State “No findings within checked scope” only for the portion that actually ran and display any gaps alongside it. Keep medication verification independent of the summary and reserve completion status for the reviewer's own verification.
