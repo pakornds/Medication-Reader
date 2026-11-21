@@ -12,11 +12,14 @@ Read the [v1 design](docs/specs/medication-reader-v1.md) and
 [AI behavior contract](docs/ai/reconciliation-behavior.md) before implementing a ticket.
 
 ## Commands
-<!-- Fill in once the project is scaffolded. -->
-- Install: `TODO`
-- Test: `TODO`
-- Lint / type check: `TODO`
-- Run: `TODO`
+Backend commands require Python 3.12. Run them from the repository root in a
+Python virtual environment.
+
+- Install: `python -m pip install -e "backend[test]"`
+- Test: `python -m pytest backend/tests`
+- Run: `python -m uvicorn app.main:app --reload --reload-dir backend/app`
+
+The backend health endpoint is `http://127.0.0.1:8000/health`.
 
 ## Writing new tasks
 See [docs/WRITING_TASKS.md](docs/WRITING_TASKS.md) for how to write specs and split them into agent-ready issues.
