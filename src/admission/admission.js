@@ -219,7 +219,8 @@ async function action(command) {
 }
 function canSelectForImport(row) {
   const review = row.verified;
-  return review?.identity && review.answer.ownership === "patient" && review.answer.current_use !== "not_owned";
+  return !row.imported_at && review?.identity
+    && review.answer.ownership === "patient" && review.answer.current_use !== "not_owned";
 }
 function edit(title, fields, save) {
   scanDraft = null;
@@ -838,6 +839,9 @@ function render() {
               : "") +
             "</p>"
           : "<p>Verification pending</p>") +
+        (row.imported_at
+          ? "<p>Already imported · " + esc(new Date(row.imported_at).toLocaleString()) + "</p>"
+          : "") +
         '<div class="bar">' +
         (writable
           ? button("Link source or photo", "link", row.id) +
@@ -1072,7 +1076,8 @@ document.addEventListener("click", async (ev) => {
         () => action({ action: op }),
       );
     if (op === "refer" || op === "import") {
-      const choices = Object.values(encounter.rows).filter((r) =>
+      const rows = Object.values(encounter.rows);
+      const choices = rows.filter((r) =>
         op === "refer" ? r.unknown && !r.confirmed : canSelectForImport(r),
       );
       edit(
@@ -1092,7 +1097,9 @@ document.addEventListener("click", async (ev) => {
           (op === "refer"
             ? area("What has been checked", "checked", "", true) +
               area("Reason for referral", "reason", "", true)
-            : ""),
+            : rows.filter((r) => r.imported_at)
+                .map((r) => "<p>" + esc(title(r)) + " · Already imported</p>")
+                .join("")),
         (f) =>
           action({
             action: op,

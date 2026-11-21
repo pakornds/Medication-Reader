@@ -333,9 +333,18 @@ async function run(browser) {
   await signIn(later, "pharmacist");
   await click(later, patient + " · Finished");
   await later.getByRole("heading", { name: "Demo blue" }).waitFor();
+  assert.equal(await later.getByText(/^Already imported · /).count(), 1);
+  await click(later, "Approve and import selected rows");
+  assert.equal(await d.getByRole("checkbox").count(), 1);
+  assert.equal(await d.getByText(/ · Already imported$/).count(), 1);
+  if (output) await later.screenshot({path: path.join(output, "import-already-sent.png")});
+  await d.getByRole("checkbox").check();
+  await save(later);
+  assert.equal(await later.getByText(/^Already imported · /).count(), 2);
+  assert.equal(await later.getByRole("button", {name: "Approve and import selected rows"}).count(), 0);
   assert.deepEqual(errors, []);
   console.log(
-    "PASS 390px worksheet, interview, proposal and referral; 820px independent pharmacy continuation, correction, finish, selected import, reload and dated print views.",
+    "PASS 390px worksheet, interview, proposal and referral; 820px pharmacy correction, finish, separate imports with previously imported rows excluded after reload, and dated print views.",
   );
 }
 (async () => {

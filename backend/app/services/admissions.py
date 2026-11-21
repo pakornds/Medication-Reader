@@ -4,6 +4,7 @@ from copy import deepcopy
 from datetime import UTC, datetime
 from hashlib import sha256
 from io import BytesIO
+from json import dumps
 from threading import RLock
 from uuid import uuid4
 
@@ -107,6 +108,14 @@ def new_row(row_id, unknown):
                 confirmed=None, referred=False, interview=None, verified=None)
 
 
+def import_snapshot_key(row):
+    verified = row["verified"]
+    # Repeating verification without changing its evidence or conclusions keeps
+    # the same import snapshot regardless of its new reviewer or timestamp.
+    review = {key: verified[key] for key in ("source_id", "identity", "resolution", "answer")}
+    return sha256(dumps([row["unknown"], active(row), review], sort_keys=True).encode()).hexdigest()
+
+
 def capture_orientation(media_type, data):
     expected = {"image/jpeg": "JPEG", "image/png": "PNG", "image/webp": "WEBP"}[media_type]
     try:
@@ -125,6 +134,7 @@ class AdmissionStore:
         self.records = {}
         self.originals = {}
         self.retries = {}
+        self.imported_rows = {}
         self.hospital = hospital
         self.lock = RLock()
 
@@ -186,6 +196,15 @@ class AdmissionStore:
             require(original["status"] != "Finished" or isinstance(cmd, Import), "Review is finished.", 409)
             case = deepcopy(original)
             details = self.transition(case, actor, cmd, request.request_id)
+            for row_id in details["rows"]:
+                row = case["rows"][row_id]
+                previous = self.imported_rows.get((case_id, row_id))
+                if previous:
+                    snapshot, imported_at = previous
+                    if row["verified"] and import_snapshot_key(row) == snapshot:
+                        row["imported_at"] = imported_at
+                    else:
+                        row.pop("imported_at", None)
             case["revision"] += 1
             case["events"].append(dict(action=cmd.action, actor=actor.model_dump(), at=now(),
                                        revision=case["revision"], **details))
@@ -354,8 +373,14 @@ class AdmissionStore:
                 case["status"] = "Awaiting pharmacist review"
                 return dict(rows=cmd.row_ids, sources=[e["source"]["id"] for r in selected for e in active(r)],
                             checked=cmd.checked, reason=cmd.reason)
+            already_imported = [r["id"] for r in selected if r.get("imported_at")]
+            require(not already_imported,
+                    "Already imported: " + ", ".join(already_imported) + ". Select only eligible rows.", 409)
             receipt = self.import_rows(case, selected, actor, request_id)
             case["receipts"].append(receipt)
+            for row in selected:
+                self.imported_rows[(case["id"], row["id"])] = (
+                    import_snapshot_key(row), receipt["imported_at"])
             return dict(rows=cmd.row_ids, imported_at=receipt["imported_at"])
 
         row = self.row(rows, cmd.row_id)
