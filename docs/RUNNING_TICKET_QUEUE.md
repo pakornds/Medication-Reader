@@ -4,7 +4,7 @@ On any computer, open a checkout and say **“Work on the project”**. Each ses
 
 ## Select a ticket
 
-Read [AGENTS.md](../AGENTS.md), the [task-writing guide](WRITING_TASKS.md), and the [current spec](specs/medication-reader-v1.md). Verify authenticated access and fetch current main. Inspect open issues, owners, comments, branches and PRs, including work started under earlier instructions. Leave existing claims with their owners. Select an open, unassigned issue with both agent-ready and status:todo whose Depends on issues are done and merged. Prefer related tickets when several qualify. Merge after controls merge order only.
+Read [AGENTS.md](../AGENTS.md), the [task-writing guide](WRITING_TASKS.md), and the [current spec](specs/medication-reader-v1.md). Verify authenticated access and fetch current main. Inspect open issues, owners, comments, branches and PRs, including work started under earlier instructions. Leave existing claims with their owners. Select an open, unassigned issue with both agent-ready and status:todo whose Depends on issues are done and merged. Choose the highest priority among eligible tickets (high, medium, low). Prefer related tickets at equal priority. Merge after controls merge order only.
 
 Compare the assigned ticket with the latest spec, code, tests and PRs before editing. Follow the spec check below to plan any newly uncovered work.
 
