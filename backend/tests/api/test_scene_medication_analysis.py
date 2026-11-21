@@ -158,6 +158,48 @@ def test_label_choices_reject_unsubstantiated_values_and_keep_original():
     assert label_regimen(choices, "ห้าม" + THAI_DIRECTIONS, EvidenceRef(source_id="label")) is None
 
 
+@pytest.mark.parametrize(("text", "quote", "amount", "unit"), [
+    ("Take 1–2 tablets twice daily", "2 tablets", 2, "tablet"),
+    ("Take 1 1/2 tablets daily", "2 tablets", 2, "tablet"),
+    ("Take 0,5 mL twice daily", "5 mL", 5, "mL"),
+    ("รับประทานครั้งละ ๑–๒ เม็ด วันละ ๒ ครั้ง", "๒ เม็ด", 2, "tablet"),
+    ("ไม่ควรรับประทานครั้งละ 1 เม็ด", "ครั้งละ 1 เม็ด", 1, "tablet"),
+])
+def test_label_choices_cannot_select_part_of_a_dose_range_or_negation(text, quote, amount, unit):
+    from app.schemas.evidence import EvidenceRef
+    from app.services.label_directions import LabelDirectionsChoices, label_regimen
+
+    choices = LabelDirectionsChoices.model_validate({"dose": {"amount": amount, "unit": unit, "quote": quote}})
+    assert label_regimen(choices, text, EvidenceRef(source_id="label")) is None
+
+
+def test_label_choices_cannot_relabel_fragments_of_time_and_route_words():
+    from app.schemas.evidence import EvidenceRef
+    from app.services.label_directions import LabelDirectionsChoices, label_regimen
+
+    ref = EvidenceRef(source_id="label")
+    time = LabelDirectionsChoices.model_validate({"times": {"values": ["noon"], "quote": "noon"}})
+    assert label_regimen(time, "Take 1 tablet every afternoon", ref) is None
+    thai_noon = LabelDirectionsChoices.model_validate({"times": {"values": ["noon"], "quote": "เที่ยง"}})
+    assert label_regimen(thai_noon, "รับประทานก่อนเที่ยงคืน", ref) is None
+    route = LabelDirectionsChoices.model_validate({"route": {"value": "topical", "quote": "ทา"}})
+    assert label_regimen(route, THAI_DIRECTIONS, ref) is None
+
+
+def test_label_choices_keep_unrepresented_qualifications_even_if_model_omits_flag():
+    from app.schemas.evidence import EvidenceRef
+    from app.services.label_directions import LabelDirectionsChoices, label_regimen
+
+    text = "every 8 hours as needed for pain"
+    choices = LabelDirectionsChoices.model_validate({
+        "schedule": {"kind": "interval", "period": 8, "period_unit": "hour", "quote": "every 8 hours"},
+        "as_needed": {"value": True, "quote": "as needed"},
+    })
+    result = label_regimen(choices, text, EvidenceRef(source_id="label"))
+    assert result.parse_status == "partial" and result.unparsed_text == text
+    assert result.as_needed and result.period_value == 8
+
+
 def test_per_crop_failure_does_not_erase_readable_sibling():
     provider, _ = provider_calls(partial=True)
     with TestClient(create_app(get_provider=lambda:provider)) as client:

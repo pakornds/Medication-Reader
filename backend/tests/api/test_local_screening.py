@@ -177,6 +177,23 @@ def test_reference_checks_release_and_blocks_conflicted_ingredient(tmp_path):
                           ddi_status="no_exact_fest_product_form_route") is None
 
 
+def test_ingredient_match_summary_covers_other_members_of_the_fest_class(ingredient_route_refs):
+    tmt, fest = ingredient_route_refs
+    rule_id = "ID_45F34CDB-4002-4DA6-8846-9F8F00E6A177"
+    with closing(sqlite3.connect(tmt)) as db:
+        db.execute("UPDATE product_atc SET atc='J01AA06' WHERE tpu='432331'")
+        db.commit()
+    with closing(sqlite3.connect(fest)) as db:
+        db.execute("UPDATE rule SET id=? WHERE id='fixture-iron-doxycycline'", (rule_id,))
+        db.execute("UPDATE atc_member SET rule_id=?, atc='J01AA' WHERE rule_id='fixture-iron-doxycycline' AND side=2",
+                   (rule_id,))
+        db.execute("UPDATE atc_member SET rule_id=? WHERE rule_id='fixture-iron-doxycycline'", (rule_id,))
+        db.commit()
+    rule, = catalogue_pair(("737856", "432331")).ddi.interactions
+    assert "tetracycline antibiotics" in rule.ingredient_route_match.summary_en
+    assert "doxycycline" not in rule.ingredient_route_match.summary_en
+
+
 def body(codes=("101", "202", None)):
     names = {"101": "Demo Blue tablet", "202": "Demo Pink tablet", "303": "Demo Yellow tablet"}
     rows, items = [], []

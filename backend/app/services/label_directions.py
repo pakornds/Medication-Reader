@@ -85,7 +85,7 @@ PERIODS = {
 }
 TIME_WORDS = {
     "morning": r"(?<![a-z])morning(?![a-z])|เช้า",
-    "noon": r"(?<![a-z])noon(?![a-z])|เที่ยง|กลางวัน",
+    "noon": r"(?<![a-z])noon(?![a-z])|เที่ยง(?!คืน)|กลางวัน",
     "afternoon": r"(?<![a-z])afternoon(?![a-z])|บ่าย",
     "evening": r"(?<![a-z])evening(?![a-z])|เย็น",
     "night": r"(?<![a-z])night(?![a-z])|กลางคืน",
@@ -94,7 +94,7 @@ TIME_WORDS = {
 ROUTES = {
     "oral": r"รับประทาน|กิน|by mouth|orally", "ophthalmic": r"หยอดตา|in (?:the )?eyes?",
     "otic": r"หยอดหู|in (?:the )?ears?", "nasal": r"พ่นจมูก|intranasal(?:ly)?",
-    "inhalation": r"สูด|inhale", "topical": r"ทา(?:ผิวหนัง|ภายนอก)?|apply topically",
+    "inhalation": r"สูด|inhale", "topical": r"ทา(?:ผิวหนัง|ภายนอก)|apply topically",
     "sublingual": r"อมใต้ลิ้น|under the tongue", "rectal": r"เหน็บทวารหนัก|rectally",
     "vaginal": r"เหน็บช่องคลอด|vaginally",
 }
@@ -116,8 +116,13 @@ NAMED_DAILY = re.compile(
 )
 # A single schedule cannot safely represent these qualifications.
 COMPLEX_DIRECTIONS = re.compile(
-    r"ห้าม|งด(?:ยา|ใช้|รับประทาน)|ยกเว้น|หาก|ถ้า|เพิ่ม(?:เป็น|ขนาด)|ลด(?:เหลือ|ขนาด)|แล้ว(?:เปลี่ยน|ลด|เพิ่ม)|"
-    r"\b(?:not|except|unless|if|taper|increase|decrease|up to|at most)\b", re.IGNORECASE,
+    r"ห้าม|งด(?:ยา|ใช้|รับประทาน)|ไม่(?:ควร|ต้อง|ให้|รับประทาน|กิน|ใช้|เกิน)|"
+    r"ยกเว้น|หาก|ถ้า|เพิ่ม(?:เป็น|ขนาด)|ลด(?:เหลือ|ขนาด)|แล้ว(?:เปลี่ยน|ลด|เพิ่ม)|"
+    r"\b(?:not|except|unless|if|taper|increase|decrease|maximum|up to|at most)\b", re.IGNORECASE,
+)
+NUMERIC_QUALIFIER = re.compile(
+    rf"{NUMBER}\s*(?:[-–—−~/⁄]|\bto\b|ถึง)\s*{NUMBER}|[0-9]+,[0-9]+",
+    re.IGNORECASE,
 )
 
 
@@ -164,11 +169,40 @@ def _times_fields(times: Times, quote: str) -> dict:
     return {"time_of_day": times.values} if len(times.values) == len(observed) and set(times.values) == observed else {}
 
 
+def _quote_spans(text: str, anchor: str) -> list[tuple[int, int]]:
+    if not anchor:
+        return []
+    english_start = r"(?<![a-zA-Z])" if re.match(r"[a-zA-Z]", anchor[0]) else ""
+    english_end = r"(?![a-zA-Z])" if re.match(r"[a-zA-Z]", anchor[-1]) else ""
+    thai_end = r"(?!คืน)" if anchor.endswith("เที่ยง") else ""
+    pattern = (rf"(?<![0-9๐-๙./เแโใไ]){english_start}{re.escape(anchor)}"
+               rf"{english_end}{thai_end}(?![0-9๐-๙]|\.[0-9๐-๙]|\s*/|ทันที)")
+    return [match.span() for match in re.finditer(pattern, text)]
+
+
+def _has_remaining_words(text: str, spans: list[tuple[int, int]], fields: dict) -> bool:
+    remaining = list(text)
+    for start, end in spans:
+        remaining[start:end] = " " * (end - start)
+    remainder = "".join(remaining)
+    meal = fields.get("meal_relation")
+    if meal in {"immediately before meals", "immediately after meals"}:
+        general_meal = meal.removeprefix("immediately ")
+        remainder = re.sub(MEALS[general_meal], " ", remainder, flags=re.I)
+    if "dose_amount" in fields:
+        remainder = re.sub(r"\b(?:take|use)\b|ครั้งละ", " ", remainder, flags=re.I)
+    if "time_of_day" in fields:
+        remainder = re.sub(r"\b(?:and|at)\b|และ|เวลา|ตอน", " ", remainder, flags=re.I)
+    return bool(re.search(r"\w", remainder))
+
+
 def label_regimen(choices: LabelDirectionsChoices, text: str, ref: EvidenceRef) -> RegimenComponent | None:
-    if COMPLEX_DIRECTIONS.search(text) or len(DOSE_MENTIONS.findall(text.translate(THAI_DIGITS))) > 1:
+    numeric_text = text.translate(THAI_DIGITS)
+    if COMPLEX_DIRECTIONS.search(text) or NUMERIC_QUALIFIER.search(numeric_text) or len(DOSE_MENTIONS.findall(numeric_text)) > 1:
         return None
     fields = {}
     partial = choices.other_instructions
+    covered_spans = []
     checks = (
         (choices.dose, _dose_fields),
         (choices.schedule, _schedule_fields),
@@ -183,12 +217,11 @@ def label_regimen(choices: LabelDirectionsChoices, text: str, ref: EvidenceRef) 
         if group is None:
             continue
         anchor = group.quote.strip()
-        # A short quote must not trim a digit, a slash-unit, or the immediate-meal modifier.
-        if not re.search(rf"(?<![0-9๐-๙./]){re.escape(anchor)}(?![0-9๐-๙]|\.[0-9๐-๙]|\s*/|ทันที)", text):
-            partial = True
-            continue
-        supported = check(group, anchor.translate(THAI_DIGITS))
+        spans = _quote_spans(text, anchor)
+        supported = check(group, anchor.translate(THAI_DIGITS)) if spans else {}
         partial |= not supported
+        if supported:
+            covered_spans.extend(spans)
         fields.update(supported)
     if fields.get("schedule_type") == "frequency" and fields.get("period_unit") == "day" and fields.get("time_of_day"):
         if len(fields["time_of_day"]) != fields["frequency_count"]:
@@ -196,6 +229,7 @@ def label_regimen(choices: LabelDirectionsChoices, text: str, ref: EvidenceRef) 
             partial = True
     if not fields:
         return None
+    partial |= _has_remaining_words(text, covered_spans, fields)
     fields["directions_text"] = text
     return RegimenComponent(
         component_id="label-directions", basis="documented",

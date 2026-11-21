@@ -112,14 +112,14 @@ def load_routes(fest_sha: str, path: Path = REFERENCE_PATH) -> IngredientRoutes 
     return IngredientRoutes(version, ingredients, blocked)
 
 
-# Short translations of these FEST findings used in the existing demo.
+# These summaries describe the whole FEST rule group, including drug-class members.
 RULE_SUMMARIES = {
     "ID_45F34CDB-4002-4DA6-8846-9F8F00E6A177": (
-        "Iron can reduce doxycycline absorption when taken together.",
-        "ธาตุเหล็กอาจลดการดูดซึมด็อกซีไซคลินเมื่อรับประทานพร้อมกัน",
+        "Iron can reduce absorption of tetracycline antibiotics when taken together.",
+        "ธาตุเหล็กอาจลดการดูดซึมยาปฏิชีวนะกลุ่มเตตราไซคลินเมื่อรับประทานพร้อมกัน",
     ),
     "ID_7CF378BE-9392-4278-B48E-A95E00B6774E": (
-        "Using tramadol and gabapentin together can increase drowsiness and the risk of slowed breathing.",
-        "การใช้ทรามาดอลร่วมกับกาบาเพนตินอาจทำให้ง่วงมากขึ้นและเพิ่มความเสี่ยงต่อการหายใจช้าลง",
+        "Using an opioid and gabapentin together can increase drowsiness and the risk of slowed breathing.",
+        "การใช้ยาโอปิออยด์ร่วมกับกาบาเพนตินอาจทำให้ง่วงมากขึ้นและเพิ่มความเสี่ยงต่อการหายใจช้าลง",
     ),
 }
