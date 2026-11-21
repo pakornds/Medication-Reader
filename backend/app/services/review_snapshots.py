@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from json import dumps, loads
 from pathlib import Path
+from typing import Literal
 from uuid import uuid4
 
 from pydantic import Field
@@ -21,7 +22,7 @@ from app.schemas.review_scopes import (
     ScreeningRow,
     ScreeningSnapshot,
 )
-from app.services.admissions import active
+from app.services.admissions import active, screening_verification
 from app.services.fixture_scopes import evaluate_fixture_report
 
 _FIXTURE_PATH = Path(__file__).resolve().parents[3] / "fixtures/checks/demo-overlap-v2/case.json"
@@ -51,9 +52,20 @@ class SnapshotVersion(ContractModel):
     current: bool
 
 
+RegimenField = Literal["dose", "route", "schedule"]
+
+
+class RegimenAnalysisUnavailable(ContractModel):
+    row_id: Text
+    status: Literal["unavailable"] = "unavailable"
+    missing_fields: list[RegimenField] = Field(min_length=1)
+    reason: Text
+
+
 class VersionedScreeningReport(ScreeningReport):
     mapping_version: Text
     warnings: list[Text] = Field(default_factory=list)
+    regimen_analysis: list[RegimenAnalysisUnavailable] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -165,7 +177,7 @@ class ReviewSnapshotStore:
         stopped = {row.id for row in existing.snapshot.rows if row.use_status == "stopped"}
         nurse_only = {
             row["id"] for row in case["rows"].values()
-            if _current_use_status(row["verified"] or {}) == "nurse_only"
+            if _current_use_status(screening_verification(row)) == "nurse_only"
         }
         for scope in report.scopes:
             if scope.reason_code == "use_not_current":
@@ -177,6 +189,7 @@ class ReviewSnapshotStore:
             **report.model_dump(),
             mapping_version=existing.version.mapping_version,
             warnings=[_STOPPED_WARNING] if enabled and stopped else [],
+            regimen_analysis=_regimen_gaps(case, existing.snapshot) if enabled and kind == "DRP" else [],
         )
         existing.reports[kind] = versioned
         return versioned
@@ -280,8 +293,28 @@ def _current_use_status(verification: dict) -> str:
     return "pending"
 
 
+def _regimen_gaps(case: dict, snapshot: ScreeningSnapshot) -> list[RegimenAnalysisUnavailable]:
+    gaps = []
+    fields: tuple[RegimenField, ...] = ("dose", "route", "schedule")
+    for row in snapshot.rows:
+        if row.use_status != "current" or row.mapping_status != "complete":
+            continue
+        answer = screening_verification(case["rows"][row.id])["answer"]
+        missing = [field for field in fields if not answer.get(field)]
+        if missing:
+            if len(missing) == 1:
+                detail = f"the {missing[0]} is missing"
+            else:
+                detail = f"these fields are missing: {', '.join(missing)}"
+            gaps.append(RegimenAnalysisUnavailable(
+                row_id=row.id, missing_fields=missing,
+                reason=f"Regimen analysis unavailable because {detail}.",
+            ))
+    return gaps
+
+
 def _project_row(row: dict, entries: list[dict], reference: FixtureReference, revision: int) -> ScreeningRow:
-    verification = row["verified"] or {}
+    verification = screening_verification(row)
     identity = verification.get("identity") or {}
     answer = verification.get("answer") or {}
     product = reference.products.get(identity.get("name", "").casefold())

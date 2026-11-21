@@ -102,8 +102,13 @@ def test_attestation_cites_same_active_interview_and_does_not_survive_changed_ev
     assert edited["regimen_analysis"] == []
     case.send("attest_current_use", row_id=amber, source_id="use-amber", status=422)
     case.interview(amber, "use-amber", dose=None, schedule=None)
-    _, restored = run_drp(case, second)
+    third, restored = run_drp(case, second)
     assert restored["coverage"]["evaluated_scopes"] == 0
+    case.send("attest_current_use", row_id=amber, source_id="use-amber")
+    case.link(amber, record("new-note", "reviewer_record", "Synthetic later documentation"))
+    assert "screening_attestation" not in case.state["rows"][amber]
+    _, revised = run_drp(case, third)
+    assert revised["coverage"]["evaluated_scopes"] == 0
 
 
 def test_patient_report_cannot_establish_identity_for_screening(client):

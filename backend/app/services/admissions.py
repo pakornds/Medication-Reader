@@ -301,7 +301,7 @@ class AdmissionStore:
         rows = case["rows"]
         if isinstance(cmd, AttestCurrentUse):
             return attest_current_use(self.row(rows, cmd.row_id), actor, cmd)
-        if isinstance(cmd, Interview) and cmd.row_id in rows:
+        if isinstance(cmd, (AddEvidence, Interview, Proposal, Decision)) and cmd.row_id in rows:
             rows[cmd.row_id].pop("screening_attestation", None)
         if isinstance(cmd, (AddRow, AddEvidence)):
             entry = cmd.entry.model_dump(mode="json")
