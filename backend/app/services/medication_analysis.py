@@ -389,15 +389,6 @@ def analyze_medication_form(
             output_type=FormProposal,
             images=other_images,
         )
-    physical_row_ids = {
-        item.row_id for item in form.evidence.items if sources[item.source_id].kind in PHOTO_KINDS
-    }
-    if physical_row_ids - {row.id for row in proposed.rows}:
-        raise ProviderError(
-            "unsupported_form_evidence",
-            "The preview omitted a located medication item. Retry analysis or enter it manually.",
-        )
-
     grounding = FormGrounding(form, transcripts)
     try:
         for row in proposed.rows:
@@ -413,6 +404,19 @@ def analyze_medication_form(
         raise ProviderError(
             "unsupported_form_evidence", "The preview could not be tied to the submitted evidence."
         ) from None
+    physical_row_ids = {
+        item.row_id for item in form.evidence.items if sources[item.source_id].kind in PHOTO_KINDS
+    }
+    # The validated item reference belongs to this row, even when several rows share a photo.
+    covered_row_ids = {
+        row.id for row in grounded.rows
+        if any(ref.item_id is not None and sources[ref.source_id].kind in PHOTO_KINDS for ref in row.sources)
+    }
+    if physical_row_ids - covered_row_ids:
+        raise ProviderError(
+            "unsupported_form_evidence",
+            "The preview omitted a located medication item or its photo evidence. Retry analysis or enter it manually.",
+        )
     used_reports = [report for row in grounded.rows for report in row.reported_use]
     return AnalysisPreview(
         case_id=grounded.case_id,

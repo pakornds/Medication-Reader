@@ -9,10 +9,14 @@ from app.main import create_app
 from test_medication_analysis import multipart_parts, scoped_ocr, synthetic_case
 
 
-def test_missing_reverse_only_group_rejects_incomplete_transfer_preview_and_allows_retry():
+@pytest.mark.parametrize("omission", ["row", "located_source", "item_reference"])
+def test_missing_group_or_its_photo_evidence_rejects_transfer_preview_and_allows_retry(omission):
     form, photos, complete = synthetic_case()
     provider = Mock(spec=OpenAIClient)
     proposed = {**complete, "rows": complete["rows"][:2]}
+    if omission != "row":
+        source_id = "patient-account" if omission == "located_source" else "reverse-photo"
+        proposed["rows"].append({**complete["rows"][2], "sources": [{"source_id": source_id}], "reverse_crop": None})
 
     def generate(*, evidence_text, output_type, **kwargs):
         manifest = json.loads(evidence_text)
