@@ -22,7 +22,9 @@ from app.schemas.admission import (
     DOCUMENT_KINDS, Action, AddEvidence, AddRow, AttestCurrentUse, Decision, DocumentExcerpt,
     Finish, Import, Interview, NewEncounter, Proposal, Refer, RegisterDocument, SourceEntry, Verify,
 )
-from app.schemas.evidence import REPORT_KINDS, Observation, CaseEvidence, EvidenceItem, EvidenceRef, EvidenceSource, SourcedValue
+from app.schemas.evidence import (
+    REPORT_KINDS, CaseEvidence, EvidenceItem, EvidenceRef, EvidenceSource, Observation, QuotedEvidenceItem, SourcedValue,
+)
 from app.schemas.review import CurrentUseVerification, ImportRequest, ReviewRow
 from app.schemas.regimen import RegimenParseRequest
 from app.services.regimens import parse_directions
@@ -53,11 +55,21 @@ def sources_used_by_rows(case, source_id):
     return any(e["source"]["id"] == source_id for row in case["rows"].values() for e in row["entries"])
 
 
+def check_document_id(case, source):
+    require(source["id"] not in case.get("retired_capture_sources", ()), "Use a new logical source ID.")
+    require(all(s["id"] != source["id"] or s == source for s in case.get("capture", {}).get("sources", ())),
+            "The document source conflicts with capture evidence.")
+
+
 def resolve_entry(case, submitted):
     documents = case.setdefault("documents", {})
     if isinstance(submitted, DocumentExcerpt):
         document = documents.get(submitted.source_id)
         require(submitted.case_id == case["id"] and document, "Select a document from this encounter.")
+        if document["wording"] is None:
+            require(any(submitted.wording in e["wording"] for row in case["rows"].values()
+                        for e in row["entries"] if e["source"]["id"] == submitted.source_id),
+                    "Select an existing excerpt or supply the new excerpt with its document.")
         try:
             entry = SourceEntry(source=document["source"], **submitted.model_dump(exclude={"case_id", "source_id"}))
         except ValidationError:
@@ -74,6 +86,7 @@ def resolve_entry(case, submitted):
     else:
         require(not sources_used_by_rows(case, sid), "Use a new logical source ID.")
         if entry.source.kind in DOCUMENT_KINDS:
+            check_document_id(case, source)
             # Inline add/link clients supply the current excerpt, rather than the full document.
             documents[sid] = {"source": source, "wording": None}
     return entry
@@ -401,6 +414,10 @@ class AdmissionStore:
                 retired_sources.update(retired_view_sources(original, originals, previous, manifest, replaced))
             require(not retired_sources.intersection(s.id for s in manifest.sources),
                     "Use new source IDs for evidence on a retaken or invalidated view.")
+            for source in manifest.sources:
+                document = original.get("documents", {}).get(source.id)
+                require(not document or document["source"] == source.model_dump(mode="json"),
+                        "The capture source conflicts with a registered document.")
 
             for side in ("front", "reverse"):
                 view = getattr(manifest, side)
@@ -545,7 +562,9 @@ class AdmissionStore:
             documents = case.setdefault("documents", {})
             sid = cmd.source.id
             require(sid not in documents and not sources_used_by_rows(case, sid), "Source ID is already registered.")
-            documents[sid] = {"source": cmd.source.model_dump(mode="json"), "wording": cmd.wording}
+            source = cmd.source.model_dump(mode="json")
+            check_document_id(case, source)
+            documents[sid] = {"source": source, "wording": cmd.wording}
             return dict(rows=[], sources=[sid])
         if isinstance(cmd, AttestCurrentUse):
             return attest_current_use(self.row(rows, cmd.row_id), actor, cmd)
@@ -737,8 +756,11 @@ class AdmissionStore:
                     kind = "label_region" if reviewable_entry(entry) else "pill_crop"
                 if kind == "label_region" and source.kind == "reverse_photo":
                     kind = "matched_reverse_label"
-                item = EvidenceItem(id=row["id"], source_id=source.id, row_id=row["id"], kind=kind,
-                                    excerpt=entry["wording"] if source.kind in DOCUMENT_KINDS else None)
+                if source.kind in DOCUMENT_KINDS:
+                    item = QuotedEvidenceItem(id=row["id"], source_id=source.id, row_id=row["id"],
+                                              kind="record_excerpt", excerpt=entry["wording"])
+                else:
+                    item = EvidenceItem(id=row["id"], source_id=source.id, row_id=row["id"], kind=kind)
                 items.append(item)
                 refs[source.id] = EvidenceRef(source_id=source.id, item_id=item.id)
             ref = refs[verified["source_id"]]

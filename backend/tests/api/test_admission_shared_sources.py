@@ -78,6 +78,8 @@ def test_existing_inline_entries_can_share_document_metadata(client):
     second = case.add({"source": WARD, "wording": LINES[1], "name": "Demo Slate"})
     assert case.state["rows"][first]["entries"][0]["wording"] == LINES[0]
     assert case.state["rows"][second]["entries"][0]["wording"] == LINES[1]
+    case.add(excerpt(case, 1))
+    case.send("add", entry=excerpt(case, 0) | {"wording": "Demo Amber in a new invented line"}, status=422)
     case.send("add", entry={"source": WARD | {"organization": "Another hospital"}, "wording": LINES[0]}, status=422)
     case.add(record("R", "patient_report", "Synthetic interview"))
     case.send("add", entry=record("R", "patient_report", "Another report"), status=422)
