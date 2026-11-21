@@ -77,7 +77,8 @@ def test_report_and_unmarked_crop_have_same_result_in_either_order(client, repor
 
 
 @pytest.mark.parametrize("report_first", [True, False], ids=["report-first", "capture-first"])
-def test_report_and_shared_capture_appearance_have_same_result(client, report, report_first):
+@pytest.mark.parametrize("item_kind", ["pending_appearance", "order"])
+def test_report_and_shared_capture_appearance_have_same_result(client, report, report_first, item_kind):
     case = Case(client, "nurse")
     pending = "pending-b-round"
     if report_first:
@@ -86,6 +87,8 @@ def test_report_and_shared_capture_appearance_have_same_result(client, report, r
         case.send("verify", row_id=row, source_id="account")
     fixture = Path(__file__).resolve().parents[3] / "fixtures/package-capture/two-photos.json"
     manifest = json.loads(fixture.read_text().replace("demo-two-photos", case.state["id"]))
+    item = next(item for package in manifest["packages"] for item in package["items"] if item["row_id"] == pending)
+    item["kind"] = item_kind
     command = dict(revision=case.state["revision"], request_id="capture", manifest=manifest,
                    existing_rows={pending: row} if report_first else {})
     saved = submit(client, case.path, command, {"front": picture(6), "reverse": picture(1)})
@@ -132,3 +135,30 @@ def test_report_history_and_readable_original_package_can_still_be_verified(clie
     assert not saved["unknown"]
     assert saved["verified"]["identity"]["source_id"] == source
     case.send("finish")
+
+
+def test_incidental_transfer_name_does_not_identify_loose_item_linked_to_report(client, report):
+    case = Case(client, "nurse")
+    row = case.add(report)
+    case.link(row, record("transfer", "transfer_record", "Demo A in the historical list", name="Demo A"))
+    case.interview(row, "account")
+    case.send("verify", row_id=row, source_id="account")
+    case.link(row, photo("unmarked", "bag A", "unmarked tablet"))
+
+    check_unresolved(case, row)
+    saved = case.state["rows"][row]
+    assert any(entry["source"]["id"] == "transfer" and entry["source"]["kind"] == "transfer_record"
+               for entry in saved["entries"])
+
+
+def test_named_prescription_remains_usable_when_appearance_observation_is_added(client, report):
+    case = Case(client, "nurse")
+    row = case.add(record("prescription", "prescription", "Demo A", name="Demo A"))
+    case.link(row, report)
+    case.interview(row, "account")
+    case.send("verify", row_id=row, source_id="account", identity_source_id="prescription")
+    case.link(row, photo("unmarked", "bag A", "unmarked tablet"))
+    case.send("verify", row_id=row, source_id="account", identity_source_id="prescription")
+    saved = case.state["rows"][row]
+    assert not saved["unknown"]
+    assert saved["verified"]["identity"]["source_id"] == "prescription"
