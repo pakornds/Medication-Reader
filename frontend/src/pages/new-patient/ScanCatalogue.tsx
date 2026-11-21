@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import type { ProductOption, ProductOptions } from '../../api/contracts'
+import type { CatalogueIdentity, ProductOption, ProductOptions } from '../../api/contracts'
 import { searchProducts } from '../../api/reconciliation'
 import { Button } from '../../components/ui/Button'
 import { InputField } from '../../components/ui/InputField'
@@ -33,16 +33,20 @@ const normalizeName = (value: string) => value.normalize('NFKC').toLowerCase().r
 type LocatedName = { fact: Fact; photo: Photo; region: Region }
 type Props = {
   scan: MedicineEvidence
+  identity?: CatalogueIdentity
   currentEvidence: Evidence
   language: Language
   current?: CatalogueMatch
   onConfirm: (match: CatalogueMatch) => void
 }
 
-function Search({ scan, language, current, onConfirm, name }: Props & { name: LocatedName }) {
+function Search({ scan, language, current, onConfirm, name, identity }: Props & { name: LocatedName }) {
   const t = copy[language]
   const { fact, photo, region } = name
-  const [query, setQuery] = useState(fact.value.trim().slice(0, 120))
+  const supported = identity?.evidence.some(ref => ref.source_id === fact.evidence.source_id && ref.item_id === fact.evidence.item_id)
+    ? identity : undefined
+  const seed = (supported?.trade_name || supported?.ingredient || fact.value).trim().slice(0, 120)
+  const [query, setQuery] = useState(seed)
   const [result, setResult] = useState<ProductOptions>()
   const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('idle')
   const debounce = useRef<number | undefined>(undefined)
@@ -69,6 +73,8 @@ function Search({ scan, language, current, onConfirm, name }: Props & { name: Lo
       const qualified = [term, strength, form].filter(Boolean).join(' ')
       const queries = [term]
       if (!/^\d+$/.test(term) && qualified !== term && qualified.length <= 120) queries.unshift(qualified)
+      const observedTerm = fact.value.trim().slice(0, 120)
+      if (supported && term === seed && !queries.includes(observedTerm)) queries.push(observedTerm)
       const responses = await Promise.all(queries.map(q => searchProducts(q, controller.signal)))
       if (controller.signal.aborted) return
       const release = responses[0].tmt_release
@@ -82,7 +88,7 @@ function Search({ scan, language, current, onConfirm, name }: Props & { name: Lo
     } catch {
       if (!controller.signal.aborted) setStatus('error')
     }
-  }, [query, strength, form])
+  }, [query, strength, form, fact.value, seed, supported])
   useEffect(() => {
     debounce.current = window.setTimeout(() => void lookup(), 200)
     return () => { window.clearTimeout(debounce.current); active.current?.abort() }
@@ -123,7 +129,8 @@ function Search({ scan, language, current, onConfirm, name }: Props & { name: Lo
             form && product.dose_form && wording(form) !== wording(product.dose_form) && t.form,
           ].filter(Boolean)
           const observedName = normalizeName(fact.value)
-          const nameMismatch = observedName && fact.value.trim() !== product.tpu && ![product.label, product.source_generic ?? ''].some(
+          const corroborated = supported?.release === result.tmt_release && supported.candidate_tpus.includes(product.tpu)
+          const nameMismatch = !corroborated && observedName && fact.value.trim() !== product.tpu && ![product.label, product.source_generic ?? ''].some(
             value => (' ' + normalizeName(value) + ' ').includes(' ' + observedName + ' '),
           )
           const sameProduct = current?.product.tpu === product.tpu && current.release === result.tmt_release
@@ -172,7 +179,7 @@ export function ScanCatalogue(props: Props) {
           {names.map(({ fact }, i) => <option key={i} value={i}>{fact.value}</option>)}
         </select>
       </label>}
-      <Search {...props} name={name} key={JSON.stringify([name.fact, name.photo.id, name.region.id])} />
+      <Search {...props} name={name} key={JSON.stringify([name.fact, name.photo.id, name.region.id, props.identity])} />
     </>}
   </details>
 }

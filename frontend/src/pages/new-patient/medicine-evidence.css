@@ -1,0 +1,32 @@
+.medicine-source > summary {
+  color: var(--accent);
+  cursor: pointer;
+  width: fit-content;
+  padding-block: 0.4rem;
+}
+.medicine-source > .row-evidence {
+  margin-block-start: 0.5rem;
+}
+.source-fact-list {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+}
+.source-fact-list > div {
+  display: grid;
+  grid-template-columns: minmax(7rem, 30%) 1fr;
+  gap: 0.65rem;
+}
+.source-fact-list dt {
+  font-weight: 600;
+}
+.source-fact-list dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.medicine-check {
+  font-weight: 600;
+}
+.medicine-presentation {
+  color: var(--text-2);
+}

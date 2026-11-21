@@ -106,7 +106,7 @@ def _extract_region(form, photo, original, located, get_provider):
 
 
 def analyze_scenes(form, photos, get_provider, linked_sources):
-    from app.services.medication_analysis import AnalysisPreview, FormAnalysisError, analyze_medication_form
+    from app.services.medication_analysis import AnalysisPreview, FormAnalysisError, transcribe_medication_form
 
     selected = set(form.scene_photo_ids)
     if len(selected) != len(form.scene_photo_ids) or not selected <= set(form.photo_source_ids):
@@ -124,7 +124,7 @@ def analyze_scenes(form, photos, get_provider, linked_sources):
                               unavailable_sources=[s for s in remaining.evidence.sources if s.availability == "unavailable"])
     if retained or remaining.patient_report or remaining.other_source_notes:
         try:
-            preview = analyze_medication_form(remaining, retained, get_provider)
+            preview = transcribe_medication_form(remaining, retained, get_provider)
         except ProviderError:
             preview.remaining_evidence_unassessed = True
             preview.unassessed_question = bool(form.question)

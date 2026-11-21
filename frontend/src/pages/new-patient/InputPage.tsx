@@ -1,3 +1,4 @@
+import { scanActions } from './scanActions'
 import { FacilityDetails } from './FacilityDetails'
 import type { RegionBounds } from '../../api/contracts'
 import { regimenText } from '../../i18n/regimen'
@@ -9,7 +10,6 @@ import type { Dispatch, SetStateAction } from 'react'
 import { Link, useOutletContext } from 'react-router-dom'
 import {
   LuArrowRight,
-  LuClipboardList,
   LuFileText,
   LuTrash2,
   LuListPlus,
@@ -28,26 +28,15 @@ import { PhotoSlot } from './PhotoSlot'
 import {
   newNote,
   draftValues,
-  knownOrder,
-  linkScan,
   medicineName,
   replacePhoto,
-  scanEvidence,
   updateDraftEvidence,
   type Draft,
   type Evidence,
   type Note,
   type Photo,
   type PhotoKind,
-  type Preview,
 } from './draft'
-
-function remainingPreview(preview: Preview, rows: Preview['rows']): Preview | null {
-  const issues = preview.photo_issues?.filter(issue => !issue.item_id
-    || rows.some(row => row.sources.some(source => source.item_id === issue.item_id)))
-  return rows.length || preview.unassigned_reports.length || issues?.length || preview.remaining_evidence_unassessed || preview.unassessed_question
-    ? { ...preview, rows, photo_issues: issues } : null
-}
 
 export function InputPage({
   draft,
@@ -63,12 +52,14 @@ export function InputPage({
   const t = intake[language]
   const setHasManualWork = useOutletContext<(hasWork: boolean) => void>()
   const [mode, setMode] = useState<'evidence' | 'manual'>('evidence')
+  const [editingSources, setEditingSources] = useState(false)
   const [addSlot, setAddSlot] = useState(false)
   const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('idle')
   const [failure, setFailure] = useState<unknown>(null)
   const request = useRef<AbortController | null>(null)
   const previewArea = useRef<HTMLDivElement>(null)
   const { evidence, medicines } = draft
+  const hasSuggestions = Boolean(draft.preview?.rows.length) && mode === 'evidence'
   const hasEvidence = evidence.photos.length > 0 || evidence.notes.some((note) => note.text.trim())
   const tooLarge =
     evidence.photos.length > 16 || evidence.photos.reduce((sum, p) => sum + p.file.size, 0) >= 16_000_000
@@ -127,46 +118,11 @@ export function InputPage({
       setDraft((d) => (d.caseId === draft.caseId && d.evidence === evidence
         ? { ...d, evidence: applyLocatedRegions(evidence, preview), preview } : d))
       setStatus('idle')
-      requestAnimationFrame(() => previewArea.current?.scrollIntoView({ block: 'start' }))
+      setEditingSources(false)
+      requestAnimationFrame(() => previewArea.current?.focus({ preventScroll: false }))
     } catch (error) {
       if (!controller.signal.aborted) { setFailure(error); setStatus('error') }
     }
-  }
-  function confirm(preview: Preview, placements: ReadonlyMap<string, string | null>) {
-    setDraft((d) => {
-      if (d.preview !== preview) return d
-      const medicines = [...d.medicines]
-      const remaining = preview.rows.filter((row) => {
-        const target = placements.get(row.id)
-        if (target === undefined) return true
-        const priorOrder = knownOrder(medicines, row.id)
-        const scan = scanEvidence(preview, row, d.evidence)
-        if (target === null) {
-          if (priorOrder) return true
-          medicines.push({ ...scan, origin: 'analysis' })
-          return false
-        }
-        const index = medicines.findIndex((medicine) => medicine.row.id === target)
-          if (index < 0) return true
-        medicines[index] = linkScan(medicines[index], scan)
-        return false
-      })
-      return {
-        ...d,
-        medicines,
-        preview: remainingPreview(preview, remaining),
-      }
-    })
-  }
-  function dismiss(preview: Preview, id: string) {
-    setDraft((d) => {
-      if (d.preview !== preview) return d
-      const rows = preview.rows.filter((row) => row.id !== id)
-      return {
-        ...d,
-        preview: remainingPreview(preview, rows),
-      }
-    })
   }
   function removeMedicine(id: string) {
     setDraft((current) => ({
@@ -193,11 +149,32 @@ export function InputPage({
     <div className="intake">
       <div className="intake-title">
         <h1>{t.title}</h1>
-        <p>{t.intro}</p>
+        {!hasSuggestions && <p>{t.intro}</p>}
       </div>
-      <div className="intake-grid">
+      <div className={medicines.length ? "intake-grid" : "intake-grid intake-single"}>
         <div className="stack main-column">
-          <section className="intake-panel">
+          <div ref={previewArea} tabIndex={-1} hidden={mode !== 'evidence' || !draft.preview}>
+            {draft.preview?.photo_issues?.map(issue => {
+              const photo = evidence.photos.find(p => p.id === issue.attachment_id)
+              if (!photo) return null
+              const index = photo.regions.findIndex(r => r.id === issue.item_id)
+              return <p role="status" key={photo.id + (issue.item_id || '') + issue.code}>
+                <strong>{t[photo.kind]} · {photo.file.name}{index >= 0 ? ' · ' + t.region + ' ' + (index+1) : ''}</strong>
+                {' · '}{t[issue.code]}
+                {issue.provider_code && <span> {analysisProviderMessage(issue.provider_code,language)}</span>}
+              </p>
+            })}
+            {draft.preview?.unassessed_question && <p role="status"><strong>{language === 'th' ? 'คำถามที่รอเจ้าหน้าที่ทบทวน' : 'Question for staff review'}</strong> · {draft.evidence.question}</p>}
+            {draft.preview?.remaining_evidence_unassessed && <p role="status">{t.remainingUnassessed}</p>}
+            {draft.preview && (
+              <AnalysisPreview draft={draft} language={language} {...scanActions(setDraft)} />
+            )}
+          </div>
+          {hasSuggestions && <button type="button" className="text-action edit-scan-inputs"
+            aria-expanded={editingSources} aria-controls="intake-entry" onClick={() => setEditingSources(value => !value)}>
+            {editingSources ? t.hideInputs : t.editInputs}
+          </button>}
+          <section id="intake-entry" className="intake-panel" hidden={hasSuggestions && !editingSources}>
             <div className="input-modes" role="group" aria-label={t.mode}>
               {tabs.map(({ key, icon: Icon }) => (
                 <button aria-pressed={mode === key} key={key} onClick={() => setMode(key)}>
@@ -337,38 +314,15 @@ export function InputPage({
               />
             </div>
           </section>
-          <div ref={previewArea} hidden={mode !== 'evidence'}>
-            {draft.preview?.photo_issues?.map(issue => {
-              const photo = evidence.photos.find(p => p.id === issue.attachment_id)
-              if (!photo) return null
-              const index = photo.regions.findIndex(r => r.id === issue.item_id)
-              return <p role="status" key={photo.id + (issue.item_id || '') + issue.code}>
-                <strong>{t[photo.kind]} · {photo.file.name}{index >= 0 ? ' · ' + t.region + ' ' + (index+1) : ''}</strong>
-                {' · '}{t[issue.code]}
-                {issue.provider_code && <span> {analysisProviderMessage(issue.provider_code,language)}</span>}
-              </p>
-            })}
-            {draft.preview?.unassessed_question && <p role="status"><strong>{language === 'th' ? 'คำถามที่รอเจ้าหน้าที่ทบทวน' : 'Question for staff review'}</strong> · {draft.evidence.question}</p>}
-            {draft.preview?.remaining_evidence_unassessed && <p role="status">{t.remainingUnassessed}</p>}
-            {draft.preview && (
-              <AnalysisPreview draft={draft} language={language} onConfirm={confirm} onDismiss={dismiss} />
-            )}
-          </div>
+
         </div>
-        <aside aria-labelledby="draft-heading" className="intake-panel stack">
+        {medicines.length > 0 && <aside aria-labelledby="draft-heading" className="intake-panel stack">
           <div className="spread">
             <h2 id="draft-heading">{t.draft}</h2>
             <span className="count" aria-live="polite">
               {medicines.length}
             </span>
           </div>
-          {medicines.length === 0 ? (
-            <div className="empty-case">
-              <LuClipboardList aria-hidden="true" />
-              <p>{t.emptyHint}</p>
-            </div>
-          ) : (
-            <>
               <ul className="draft-list">
                 {medicines.map((medicine) => {
                   const { row } = medicine
@@ -400,9 +354,7 @@ export function InputPage({
                 {t.review}
                 <LuArrowRight aria-hidden="true" />
               </Link>
-            </>
-          )}
-        </aside>
+        </aside>}
       </div>
     </div>
   )

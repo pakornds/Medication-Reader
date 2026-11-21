@@ -1,4 +1,4 @@
-import type { AnalysisPreview, EvidenceSource, DispensingFacility, EvidenceRef, RegimenComponent, SourcedValue } from '../../api/contracts'
+import type { AnalysisPreview, CatalogueIdentity, EvidenceSource, DispensingFacility, EvidenceRef, RegimenComponent, SourcedValue } from '../../api/contracts'
 import type { PercentBox } from '../../components/ui/RegionOutline'
 import type { Language } from '../../i18n/messages'
 
@@ -49,6 +49,7 @@ export type MedicineEvidence = {
   row: Suggestion
   evidence: Evidence
   facility?: DispensingFacility
+  catalogueIdentity?: CatalogueIdentity
 }
 export type DraftValues = { name: string; strength: string; form: string; directions: string }
 export type Medicine = MedicineEvidence & {
@@ -77,12 +78,15 @@ export function createDraft(): Draft {
   }
 }
 
-export function rowName(row: Suggestion, language: Language) {
-  if (row.observed_names.length > 1) {
-    return language === 'th' ? 'พบหลายชื่อในหลักฐาน' : 'Multiple names in evidence'
+export function rowName(row: Suggestion, language: Language, catalogueIdentity?: CatalogueIdentity) {
+  if (row.identity_status === 'named' && catalogueIdentity) {
+    const { ingredient, trade_name } = catalogueIdentity
+    return trade_name && trade_name.toLowerCase() !== ingredient.toLowerCase()
+      ? ingredient + ' (' + trade_name + ')' : ingredient
   }
+  const names = [...new Set(row.observed_names.map(name => name.value.trim()).filter(Boolean))]
   return (
-    row.observed_names[0]?.value ||
+    names.join(' · ') ||
     row.unknown_label ||
     (language === 'th' ? 'ยาไม่ทราบชื่อ' : 'Unknown medicine')
   )
@@ -112,12 +116,20 @@ export function withDraftValues(medicine: Medicine, values: DraftValues): Medici
   return { ...medicine, corrections: Object.keys(corrections).length ? corrections : undefined }
 }
 
+// An edited product or a different staff-selected catalogue result needs a fresh comparison.
+export function currentCatalogueIdentity(medicine: Medicine) {
+  const { catalogueIdentity, catalogue, corrections } = medicine
+  if (!catalogueIdentity || corrections?.name !== undefined || corrections?.strength !== undefined || corrections?.form !== undefined) return undefined
+  if (catalogue && (catalogue.release !== catalogueIdentity.release || !catalogueIdentity.candidate_tpus.includes(catalogue.product.tpu))) return undefined
+  return catalogueIdentity
+}
+
 export function medicineName(medicine: Medicine, language: Language) {
   if (medicine.row.identity_status === 'named' && medicine.corrections?.name === '') {
     return language === 'th' ? 'ยาไม่ทราบชื่อ' : 'Unknown medicine'
   }
-  return (medicine.row.identity_status === 'named' && draftValues(medicine).name)
-    || rowName(medicine.row, language)
+  return (medicine.row.identity_status === 'named' && medicine.corrections?.name)
+    || rowName(medicine.row, language, currentCatalogueIdentity(medicine))
 }
 
 export function scanEvidence(preview: Preview, row: Suggestion, evidence: Evidence): MedicineEvidence {
@@ -126,7 +138,10 @@ export function scanEvidence(preview: Preview, row: Suggestion, evidence: Eviden
   const cited = ref && row.sources.some((source) => (
     source.source_id === ref.source_id && (source.item_id ?? null) === (ref.item_id ?? null)
   ))
-  return { row, evidence, facility: cited ? facility : undefined }
+  const identity = preview.catalogue_identities?.[row.id]
+  const supported = identity?.evidence.length && identity.evidence.every(ref =>
+    row.sources.some(source => source.source_id === ref.source_id && (source.item_id ?? null) === (ref.item_id ?? null)))
+  return { row, evidence, facility: cited ? facility : undefined, catalogueIdentity: supported ? identity : undefined }
 }
 
 export function knownOrder(medicines: Medicine[], scanId: string) {
@@ -142,6 +157,7 @@ export function linkScan(medicine: Medicine, scan: MedicineEvidence): Medicine {
     !hasEarlierEvidence(entry, scan.evidence)
     && JSON.stringify(entry.row) === JSON.stringify(scan.row)
     && JSON.stringify(entry.facility) === JSON.stringify(scan.facility)
+    && JSON.stringify(entry.catalogueIdentity) === JSON.stringify(scan.catalogueIdentity)
   ))) return medicine
   return { ...medicine, linkedScans: [...scans, scan] }
 }

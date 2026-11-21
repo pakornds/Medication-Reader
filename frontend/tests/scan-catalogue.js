@@ -1,3 +1,43 @@
+// Exercise the installed-release identity on a multi-name, automatically located package.
+export async function checkAdjudicatedAlias({ doc, win, expect, assert, type, itemId }) {
+  const frame = win()
+  const originalFetch = frame.fetch
+  const queries = []
+  frame.fetch = async (url, options) => {
+    if (!String(url).includes('/checks/local/products')) return originalFetch(url, options)
+    const term = new URL(url, frame.location.href).searchParams.get('q')
+    queries.push(term)
+    return Response.json({ tmt_release: term === '8888' ? 'other-release' : 'fixture', products: ['0001', '0002'].map(tpu => ({
+      tpu, label: 'Synthetic right 10 mg tablet', source_generic: 'Example ingredient', strength: '10 mg', dose_form: 'tablet', active_tmt: true,
+    })) })
+  }
+  try {
+    doc().querySelector('a[href="/new-patient/review"]').click()
+    const row = () => [...doc().querySelectorAll('article')].find(a => a.querySelector('h2')?.textContent.includes('Example ingredient'))
+    await expect(row, 'adjudicated ingredient and trade name retained in Review')
+    const panel = row().querySelector('.scan-catalogue')
+    panel.open = true
+    await expect(() => panel.querySelector('select'), 'adjudicated source aliases available')
+    const select = panel.querySelector('select')
+    select.value = '1'
+    select.dispatchEvent(new Event('change', {bubbles:true}))
+    const products = () => [...panel.querySelectorAll('.scan-comparison .suggestion')]
+    await expect(() => queries.includes('Example alias') && products().length === 2, 'search both supported name and original spelling')
+    assert(panel.querySelector('canvas')?.dataset.region === itemId && panel.querySelector('input').value === 'Synthetic right',
+      'supported search seed retains the exact same crop')
+    const warning = 'The observed name does not appear'
+    assert(!products()[0].textContent.includes(warning) && products()[1].textContent.includes(warning),
+      'only the same-release shortlisted TPU corroborates the printed alias')
+    type(panel.querySelector('input'), '8888')
+    await expect(() => panel.textContent.includes('other-release') && products()[0]?.textContent.includes(warning), 'same TPU in another release cannot corroborate an alias')
+    assert(!row().querySelector('.selected-trade-product'), 'adjudication and search do not confirm a trade product')
+    doc().querySelector('a[href="/new-patient/input"]').click()
+    await expect(() => doc().querySelector('aside .draft-line'), 'return from comparison to the accepted draft')
+  } finally {
+    frame.fetch = originalFetch
+  }
+}
+
 // Runs inside the synthetic two-label intake scenario against the actual React Review route.
 export async function checkScanCatalogue({ frame, manualOrder, scannedOrder, expect, assert, type }) {
   const originalFetch = frame.fetch

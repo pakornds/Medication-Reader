@@ -119,3 +119,38 @@ def test_parser_models_are_in_preregistration_contract():
     assert {"RegimenParseRequest", "RegimenParseResult", "RegimenComponent"} <= (
         contract_openapi()["components"]["schemas"].keys()
     )
+
+
+@pytest.mark.parametrize(("words", "amount", "unit", "times", "route", "meal", "residual"), [
+    ("รับประทานครั้งละ ครึ่งเม็ด วันละ 1 ครั้ง หลังอาหารเช้า",
+     0.5, "tablet", ["morning"], "oral", "after meals", None),
+    ("รับประทานครั้งละ 1 เม็ด วันละ 2 ครั้ง หลังอาหารเช้า-เย็น รับประทานทุกวันจนยาหมด",
+     1, "tablet", ["morning", "evening"], "oral", "after meals", "รับประทานทุกวันจนยาหมด"),
+    ("ที่มีอาการ 1 หยด วันละ 3 ครั้ง เช้า กลางวัน เย็น; มีอายุการใช้ 1 เดือน หลังจากเปิดใช้ครั้งแรก",
+     1, "drop", ["morning", "noon", "evening"], None, None, "full"),
+])
+def test_thai_label_frequency_keeps_original_and_cites_only_explicit_fields(
+    words, amount, unit, times, route, meal, residual,
+):
+    component, = parse(words)
+    assert component.directions_text == words
+    assert component.unparsed_text == (words if residual == "full" else residual)
+    assert component.parse_status == ("partial" if residual else "complete")
+    assert (component.dose_amount, component.dose_unit) == (amount, unit)
+    assert component.time_of_day == times
+    assert (component.frequency_count, component.period_value, component.period_unit) == (len(times), 1, "day")
+    assert (component.route, component.meal_relation, component.as_needed) == (route, meal, None)
+    assert all(ref == SOURCE for ref in component.evidence.values())
+
+
+@pytest.mark.parametrize("words", [
+    "ห้ามรับประทานครั้งละ 1 เม็ด วันละ 2 ครั้ง เช้า-เย็น",
+    "1 เม็ด วันละ 2 ครั้ง เช้า ยกเว้นวันจันทร์",
+    "1 เม็ด วันละ 2 ครั้ง เช้า กลางวัน เย็น",
+    "1 เม็ด วันละ 1 ครั้ง หลังอาหารเช้า; ถ้าปวดให้เพิ่มเป็น 2 เม็ด",
+])
+def test_thai_label_frequency_preserves_contradictions_and_unrecognized_qualifiers(words):
+    component, = parse(words)
+    assert component.unparsed_text == words
+    assert component.parse_status == "unparsed"
+    assert component.evidence == {"directions_text": SOURCE}

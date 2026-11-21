@@ -9,6 +9,7 @@ from app.schemas.admission import NewEncounter, Photo, SourceEntry
 from app.schemas.admission_intake import IntakeSubmission
 from app.schemas.analysis import FollowUp
 from app.schemas.evidence import EvidenceSource, PHOTO_KINDS, REPORT_KINDS
+from app.services.catalogue_identity import supported_intake_identity
 from app.services.admission_intake_evidence import prepare_sources
 from app.services.admissions import capture_orientation, new_encounter, new_row, now, require, unresolved_photo
 
@@ -101,6 +102,37 @@ def _entries(medicine, encoded, images, by_source, names_by_source):
     return result
 
 
+def _display_identity(medicine, current_views):
+    """A display hint is independent of the clinical identity, verification and import."""
+    if not medicine.catalogue_identity or {"name", "form", "strength"} & medicine.corrections.keys():
+        return None
+    if medicine.origin != "analysis" or medicine.row.discrepancies:
+        return None
+    checked = []
+    for part in (medicine, *medicine.linked):
+        if (part.row.identity_status != "named" or part.row.discrepancies
+                or any(s.kind == "label_photo" and current_views.get("front", s.attachment_id) != s.attachment_id
+                       for s in part.sources)):
+            return None
+        identity = supported_intake_identity(part.catalogue_identity, part.row, part.items, part.sources)
+        if not identity or not identity.candidate_tpus:
+            return None
+        if part.catalogue and (part.catalogue.release != identity.release
+                               or part.catalogue.product.tpu not in identity.candidate_tpus):
+            return None
+        checked.append(identity)
+    primary = checked[0]
+    if any((entry.ingredient, entry.trade_name, entry.release) !=
+           (primary.ingredient, primary.trade_name, primary.release) for entry in checked[1:]):
+        return None
+    candidates = set(primary.candidate_tpus).intersection(*(entry.candidate_tpus for entry in checked[1:]))
+    if not candidates or (medicine.catalogue and medicine.catalogue.product.tpu not in candidates):
+        return None
+    refs = {(ref.source_id, ref.item_id): ref for identity in checked for ref in identity.evidence}
+    return primary.model_copy(update={"evidence": list(refs.values()),
+                                      "candidate_tpus": sorted(candidates)}).model_dump(mode="json")
+
+
 def _reserved_evidence(case):
     """Reserve sources owned by clinical activity or retired in an earlier revision."""
     reserved = set(case.get("retired_capture_sources", ())) | set(case.get("unavailable_sources", ()))
@@ -126,6 +158,7 @@ def save_intake(store, actor, request: IntakeSubmission):
     case_id = "admission-" + request.case_id.hex
     by_id = {medicine.row.id: medicine for medicine in request.rows}
     require(len(by_id) == len(request.rows), "Duplicate medicine row.")
+    display_identities = {rid: _display_identity(m, request.current_views) for rid, m in by_id.items()}
     prepared = {rid: prepare_sources(medicine, case_id) for rid, medicine in by_id.items()}
     medicines = [part for part, _, _ in prepared.values()]
     # Evidence identifiers may be reused only for the same source, including its original wording.
@@ -196,10 +229,16 @@ def save_intake(store, actor, request: IntakeSubmission):
             row.update(entries=entries, intake=medicine.row.model_dump(mode="json"),
                        intake_entry_ids=[e["source"]["id"] for e in entries],
                        intake_catalogue=medicine.catalogue.model_dump(mode="json") if medicine.catalogue else None)
+            display_identity = display_identities[rid]
+            if display_identity:
+                row["intake_catalogue_identity"] = display_identity
             if original.linked or original.corrections:
                 row["intake_sources"] = [part.row.model_dump(mode="json") for part in [original, *original.linked]]
                 row["intake_corrections"] = original.corrections.copy()
             case["rows"][rid] = row
+        for rid, display in display_identities.items():
+            if not display:
+                case["rows"][rid].pop("intake_catalogue_identity", None)
         from app.services.admission_intake_capture import sync_capture
         sync_capture(case, medicines, orientations, request.current_views)
         if previous and previous.get("intake_capture_fingerprint"):

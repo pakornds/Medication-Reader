@@ -75,6 +75,8 @@
   .intake-title p { margin-top: .25rem; }
   .intake small, .hint { font-size: .85rem; line-height: 1.55; }
   .intake-grid { display: grid; gap: 1.25rem; align-items: start; }
+  .intake-grid.intake-single { grid-template-columns: minmax(0, 1fr); max-width: 58rem; }
+  .edit-scan-inputs { justify-self: start; }
   .intake-grid > *, .field-pair > *, .photo-pair > * { min-width: 0; }
   .intake-panel { background: var(--bg-2); border: 1px solid var(--line); border-radius: .85rem; padding: clamp(1rem,2vw,1.5rem); }
   .stack { display: flex; flex-direction: column; gap: .85rem; }

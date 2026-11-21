@@ -37,3 +37,5 @@ TEST_UI_URL=http://127.0.0.1:5173 TEST_API_URL=http://127.0.0.1:8000 \
 ```
 
 Export the same synthetic nurse and pharmacist token variables in the test shell. Set `CHROME_PATH` to use an existing Chromium executable.
+
+For a presenter walkthrough, set `MEDREC_DEMO_PHARMACIST_TOKEN` in the development server environment to the synthetic pharmacist token configured on the local FastAPI server. Open the app on localhost. The development proxy supplies the demo identity and Review opens without a token form. Omit this setting to exercise staff sign-in and role switching.
