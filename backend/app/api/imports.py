@@ -27,9 +27,9 @@ def _selected_evidence(evidence: CaseEvidence, rows: Sequence[ReviewRow]) -> Cas
         verification = row.verification
         if verification is not None:
             source_ids.update(reference.source_id for reference in verification.evidence)
-            for fact in (verification.identity, verification.dose, verification.route, verification.frequency):
-                if fact is not None:
-                    source_ids.add(fact.evidence.source_id)
+            if verification.identity is not None:
+                source_ids.add(verification.identity.evidence.source_id)
+            source_ids.update(ref.source_id for ref in verification.regimen_references())
         source_ids.update(
             follow_up.potential_source_id
             for follow_up in row.follow_ups

@@ -37,3 +37,15 @@ an unavailable clinic record, conflicting ward and patient evidence, and
 successful and recoverable service responses. From the repository root, run
 `python -m pytest backend/tests/test_contracts.py` to verify the fixtures and
 evidence boundaries.
+
+## Try the regimen round trip
+
+The regular FastAPI app exposes `POST /regimens/parse`. Supply an assigned row ID, component ID, statement, basis, source reference and case evidence. Each populated clinical field in the response cites its source. A partial or unparsed result retains the unsupported wording. Store documented and reported components on `row.regimens`. A pharmacist or doctor records the encounter’s actual regimen on `row.verification.regimens`. An edited field may cite a different source. A current row with structured verification needs a complete dose, unit, route and schedule for each verified component. Older rows with only sourced dose, route and frequency remain supported.
+
+From a checkout with the backend installed, run:
+
+```sh
+python -m uvicorn app.regimen_demo:create_app --factory --host 127.0.0.1
+```
+
+Open [the local synthetic review](http://127.0.0.1:8000/regimen-demo/). Load the fixture, compare the documented morning timing with the patient's evening report, edit actual use, verify it and approve the import. The page reads back the receiving record using the receipt timestamp. This explicit local demo uses a fixture pharmacist and an in-memory mock hospital. The regular application does not register that fixture identity.

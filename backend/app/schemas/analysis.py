@@ -3,7 +3,9 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
+from .regimen import RegimenComponent, validate_component_list, validate_regimen_evidence
 from .evidence import (
+    EvidenceValidationError,
     PHOTO_KINDS,
     REPORT_KINDS,
     CaseEvidence,
@@ -50,12 +52,14 @@ class MedicationSuggestion(ContractModel):
     observed_names: list[SourcedValue] = Field(default_factory=list)
     label_fields: dict[LabelField, Observation] = Field(default_factory=dict)
     reported_use: list[SourcedValue] = Field(default_factory=list)
+    regimens: list[RegimenComponent] = Field(default_factory=list)
     reverse_crop: EvidenceRef | None = None
     discrepancies: list[Discrepancy] = Field(default_factory=list)
     follow_ups: list[FollowUp] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def check_identity(self) -> "MedicationSuggestion":
+        validate_component_list(self.regimens, verified=False)
         named = self.identity_status == "named"
         if bool(self.observed_names) != named or (self.unknown_label is None) != named:
             raise ValueError("Use sourced names for named rows and a placeholder for unknown rows")
@@ -96,10 +100,6 @@ class AnalysisRequest(ContractModel):
                 ):
                     raise ValueError("Form evidence must cite an available source of the matching type")
         return self
-
-
-class EvidenceValidationError(ValueError):
-    """The result cites evidence outside its supported case or item."""
 
 
 def validate_analysis_result(result: AnalysisResult, evidence: CaseEvidence) -> AnalysisResult:
@@ -162,6 +162,10 @@ def validate_analysis_result(result: AnalysisResult, evidence: CaseEvidence) -> 
                 if kind in REPORT_KINDS or kind == SourceKind.REVERSE_PHOTO:
                     raise EvidenceValidationError("Documented fields require label or record evidence")
                 check_label_region(field.evidence, kind)
+        for component in row.regimens:
+            validate_regimen_evidence(component, row.id, evidence)
+            if any(ref.source_id not in row_source_ids for ref in component.evidence.values()):
+                raise EvidenceValidationError("Row is missing a regimen source")
         for observed in row.reported_use:
             if check_field(observed.evidence) not in REPORT_KINDS:
                 raise EvidenceValidationError("Reported use requires a patient or caregiver source")

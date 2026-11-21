@@ -7,6 +7,7 @@ from threading import Lock
 
 from app.schemas.analysis import AnalysisResult, EvidenceValidationError, validate_analysis_result
 from app.schemas.evidence import PHOTO_KINDS, CaseEvidence
+from app.schemas.regimen import validate_regimen_evidence
 from app.schemas.review import (
     ImportRequest,
     PharmacistApproval,
@@ -38,9 +39,7 @@ def _validate_review(row: ReviewRow, evidence: CaseEvidence) -> None:
         or verification.identity is None
     ):
         raise EligibilityError("review_required", "Verify identity and current use.", [row.id])
-    if verification.status == "current" and not all(
-        (verification.dose, verification.route, verification.frequency)
-    ):
+    if verification.status == "current" and not verification.has_complete_regimen():
         raise EligibilityError("regimen_required", "Verify dose, route and frequency.", [row.id])
     if {item.id for item in row.discrepancies} != set(verification.resolved_discrepancies):
         raise EligibilityError("unresolved_conflict", "Resolve the evidence conflicts.", [row.id])
@@ -48,11 +47,11 @@ def _validate_review(row: ReviewRow, evidence: CaseEvidence) -> None:
     sources = {source.id: source for source in evidence.sources}
     items = {(item.source_id, item.id): item for item in evidence.items}
     references = [*verification.evidence, verification.identity.evidence]
-    for field in (verification.dose, verification.route, verification.frequency):
-        if field is not None:
-            references.append(field.evidence)
+    references.extend(verification.regimen_references())
     try:
         validate_analysis_result(AnalysisResult(case_id=evidence.case_id, rows=[row]), evidence)
+        for component in verification.regimens:
+            validate_regimen_evidence(component, row.id, evidence)
         for reference in references:
             source = sources.get(reference.source_id)
             item = items.get((reference.source_id, reference.item_id))

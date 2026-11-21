@@ -161,3 +161,19 @@ async def test_provider_timeout_is_recoverable(client, scenario):
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "provider_timeout"
     assert response.json()["detail"]["recoverable"] is True
+
+
+async def test_label_scan_prefills_same_regimen_from_the_located_directions(client, scenario):
+    http, _ = client
+    request, provider_response = scenario
+    provider_response["rows"][0]["label_fields"]["directions"]["value"] = "1 tablet each morning"
+    response = await http.post("/labels/transcribe", json=request)
+    assert response.status_code == 200, response.text
+    first, second = response.json()["rows"]
+    schedule, = first["regimens"]
+    assert schedule["basis"] == "documented"
+    assert schedule["directions_text"] == "1 tablet each morning"
+    assert schedule["dose_amount"] == 1 and schedule["dose_unit"] == "tablet"
+    assert schedule["time_of_day"] == ["morning"] and schedule["route"] is None
+    assert schedule["evidence"]["time_of_day"] == {"source_id": "label-photo", "item_id": "label-a"}
+    assert second["regimens"] == []

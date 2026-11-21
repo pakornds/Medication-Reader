@@ -7,6 +7,7 @@ from pydantic.json_schema import models_json_schema
 from .analysis import AnalysisRequest, AnalysisResult
 from .checks import CheckRequest, CheckSummary
 from .pills import CandidateRequest, CandidateResult, PillObservation
+from .regimen import RegimenParseRequest, RegimenParseResult
 from .review import ImportReceipt, ImportRequest, ReviewerIdentity, ServiceError
 
 
@@ -14,6 +15,8 @@ def contract_openapi() -> dict:
     models = (
         AnalysisRequest,
         AnalysisResult,
+        RegimenParseRequest,
+        RegimenParseResult,
         CandidateRequest,
         CandidateResult,
         CheckRequest,

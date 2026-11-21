@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Regimen review | Medication Reader</title>
+    <link rel="stylesheet" href="/regimen-review/regimen-editor.css">
+  </head>
+  <body>
+    <header class="demo-header">
+      <span>Medication Reader</span>
+      <span>Synthetic transfer case</span>
+    </header>
+
+    <main class="demo-workspace">
+      <header class="demo-intro">
+        <h1>Verify a medication regimen</h1>
+        <p>Compare the label and patient report, then record the regimen confirmed during review.</p>
+        <button class="regimen-button" id="load-case" type="button">Load demo case</button>
+      </header>
+
+      <p id="demo-status" class="demo-status" role="status"></p>
+      <p id="demo-error" class="demo-error" role="alert" hidden></p>
+
+      <div class="demo-grid" id="case-review" hidden>
+        <aside class="demo-evidence" aria-labelledby="evidence-heading">
+          <h2 id="evidence-heading">Source evidence</h2>
+          <div id="regimen-sources"></div>
+        </aside>
+
+        <section class="demo-review" aria-labelledby="review-heading">
+          <header class="demo-review-title">
+            <h2 id="review-heading">Demo A <span>5 mg tablet</span></h2>
+            <p id="review-status">Timing differs between sources</p>
+          </header>
+
+          <div id="regimen-editor"></div>
+
+          <section class="demo-import" id="import-panel" aria-labelledby="import-heading" hidden>
+            <h2 id="import-heading">Mock hospital import</h2>
+            <p id="verified-summary"></p>
+            <button class="regimen-button" id="approve-import" type="button">Approve and import selected row</button>
+            <div id="receipt" role="status"></div>
+          </section>
+        </section>
+      </div>
+    </main>
+
+    <script type="module" src="/regimen-demo/demo.js"></script>
+  </body>
+</html>

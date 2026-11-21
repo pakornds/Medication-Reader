@@ -1,0 +1,319 @@
+:root {
+  --regimen-paper: #f2f5f4;
+  --regimen-white: #fff;
+  --regimen-ink: #152c27;
+  --regimen-muted: #4c625b;
+  --regimen-line: #cbd8d2;
+  --regimen-green: #176049;
+  --regimen-green-dark: #104a38;
+  --regimen-soft-green: #e8f3ed;
+  --regimen-error: #8c2927;
+  --regimen-warning: #704709;
+  --regimen-warning-bg: #fff2d5;
+}
+
+.regimen-editor,
+.regimen-evidence {
+  color: var(--regimen-ink);
+  font: 1rem / 1.5 system-ui, -apple-system, BlinkMacSystemFont, "Leelawadee UI", sans-serif;
+}
+
+.regimen-editor *,
+.regimen-evidence * {
+  box-sizing: border-box;
+}
+
+.regimen-editor form {
+  display: grid;
+  gap: 1rem;
+}
+
+.regimen-editor fieldset {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  margin: 0;
+}
+
+.regimen-editor fieldset + fieldset {
+  border-top: 1px solid var(--regimen-line);
+  padding-top: 0.85rem;
+}
+
+.regimen-editor legend {
+  padding: 0;
+  margin-bottom: 0.75rem;
+  color: var(--regimen-ink);
+  font-weight: 700;
+}
+
+.regimen-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8.75rem), 1fr));
+  gap: 0.85rem;
+}
+
+.regimen-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.regimen-fields .regimen-field-source {
+  margin-top: 0.45rem;
+  color: var(--regimen-muted);
+  font-size: 0.83rem;
+}
+
+.regimen-editor input,
+.regimen-editor select,
+.regimen-editor textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 2.75rem;
+  border: 1px solid #819990;
+  border-radius: 0.45rem;
+  padding: 0.45rem 0.6rem;
+  background: var(--regimen-white);
+  color: var(--regimen-ink);
+  font: inherit;
+  font-weight: 400;
+}
+
+.regimen-editor [aria-invalid="true"] {
+  border-color: var(--regimen-error);
+}
+
+.regimen-editor .regimen-guidance {
+  margin: 0;
+  color: var(--regimen-muted);
+  font-size: 0.9rem;
+}
+
+.regimen-editor .regimen-status {
+  color: var(--regimen-error);
+  margin: 0;
+}
+
+.regimen-editor .regimen-field-error {
+  color: var(--regimen-error);
+  font-size: 0.85rem;
+}
+
+.regimen-editor :is(button, input, select, textarea):focus-visible,
+.regimen-button:focus-visible,
+.regimen-evidence summary:focus-visible {
+  outline: 3px solid var(--regimen-green);
+  outline-offset: 3px;
+}
+
+.regimen-editor [hidden] {
+  display: none;
+}
+
+.regimen-button {
+  justify-self: start;
+  min-height: 2.75rem;
+  border: 1px solid transparent;
+  border-radius: 0.45rem;
+  padding: 0.55rem 0.9rem;
+  background: var(--regimen-green);
+  color: var(--regimen-white);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 650;
+}
+
+.regimen-button:hover:not(:disabled) {
+  background: var(--regimen-green-dark);
+}
+
+.regimen-button:disabled {
+  cursor: default;
+  background: var(--regimen-line);
+  color: var(--regimen-muted);
+}
+
+.regimen-evidence {
+  border-top: 1px solid var(--regimen-line);
+  padding: 0.85rem 0;
+}
+
+.regimen-evidence h3 {
+  font-size: 1rem;
+  margin: 0;
+}
+
+.regimen-evidence blockquote {
+  border-left: 3px solid var(--regimen-line);
+  margin: 0.65rem 0;
+  padding-left: 0.65rem;
+  overflow-wrap: anywhere;
+}
+
+.regimen-evidence :is(.regimen-citation, summary) {
+  color: var(--regimen-muted);
+  font-size: 0.88rem;
+}
+
+.regimen-evidence summary {
+  cursor: pointer;
+  padding-block: 0.25rem;
+}
+
+.regimen-evidence dl {
+  margin: 0.4rem 0 0;
+}
+
+.regimen-evidence dt {
+  font-weight: 650;
+}
+
+.regimen-evidence dd {
+  margin: 0 0 0.45rem;
+  overflow-wrap: anywhere;
+}
+
+body:has(.demo-workspace) {
+  margin: 0;
+  background: var(--regimen-paper);
+  color: var(--regimen-ink);
+  font: 1rem / 1.5 system-ui, -apple-system, BlinkMacSystemFont, "Leelawadee UI", sans-serif;
+}
+
+.demo-workspace,
+.demo-header {
+  max-width: 69rem;
+  margin-inline: auto;
+  padding-inline: clamp(1rem, 4vw, 2.5rem);
+}
+
+.demo-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.3rem 1rem;
+  min-height: 3.75rem;
+  border-bottom: 1px solid var(--regimen-line);
+}
+
+.demo-header span:first-child {
+  font-weight: 750;
+}
+
+.demo-header span:last-child {
+  color: var(--regimen-muted);
+  font-size: 0.92rem;
+}
+
+.demo-intro {
+  padding-block: clamp(1.35rem, 4vw, 2.5rem) 1rem;
+}
+
+.demo-intro h1 {
+  line-height: 1.15;
+  font-size: clamp(1.65rem, 4vw, 2.75rem);
+  letter-spacing: -0.035em;
+  margin: 0;
+}
+
+.demo-intro p,
+.demo-status {
+  color: var(--regimen-muted);
+}
+
+.demo-status:empty {
+  display: none;
+}
+
+.demo-error {
+  color: var(--regimen-error);
+  border-left: 3px solid var(--regimen-error);
+  padding-left: 0.75rem;
+}
+
+.demo-grid:not([hidden]) {
+  display: grid;
+  grid-template-columns: minmax(13rem, 1fr) minmax(0, 2fr);
+  align-items: start;
+  gap: clamp(1.1rem, 3vw, 2rem);
+  margin-block: 1rem 3rem;
+}
+
+.demo-evidence h2,
+.demo-import h2 {
+  margin: 0 0 0.55rem;
+  font-size: 1.1rem;
+}
+
+.demo-review {
+  padding: clamp(0.95rem, 3vw, 1.55rem);
+  border: 1px solid var(--regimen-line);
+  border-radius: 0.7rem;
+  background: var(--regimen-white);
+}
+
+.demo-review-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+  margin-bottom: 1rem;
+}
+
+.demo-review-title h2 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.demo-review-title h2 span {
+  color: var(--regimen-muted);
+  font-size: 0.92rem;
+  font-weight: 500;
+}
+
+#review-status {
+  margin: 0;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.4rem;
+  font-size: 0.88rem;
+  color: var(--regimen-warning);
+  background: var(--regimen-warning-bg);
+}
+
+#review-status[data-complete="true"] {
+  color: var(--regimen-green-dark);
+  background: var(--regimen-soft-green);
+}
+
+.demo-import {
+  border-top: 1px solid var(--regimen-line);
+  margin-top: 1.3rem;
+  padding-top: 1.05rem;
+}
+
+.demo-import p {
+  margin: 0.4rem 0 0.9rem;
+}
+
+#receipt:not(:empty) {
+  margin-top: 0.85rem;
+  border-left: 3px solid var(--regimen-green);
+  background: var(--regimen-soft-green);
+  padding: 0.7rem 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+#receipt p:last-child {
+  margin-bottom: 0;
+}
+
+@media (max-width: 48rem) {
+  .demo-grid:not([hidden]) {
+    grid-template-columns: 1fr;
+  }
+}

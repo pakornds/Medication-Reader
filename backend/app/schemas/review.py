@@ -1,8 +1,9 @@
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 
-from pydantic import AwareDatetime, Field, field_validator
+from pydantic import AwareDatetime, Field, field_validator, model_validator
 
+from .regimen import RegimenComponent, validate_component_list
 from .analysis import MedicationSuggestion
 from .evidence import CaseEvidence, ContractModel, EvidenceRef, SourcedValue, Text
 
@@ -24,8 +25,26 @@ class CurrentUseVerification(ContractModel):
     dose: SourcedValue | None = None
     route: SourcedValue | None = None
     frequency: SourcedValue | None = None
+    regimens: list[RegimenComponent] = Field(default_factory=list)
     evidence: list[EvidenceRef] = Field(min_length=1)
     resolved_discrepancies: list[Text] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_regimens(self) -> "CurrentUseVerification":
+        validate_component_list(self.regimens, verified=True)
+        if self.regimens and any(field is not None for field in (self.dose, self.route, self.frequency)):
+            raise ValueError("Choose one verified regimen representation per row")
+        return self
+
+    def has_complete_regimen(self) -> bool:
+        if self.regimens:
+            return all(component.has_verified_regimen() for component in self.regimens)
+        return all((self.dose, self.route, self.frequency))
+
+    def regimen_references(self) -> list[EvidenceRef]:
+        if self.regimens:
+            return [ref for component in self.regimens for ref in component.evidence.values()]
+        return [field.evidence for field in (self.dose, self.route, self.frequency) if field is not None]
 
 
 class PharmacistApproval(ContractModel):
