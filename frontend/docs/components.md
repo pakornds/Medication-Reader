@@ -1,6 +1,6 @@
 # Med Reader component guide
 
-Use this catalog when planning a screen. The entries below are **planned** for the Vite scaffold. As components land, link their actual source files here so the next developer can find them. The [frontend architecture](../FRONTEND.md) defines navigation and draft ownership. The [design system](design-system.md) defines tokens, sizing and interaction states.
+Use this catalog when planning a screen. The shared controls below are available in the Vite app. The planned catalog describes the remaining screen-specific work. The [frontend architecture](../FRONTEND.md) defines navigation and draft ownership. The [design system](design-system.md) defines tokens, sizing and interaction states.
 
 ## First example: the top bar
 
@@ -21,14 +21,22 @@ Each link receives its address, translated label and optional leading icon. It r
 - Keep a small helper beside its only caller. Extract a separate file when another module needs it or the parent becomes hard to read.
 - Let the parent own data that must survive navigation. Pass values and callbacks down to controls. A photo slot can open a file picker, and a status label can display approval. The workspace handles evidence updates and the server validates imports.
 
-## Planned catalog
+## Shared UI components
+
+| Component | Use |
+| --- | --- |
+| [Button](../src/components/ui/Button.tsx) | Primary, secondary, text, and preference actions. Defaults to an ordinary button. Use `type="submit"` to submit a form. |
+| [InputField](../src/components/ui/InputField.tsx) | A labeled native input for text, dates, and numbers. Accepts native input properties and events. |
+| [SectionHeading](../src/components/ui/SectionHeading.tsx) | A section title and its short instruction. Use the heading ID to label the surrounding section. |
+| [RegionOutline](../src/components/ui/RegionOutline.tsx) | Marks an image region using percentage coordinates. Accepts an optional number for the editable photo view. |
+
+## Screen component catalog
 
 | Component | Owner under `src/` | Responsibility |
 | --- | --- | --- |
 | `TopBar`, `TopBarLink` | `components/layout/` | Global destinations using React Router NavLink. |
 | `LanguageSwitch`, `ThemeToggle` | Top bar | Read the current preference and request a change. Localize accessible names and preserve the active draft. |
 | `PageContainer` | `components/layout/` | Align shell and page gutters. Offer reading width for Home and History, wide width for Review. |
-| `Button` | `components/ui/` | Render an action with a visible label and primary or secondary styling. Support native disabled and submit behavior. |
 | `StatusLabel` | `components/ui/` | Pair translated text with a visual tone. The caller supplies the actual state, such as **Needs review**, **Approved for import**, or **Imported**. |
 | `WorkflowNav` | `pages/new-patient/` | Select Input, Review or Output within the same case. Mark the active stage with `aria-current="step"`. |
 | `PhotoSlot` | Input | Render the label-side and pill-side uploads independently. Keep each preview and replace action associated with its slot. |

@@ -21,7 +21,11 @@
   try {
     localStorage.removeItem('medrec.language')
     frame.src = '/new-patient'
-    await heading('Input')
+    await heading('Add medicines')
+    const stageLinks = [...doc().querySelectorAll('nav[aria-label="New Patient stages"] a')]
+    const widths = stageLinks.map(link => link.getBoundingClientRect().width)
+    await expect(() => stageLinks.map(link => link.innerText.replace(/\s+/g,' ').trim()).join('|') === '1 Input|2 Review|3 Output', 'numbered stages')
+    await expect(() => Math.max(...widths)-Math.min(...widths) <= 1, 'equal stage widths')
     await expect(() => doc().querySelectorAll('header nav a').length === 3, 'one link per destination')
     await expect(() => visible('a[aria-current="page"]').pathname === '/new-patient', 'current page on direct visit')
     visible('a[href="/new-patient/review"]').click()
@@ -55,7 +59,7 @@
     await heading('หน้าหลัก')
     await expect(() => visible('a[aria-current="page"]').pathname === '/', 'active home link')
     visible('a[href="/new-patient"]').click()
-    await heading('ป้อนข้อมูล')
+    await heading('เพิ่มรายการยา')
     visible('a[href="/new-patient/review"]').click()
     await heading('ทบทวน')
     visible('a[href="/history"]').click()
