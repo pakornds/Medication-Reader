@@ -33,6 +33,12 @@ If ownership changes, completed work appears or paths conflict, pause the affect
 
 When you need another worker's answer, post the question on their ticket, address their recorded worker name and link your own issue. Reply in that thread and link the decision from both tickets. Continue independent work while waiting.
 
+## Review the PR
+
+After opening the PR and before merging, spawn a separate review agent. Choose a capable reasoning model suited to the complexity of the change. Honor any model preference the user has given. If the choice is unclear or a suitable reviewer is unavailable, ask the user how to proceed.
+
+Give the reviewer the ticket, acceptance criteria, PR diff and verification results. Ask it to check correctness, regressions and missing tests. Record its findings on the PR, address actionable findings, and have it review any resulting changes. Follow the repository's required GitHub reviews and checks as well.
+
 ## Finish or hand off
 
 Run acceptance checks and the repo's documented checks. Open one PR targeting main with a closing reference. Record verification, set status:in-review, respect merge order and required reviews, and recheck against current main before merge. Confirm the merge and post-merge checks, then close out the issue as status:done.
