@@ -1,0 +1,83 @@
+.medication-handoff {
+  box-sizing: border-box;
+  max-inline-size: 56rem;
+  margin-inline: auto;
+  padding: clamp(1rem, 4vw, 2rem);
+  background: #fff;
+  color: #172534;
+  font: 1rem / 1.48 system-ui, sans-serif;
+  overflow-wrap: anywhere;
+}
+
+.medication-handoff h1,
+.medication-handoff h2,
+.medication-handoff h3,
+.medication-handoff h4,
+.medication-handoff p { margin-block: 0 0.45em; }
+
+.medication-handoff h1 { font-size: clamp(1.4rem, 4vw, 1.9rem); }
+.medication-handoff h2 { font-size: 1.22rem; margin-block-start: 1.3rem; }
+.medication-handoff h3 { font-size: 1.12rem; }
+.medication-handoff h4 { font-size: 1rem; }
+.medication-handoff time { font-variant-numeric: tabular-nums; }
+
+.medication-handoff .handoff-row {
+  border: 1px solid #92a4b3;
+  border-radius: 0.4rem;
+  padding: clamp(0.85rem, 3vw, 1.4rem);
+  margin-block: 0.65rem 1rem;
+}
+
+.medication-handoff .handoff-row section {
+  border-block-start: 1px solid #d2dbe2;
+  padding-block-start: 0.55rem;
+  margin-block-start: 0.8rem;
+}
+
+.medication-handoff dl {
+  display: grid;
+  grid-template-columns: minmax(7rem, 1fr) minmax(0, 3fr);
+  gap: 0.32rem 1.1rem;
+  margin-block: 0.3rem 0.65rem;
+}
+
+.medication-handoff dt { font-weight: 600; }
+.medication-handoff dd { margin: 0; }
+.medication-handoff ul { margin-block: 0.25rem 0.45rem; padding-inline-start: 1.3rem; }
+.medication-handoff li + li { margin-block-start: 0.25rem; }
+.medication-handoff figure { margin: 0.5rem 0; }
+.medication-handoff img { max-inline-size: min(100%, 14rem); max-block-size: 8rem; object-fit: contain; }
+.medication-handoff figcaption,
+.medication-handoff .handoff-citation { display: block; color: #364a5b; font-size: 0.85em; }
+
+.medication-handoff .handoff-notes {
+  min-block-size: 3rem;
+  border-block-end: 1px solid #92a4b3;
+  position: relative;
+}
+
+.medication-handoff .handoff-notes::after {
+  position: absolute;
+  content: "";
+  inset: 50% 0 auto;
+  border-block-start: 1px solid #92a4b3;
+}
+
+@media (max-width: 34rem) {
+  .medication-handoff dl { display: block; }
+  .medication-handoff dd { margin-block-end: 0.5rem; }
+}
+
+@page medication-handoff { size: A4; margin: 13mm; }
+
+@media print {
+  .medication-handoff { page: medication-handoff; max-inline-size: none; padding: 0; font-size: 10.5pt; }
+  .medication-handoff .handoff-row { border: 0; border-radius: 0; padding: 0; }
+  .medication-handoff h1,
+  .medication-handoff h2,
+  .medication-handoff h3,
+  .medication-handoff h4,
+  .medication-handoff dt { break-after: avoid; }
+  .medication-handoff figure,
+  .medication-handoff .handoff-notes { break-inside: avoid; }
+}
