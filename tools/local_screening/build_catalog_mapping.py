@@ -78,7 +78,12 @@ def workbook(path):
     for i in range(1, sheet.nrows):
         values = sheet.row_values(i)
         if any(v != "" for v in values):
-            yield dict(zip(headers, (str(v).strip() for v in values), strict=True))
+            # The 2020 master and relationship books store some concept IDs as Excel numbers.
+            row = dict(zip(headers, (str(v).strip() for v in values), strict=True))
+            for key, value in zip(headers, values, strict=True):
+                if (key.endswith("ID") or key == "TPUCode" or key.startswith("TMTID(")) and isinstance(value, float) and value.is_integer():
+                    row[key] = str(int(value))
+            yield row
 
 
 def entries(archive):
@@ -252,7 +257,8 @@ def build(tmt_root, release, legacy_file, fest, destination):
         paths[alias] = bonus / "Relationship" / (alias + digits + ".xls")
         relation = defaultdict(set)
         for row in workbook(paths[alias]):
-            relation[row[child + "ID"]].add(row[parent + "ID"])
+            parent_column = "STID" if parent == "SUBS" and "SUBSID" not in row else parent + "ID"
+            relation[row[child + "ID"]].add(row[parent_column])
         links.append(relation)
     paths["substances"] = bonus / "Concept" / ("SUBS" + digits + ".xls")
     substances = {r["TMTID(SUBS)"]: r["FSN"].removesuffix(" (SUBS)") for r in workbook(paths["substances"])}
@@ -270,6 +276,12 @@ def build(tmt_root, release, legacy_file, fest, destination):
     fingerprint = hashlib.sha256(json.dumps(hashes, sort_keys=True).encode()).hexdigest()
     meta = dict(tmt_release=release, fest_sha256=hashes["fest_zip"], mapping_version=VERSION,
                 mapping_sha256=fingerprint, legacy_tmt_release=old["metadata"]["release"], source_files_json=json.dumps(hashes, sort_keys=True))
+    meta.update(tmt_publisher="Thai Health Information Standards Development Center (THIS)",
+                legacy_source_url="https://data.go.th/en/dataset/thai-medicines-terminology-tmt",
+                fest_publisher="Norwegian Medical Products Agency (DMP)", fest_license="https://data.norge.no/nlod/en/2.0")
+    if release == "TMTRF20200217":
+        meta.update(tmt_source_url=meta["legacy_source_url"],
+                    tmt_license="https://data.go.th/en/pages/dga-open-government-license")
     counters = {k: defaultdict(Counter) for k in ("active", "legacy", "union")}
     product_csv = []
     header = ["tpu", "label", "active_tmt", "legacy_member", "legacy_status", "source_generic", "form",
