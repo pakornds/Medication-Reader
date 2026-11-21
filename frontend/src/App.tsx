@@ -4,7 +4,7 @@ import { HomePage } from './pages/home/HomePage'
 import { NewPatientLayout } from './pages/new-patient/NewPatientLayout'
 import { InputPage } from './pages/new-patient/InputPage'
 import { DraftReview } from './pages/new-patient/AnalysisPreview'
-import { createDraft, hasCaseWork, type Draft } from './pages/new-patient/draft'
+import { createDraft, hasCaseWork, withDraftValues, type Draft, type DraftValues } from './pages/new-patient/draft'
 import { stages } from './pages/new-patient/stages'
 import { PageContainer } from './components/layout/PageContainer'
 import { TopBar } from './components/layout/TopBar'
@@ -40,6 +40,16 @@ export default function App() {
     setLanguage(next)
     try {localStorage.setItem('medrec.language',next)} catch { /* In-memory preference remains usable. */ }
   }
+
+  function saveDraftValues(id: string, values: DraftValues) {
+    setDraft((current) => ({
+      ...current,
+      medicines: current.medicines.map((medicine) => (
+        medicine.row.id === id ? withDraftValues(medicine, values) : medicine
+      )),
+    }))
+  }
+
   function startFreshCase() {
     generation.current++
     openRequest.current++
@@ -111,11 +121,11 @@ export default function App() {
           <div className="intake stack"><h1>{t.input}</h1><p>{w.syncedInput}</p><Link className="text-action" to="/new-patient/review">{w.goReview}</Link></div> :
           <><details className="input-access"><summary>{session ? session.actor.name : language==='th'?'สิทธิ์เจ้าหน้าที่':'Staff access'}</summary>{access}</details><InputPage key={draft.caseId} draft={draft} setDraft={setDraft} language={language} proposePhoto={session?proposePhoto:undefined}/></>}/>
         <Route path="review" element={<div className="connected-workspace stack">
-          {current || (record?.synced===null && !record.captureOnly) ? <h1 className="page-heading">{t.review}</h1> : <DraftReview draft={draft} language={language} onCatalogue={(medicine,match)=>setDraft(d=>({...d,medicines:d.medicines.map(m=>m===medicine?{...m,catalogue:match}:m)}))}/>}
+          {current || (record?.synced===null && !record.captureOnly) ? <h1 className="page-heading">{t.review}</h1> : <DraftReview onSave={saveDraftValues} draft={draft} language={language} onCatalogue={(medicine,match)=>setDraft(d=>({...d,medicines:d.medicines.map(m=>m===medicine?{...m,catalogue:match}:m)}))}/>}
           {access}{error}
           {(!current || draft.preview?.rows.length) ? <CaseHandoff key={draft.caseId} draft={draft} language={language} session={session} record={record} onSaved={onSaved} onRefresh={id => openEncounter(id, true)}/> : null}
           {session && record && current && <ClinicalReview key={record.encounter.id+session.actor.id} language={language} client={session.client} actor={session.actor} encounter={record.encounter} onEncounter={onEncounter}/>}
-          {current && record?.synced && <details className="intake intake-panel"><summary>{language==='th'?'ดูฉบับร่างและหลักฐานต้นทาง':'Intake draft and source evidence'}</summary><DraftReview embedded draft={draft} language={language} onCatalogue={(medicine,match)=>setDraft(d=>({...d,medicines:d.medicines.map(m=>m===medicine?{...m,catalogue:match}:m)}))}/></details>}
+          {current && record?.synced && <details className="intake intake-panel"><summary>{language==='th'?'ดูฉบับร่างและหลักฐานต้นทาง':'Intake draft and source evidence'}</summary><DraftReview onSave={saveDraftValues} embedded draft={draft} language={language} onCatalogue={(medicine,match)=>setDraft(d=>({...d,medicines:d.medicines.map(m=>m===medicine?{...m,catalogue:match}:m)}))}/></details>}
         </div>}/>
         <Route path="output" element={<div className="connected-workspace stack">
           {session && record && current ? <OutputPage key={record.encounter.id+session.actor.id} language={language} client={session.client} encounter={record.encounter} actor={session.actor} onEncounter={onEncounter}/> : placeholderOutput}{access}

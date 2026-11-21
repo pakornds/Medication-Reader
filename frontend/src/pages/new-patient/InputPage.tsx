@@ -26,13 +26,18 @@ import { LabelTranscription } from './LabelTranscription'
 import { PhotoSlot } from './PhotoSlot'
 import {
   newNote,
+  draftValues,
+  knownOrder,
+  linkScan,
+  medicineName,
   replacePhoto,
-  rowName,
+  scanEvidence,
   type Draft,
   type Evidence,
   type Note,
   type Photo,
   type PhotoKind,
+  type Preview,
 } from './draft'
 
 export function InputPage({
@@ -117,29 +122,39 @@ export function InputPage({
       if (!controller.signal.aborted) setStatus('error')
     }
   }
-  function confirm(ids: string[]) {
+  function confirm(preview: Preview, placements: ReadonlyMap<string, string | null>) {
     setDraft((d) => {
-      if (!d.preview) return d
-      const selected = d.preview.rows.filter(
-        (r) =>
-          ids.includes(r.id) && !d.medicines.some((m) => m.origin === 'manual' && m.row.id === r.id),
-      )
-      const additions = selected.map((row) => ({
-        row,
-        evidence: d.evidence,
-        origin: 'analysis' as const,
-      }))
-      const remaining = d.preview.rows.filter((r) => !selected.includes(r))
+      if (d.preview !== preview) return d
+      const medicines = [...d.medicines]
+      const remaining = preview.rows.filter((row) => {
+        const target = placements.get(row.id)
+        if (target === undefined) return true
+        const priorOrder = knownOrder(medicines, row.id)
+        const scan = scanEvidence(preview, row, d.evidence)
+        if (target === null) {
+          if (priorOrder) return true
+          medicines.push({ ...scan, origin: 'analysis' })
+          return false
+        }
+        const index = medicines.findIndex((medicine) => medicine.row.id === target)
+          if (index < 0) return true
+        medicines[index] = linkScan(medicines[index], scan)
+        return false
+      })
       return {
         ...d,
-        medicines: [
-          ...d.medicines.filter((m) => !selected.some((r) => r.id === m.row.id)),
-          ...additions,
-        ],
-        preview:
-          remaining.length || d.preview.unassigned_reports?.length
-            ? { ...d.preview, rows: remaining }
-            : null,
+        medicines,
+        preview: remaining.length || preview.unassigned_reports?.length ? { ...preview, rows: remaining } : null,
+      }
+    })
+  }
+  function dismiss(preview: Preview, id: string) {
+    setDraft((d) => {
+      if (d.preview !== preview) return d
+      const rows = preview.rows.filter((row) => row.id !== id)
+      return {
+        ...d,
+        preview: rows.length || preview.unassigned_reports?.length ? { ...preview, rows } : null,
       }
     })
   }
@@ -322,7 +337,9 @@ export function InputPage({
             </div>
           </section>
           <div ref={previewArea} hidden={mode !== 'evidence'}>
-            {draft.preview && <AnalysisPreview draft={draft} language={language} onConfirm={confirm} />}
+            {draft.preview && (
+              <AnalysisPreview draft={draft} language={language} onConfirm={confirm} onDismiss={dismiss} />
+            )}
           </div>
         </div>
         <aside aria-labelledby="draft-heading" className="intake-panel stack">
@@ -340,9 +357,11 @@ export function InputPage({
           ) : (
             <>
               <ul className="draft-list">
-                {medicines.map(({ row }) => {
-                  const name = rowName(row, language)
-                  const details = [row.label_fields.strength?.value, row.label_fields.form?.value]
+                {medicines.map((medicine) => {
+                  const { row } = medicine
+                  const values = draftValues(medicine)
+                  const name = medicineName(medicine, language)
+                  const details = [values.strength, values.form]
                     .filter(Boolean)
                     .join(' · ')
                   return (
