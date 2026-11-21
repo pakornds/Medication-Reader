@@ -17,7 +17,8 @@ import {
   LuScanLine,
   LuLoaderCircle,
 } from 'react-icons/lu'
-import { analyze } from '../../api/reconciliation'
+import { analyze, applyLocatedRegions } from '../../api/reconciliation'
+import { analysisErrorMessage, analysisProviderMessage } from './analysisError'
 import { intake } from '../../i18n/intake'
 import type { Language } from '../../i18n/messages'
 import { AnalysisPreview } from './AnalysisPreview'
@@ -40,6 +41,13 @@ import {
   type Preview,
 } from './draft'
 
+function remainingPreview(preview: Preview, rows: Preview['rows']): Preview | null {
+  const issues = preview.photo_issues?.filter(issue => !issue.item_id
+    || rows.some(row => row.sources.some(source => source.item_id === issue.item_id)))
+  return rows.length || preview.unassigned_reports.length || issues?.length || preview.remaining_evidence_unassessed
+    ? { ...preview, rows, photo_issues: issues } : null
+}
+
 export function InputPage({
   draft,
   setDraft,
@@ -56,11 +64,11 @@ export function InputPage({
   const [mode, setMode] = useState<'evidence' | 'manual'>('evidence')
   const [addSlot, setAddSlot] = useState(false)
   const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('idle')
+  const [failure, setFailure] = useState<unknown>(null)
   const request = useRef<AbortController | null>(null)
   const previewArea = useRef<HTMLDivElement>(null)
   const { evidence, medicines } = draft
   const hasEvidence = evidence.photos.length > 0 || evidence.notes.some((note) => note.text.trim())
-  const missingRegions = evidence.photos.some((p) => p.kind !== 'reverse_photo' && !p.regions.length)
   const tooLarge =
     evidence.photos.length > 16 || evidence.photos.reduce((sum, p) => sum + p.file.size, 0) >= 16_000_000
   useEffect(() => () => request.current?.abort(), [])
@@ -115,11 +123,12 @@ export function InputPage({
     try {
       const preview = await analyze(draft, controller.signal)
       if (controller.signal.aborted) return
-      setDraft((d) => (d.caseId === draft.caseId && d.evidence === evidence ? { ...d, preview } : d))
+      setDraft((d) => (d.caseId === draft.caseId && d.evidence === evidence
+        ? { ...d, evidence: applyLocatedRegions(evidence, preview), preview } : d))
       setStatus('idle')
       requestAnimationFrame(() => previewArea.current?.scrollIntoView({ block: 'start' }))
-    } catch {
-      if (!controller.signal.aborted) setStatus('error')
+    } catch (error) {
+      if (!controller.signal.aborted) { setFailure(error); setStatus('error') }
     }
   }
   function confirm(preview: Preview, placements: ReadonlyMap<string, string | null>) {
@@ -144,7 +153,7 @@ export function InputPage({
       return {
         ...d,
         medicines,
-        preview: remaining.length || preview.unassigned_reports?.length ? { ...preview, rows: remaining } : null,
+        preview: remainingPreview(preview, remaining),
       }
     })
   }
@@ -154,7 +163,7 @@ export function InputPage({
       const rows = preview.rows.filter((row) => row.id !== id)
       return {
         ...d,
-        preview: rows.length || preview.unassigned_reports?.length ? { ...preview, rows } : null,
+        preview: remainingPreview(preview, rows),
       }
     })
   }
@@ -170,11 +179,15 @@ export function InputPage({
   ] as const
   const reason = tooLarge
     ? t.tooLarge
-    : missingRegions
-      ? t.needRegions
-      : !hasEvidence
-        ? t.analyzeHint
-        : ''
+    : !hasEvidence ? t.analyzeHint : ''
+  const analysisAction = <div className="stack">
+    <Button variant="primary" disabled={!!reason || status === 'loading'} aria-busy={status === 'loading'} onClick={() => void runAnalysis()}>
+      {status === 'loading' ? <LuLoaderCircle aria-hidden="true" className="motion-safe:animate-spin" /> : <LuScanLine aria-hidden="true" />}
+      {status === 'loading' ? t.analyzing : t.analyze}
+    </Button>
+    {reason && <p className="hint">{reason}</p>}
+    {status === 'error' && <p role="alert">{analysisErrorMessage(failure,language)}</p>}
+  </div>
   return (
     <div className="intake">
       <div className="intake-title">
@@ -222,6 +235,7 @@ export function InputPage({
                       {t.addPhoto}
                     </Button>
                   )}
+                  {evidence.photos.length > 0 && analysisAction}
                 </section>
                 <section aria-labelledby="notes-heading" className="written-evidence stack">
                   <SectionHeading id="notes-heading" title={t.notesHeading} description={t.notesHelp} />
@@ -311,21 +325,7 @@ export function InputPage({
                     onChange={(e) => editEvidence({ ...evidence, question: e.target.value })}
                   />
                 </details>
-                <Button
-                  variant="primary"
-                  disabled={!!reason || status === 'loading'}
-                  aria-busy={status === 'loading'}
-                  onClick={() => void runAnalysis()}
-                >
-                  {status === 'loading' ? (
-                    <LuLoaderCircle aria-hidden="true" className="motion-safe:animate-spin" />
-                  ) : (
-                    <LuScanLine aria-hidden="true" />
-                  )}
-                  {status === 'loading' ? t.analyzing : t.analyze}
-                </Button>
-                {reason && <p className="hint">{reason}</p>}
-                {status === 'error' && <p role="alert">{t.analyzeFail}</p>}
+                {!evidence.photos.length && analysisAction}
               </div>
             </div>
             <div hidden={mode !== 'manual'}>
@@ -337,6 +337,17 @@ export function InputPage({
             </div>
           </section>
           <div ref={previewArea} hidden={mode !== 'evidence'}>
+            {draft.preview?.photo_issues?.map(issue => {
+              const photo = evidence.photos.find(p => p.id === issue.attachment_id)
+              if (!photo) return null
+              const index = photo.regions.findIndex(r => r.id === issue.item_id)
+              return <p role="status" key={photo.id + (issue.item_id || '') + issue.code}>
+                <strong>{t[photo.kind]} · {photo.file.name}{index >= 0 ? ' · ' + t.region + ' ' + (index+1) : ''}</strong>
+                {' · '}{t[issue.code]}
+                {issue.provider_code && <span> {analysisProviderMessage(issue.provider_code,language)}</span>}
+              </p>
+            })}
+            {draft.preview?.remaining_evidence_unassessed && <p role="status">{t.remainingUnassessed}</p>}
             {draft.preview && (
               <AnalysisPreview draft={draft} language={language} onConfirm={confirm} onDismiss={dismiss} />
             )}

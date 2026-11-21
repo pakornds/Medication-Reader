@@ -22,6 +22,9 @@ export type AddRow = {
 export type AnalysisPreview = {
   case_id: string
   rows: Array<MedicationSuggestion>
+  located_regions?: Array<LocatedRegion>
+  photo_issues?: Array<PhotoIssue>
+  remaining_evidence_unassessed?: boolean
   dispensing_facilities?: Partial<Record<string, DispensingFacility>>
   unavailable_sources?: Array<EvidenceSource>
   unassigned_reports?: Array<SourcedValue>
@@ -252,6 +255,7 @@ export type FormAnalysisInput = {
   patient_report?: Array<SourcedValue>
   other_source_notes?: Array<SourcedValue>
   question?: string | null
+  scene_photo_ids?: Array<string>
   photo_source_ids?: Array<string>
   region_locations?: Partial<Record<string, Partial<Record<string, string>>>>
   patient_report_row_ids?: Partial<Record<string, string>>
@@ -333,6 +337,14 @@ export type LocalScreeningResult = {
   pairs: Array<ScreenedPair>
 }
 
+export type LocatedRegion = {
+  attachment_id: string
+  source_id: string
+  item_id: string
+  row_id: string
+  bounds: RegionBounds
+}
+
 export type MedicationSuggestion = {
   id: string
   identity_status: "named" | "unlabeled" | "unreadable"
@@ -404,6 +416,13 @@ export type Photo = {
   pairing: "matched" | "uncertain"
   appearance?: string | null
   front_attributed?: boolean
+}
+
+export type PhotoIssue = {
+  attachment_id: string
+  code: "detection_unavailable" | "no_regions" | "unreadable_region"
+  item_id?: string | null
+  provider_code?: string | null
 }
 
 export type PhotoRegion = {

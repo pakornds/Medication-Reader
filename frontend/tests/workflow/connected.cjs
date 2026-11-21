@@ -66,7 +66,8 @@ async function addUnreadablePhoto(page) {
   await button(page, 'Read photos or notes').click()
   const slot = page.getByRole('region', { name: 'Label side', exact: true })
   await slot.locator('input[type=file]').first().setInputFiles(path.resolve(__dirname, '../../../backend/tests/fixtures/package_regions/empty.png'))
-  await slot.getByRole('button', { name: 'Use whole image', exact: true }).click()
+  await slot.locator('.photo-marking summary').click()
+  await button(slot, 'One package fills this entire photo').click()
   await page.getByText('Record what I can read', { exact: true }).click()
   await page.getByLabel('Keep identity unresolved').check()
   await button(page, 'Use this label in draft').click()
@@ -267,7 +268,8 @@ async function namedPhoto(browser) {
   await front.locator('input[type=file]').first().setInputFiles({
     name: 'synthetic-label.png', mimeType: 'image/png', buffer: Buffer.from(photo, 'base64'),
   })
-  await button(front, 'Use whole image').click()
+  await front.locator('.photo-marking summary').click()
+  await button(front, 'One package fills this entire photo').click()
   await page.getByText('Record what I can read', { exact: true }).click()
   await label(page, 'Name as written').fill(product.label)
   await button(page, 'Use this label in draft').click()

@@ -6,7 +6,7 @@ export type PhotoKind = 'label_photo' | 'reverse_photo' | 'additional_photo'
 export type NoteKind = 'patient_report' | 'caregiver_report' | 'other_record'
 export type Box = PercentBox
 export type FacilityContact = Pick<EvidenceSource, 'organization_type'|'organization_address'|'organization_phone'|'organization_phone_extension'|'organization_email'|'department_or_ward'>
-export type Region = { facilityContact?: FacilityContact; id: string; rowId: string; box: Box; organization: string }
+export type Region = { facilityContact?: FacilityContact; id: string; rowId: string; box: Box; organization: string; pendingPair?: boolean }
 export type Photo = {
   id: string
   kind: PhotoKind
@@ -186,7 +186,7 @@ export function replacePhoto(
       photo.regions.some((region) => removedRows.has(region.rowId))
     ) {
       const regions = photo.regions.map((region) =>
-        removedRows.has(region.rowId) ? { ...region, rowId: region.id } : region,
+        removedRows.has(region.rowId) ? { ...region, rowId: region.id, pendingPair: region.pendingPair !== undefined || undefined } : region,
       )
       photos.push({ ...photo, regions })
     } else {
