@@ -98,6 +98,8 @@ def read_label(
         images=[image],
     )
     for row in result.rows:
+        # A label transcription has no staff question to refer.
+        row.follow_ups = [follow_up for follow_up in row.follow_ups if follow_up.field != "treatment_referral"]
         facility = row.dispensing_facility if isinstance(row, LabelMedicationSuggestion) else None
         if facility is not None:
             ref = EvidenceRef(source_id=source.id, item_id=item.id) if item else None
