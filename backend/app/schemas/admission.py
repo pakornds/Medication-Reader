@@ -119,6 +119,12 @@ class Interview(ContractModel):
     note: Text | None = None
 
 
+class AttestCurrentUse(ContractModel):
+    action: Literal["attest_current_use"]
+    row_id: Text
+    source_id: Text
+
+
 class Verify(ContractModel):
     action: Literal["verify"]
     row_id: Text
@@ -162,8 +168,10 @@ class Import(ContractModel):
 class Action(ContractModel):
     revision: int = Field(ge=1)
     request_id: Text
-    command: Annotated[AddRow | AddEvidence | Interview | Verify | Proposal | Decision | Refer | Finish | Import,
-                       Field(discriminator="action")]
+    command: Annotated[
+        AddRow | AddEvidence | Interview | Verify | Proposal | Decision | Refer | Finish | Import | AttestCurrentUse,
+        Field(discriminator="action"),
+    ]
 
 
 class CaptureCommand(ContractModel):
