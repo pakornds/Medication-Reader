@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from io import BytesIO
 from json import dumps
+import sqlite3
 from threading import RLock
 from uuid import uuid4
 
@@ -27,6 +28,7 @@ from app.schemas.regimen import RegimenParseRequest, validate_regimen_evidence
 from app.services.regimens import parse_directions
 from app.services.admission_incidents import record_identity_incident, remember_identity_dispute
 from app.services.hospital import HospitalError
+from app.services.local_reference_db import open_reference
 from app.services.import_eligibility import ApprovalLedger, EligibilityError, selected_evidence
 
 
@@ -41,6 +43,36 @@ def require(condition, message, status=422):
 
 def active(row):
     return [entry for entry in row["entries"] if entry["source"]["id"] not in row["superseded"]]
+
+
+def confirm_catalogue_product(row, identity, product):
+    require(identity is not None, "Resolve the medication identity before confirming a catalogue product.")
+    entry = entry_for(row, identity["source_id"])
+    observations = entry_observations(entry)
+    fields = {field: value for field, (status, value) in observations.items() if status == "readable"}
+    # The full product label or a documented short name with its source fields must
+    # distinguish this TPU. A clinician may still verify the row without a match.
+    query = """
+        SELECT tpu FROM product WHERE active_tmt = 1
+          AND (label = :name COLLATE NOCASE OR source_generic = :name COLLATE NOCASE
+               OR instr(lower(label), lower(:name) || ' (') = 1)
+          AND (:strength IS NULL OR source_strength = :strength COLLATE NOCASE)
+          AND (:form IS NULL OR form = :form COLLATE NOCASE)
+        LIMIT 2
+    """
+    try:
+        with open_reference("LOCAL_TMT_DB") as db:
+            release = db.execute("SELECT value FROM metadata WHERE key='tmt_release'").fetchone()
+            require(release is not None and release[0], "Local Thai product catalogue is unavailable.", 503)
+            require(product.tmt_release == release[0], "Re-select the product from the installed TMT release.")
+            matches = db.execute(query, {
+                "name": entry["name"], "strength": fields.get("strength"), "form": fields.get("form"),
+            }).fetchall()
+            require(len(matches) == 1 and matches[0]["tpu"] == product.tpu,
+                    "The verified identity source must identify the selected catalogue product unambiguously.")
+    except sqlite3.Error:
+        raise HTTPException(503, "Local Thai product catalogue is unavailable.") from None
+    return {**identity, "normalized_medication_id": product.tpu, "tmt_release": product.tmt_release}
 
 
 def entry_for(row, source_id):
@@ -749,6 +781,8 @@ class AdmissionStore:
                         case, row["id"], conflicting, chosen, actor, cmd.resolution, verified_at,
                     )
                 identity = dict(name=chosen["product"], source_id=chosen["source"]["id"])
+            if cmd.confirmed_product is not None:
+                identity = confirm_catalogue_product(row, identity, cmd.confirmed_product)
             row["verified"] = dict(actor=actor.model_dump(), at=verified_at, source_id=cmd.source_id,
                                    identity=identity, resolution=cmd.resolution, answer=deepcopy(answer))
             if cmd.regimens:
@@ -789,6 +823,7 @@ class AdmissionStore:
             name = SourcedValue(value=identity["name"], evidence=refs[identity["source_id"]])
             verification = CurrentUseVerification(
                 reviewer=verified["actor"], verified_at=verified["at"], identity=name, evidence=[ref],
+                normalized_medication_id=identity.get("normalized_medication_id"), tmt_release=identity.get("tmt_release"),
                 status="current" if answer["current_use"] == "current" else "no_longer_current",
                 **verified_regimen_fields(verified, ref))
             label_fields = {}
