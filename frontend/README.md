@@ -2,6 +2,12 @@
 
 Use Node.js 22.13 or later in the 22.x series, or Node.js 24. Start FastAPI from the repo root with the [backend setup](../AGENTS.md#commands). Configure distinct synthetic staff tokens before starting FastAPI. The sign-in and role settings are documented under [admission encounters](../docs/specs/reconciliation-contract.md#admission-encounters).
 
+For photo analysis, keep `OPENAI_API_KEY` and `OPENAI_MODEL` in the repository-root `.env` on the server. With uv, load that file explicitly from the repo root:
+
+```sh
+uv run --project backend --env-file .env uvicorn app.main:app --reload --reload-dir backend/app
+```
+
 Run from `frontend/`:
 
 ```sh
@@ -16,7 +22,7 @@ The development server proxies requests to FastAPI at `http://127.0.0.1:8000`. S
 | Page | Staff workflow |
 | --- | --- |
 | Home | Sign in to reopen an assigned encounter or start a case. |
-| Input | Select a local catalogue product or enter an evidenced name. Enter the dose, unit, schedule and quantity separately. For a photo, mark its label region, attach a matched reverse view if available, then analyze the evidence or transcribe the label. |
+| Input | Select a local catalogue product or enter an evidenced name. Enter the dose, unit, schedule and quantity separately. Upload one label-side photo of all the packages and choose **Analyze evidence**. OpenAI locates the packages and reads each crop. Review the resulting rows and optionally adjust boxes, transcribe unreadable labels or match a reverse view. |
 | Review | Compare each draft row with its sources, save it to the encounter, document the interview, and verify current use. Refer an unidentified item for pharmacist review. Assigned doctors and pharmacists can run the optional checks and inspect coverage. |
 | Output | Inspect eligible and excluded medicines. An assigned pharmacist approves and imports a selection in one action. |
 | History | See successful import timestamps in this browser. Sign in to reopen receipts available to the staff account. |

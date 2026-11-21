@@ -13,7 +13,7 @@ In the fixture-only, 12-hour Medication Reader demo, community and hospital phar
 ```mermaid
 flowchart TD
   manual["Search catalogue as you type; select one product"] --> row["Editable medicine row with source and structured directions"]
-  front["Photo 1: lay out items label-side up"] --> locate["Locate each label or unknown item"]
+  front["Photo 1: lay out items label-side up"] --> locate["OpenAI locates packages across the whole photo"]
   reverse["Optional photo 2: flip the same items in place"] --> pair["Staff match a reverse crop to its front item"]
   locate --> pair
   locate --> extract["Analyze evidence or transcribe a located label"]
