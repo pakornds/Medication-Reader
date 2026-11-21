@@ -92,6 +92,7 @@ def retire_sources(row, source_ids):
     row["superseded"].extend(source_ids)
     row["verified"] = None
     row.pop("imported_at", None)
+    row.pop("screening_attestation", None)
     if row["confirmed"] and row["confirmed"]["source_id"] in source_ids:
         row["confirmed"] = None
     if row["proposal"] and row["proposal"]["reference"] in source_ids:

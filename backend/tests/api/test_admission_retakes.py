@@ -3,9 +3,11 @@
 import base64
 import json
 from copy import deepcopy
+from functools import partial
 from pathlib import Path
 
 from test_admission_package_capture import picture, submit
+from test_admission_screening_attestation import run_drp
 from test_admissions import Case, client, headers, photo, record
 
 
@@ -95,10 +97,11 @@ def test_exact_crop_can_only_be_reused_with_explicitly_shared_package(client):
 
 
 def test_item_then_whole_view_retake_and_pharmacist_handoff(client):
-    case = Case(client, "nurse")
+    case = Case(client, "doctor")
+    capture = partial(submit, client, case.path, role=case.role)
     old_front = "table-front"
-    row_a = case.add(label("table-label-a", "Demo Medicine A", attachment=old_front, orientation=6))
-    row_c = case.add(label("table-label-c", "Demo Medicine C", attachment=old_front, orientation=6,
+    row_a = case.add(label("table-label-a", "Demo Slate", attachment=old_front, orientation=6))
+    row_c = case.add(label("table-label-c", "Demo Amber", attachment=old_front, orientation=6,
                            area=(.67, .1, .23, .35)))
     verify(case, row_a, "report-a", "table-label-a")
     verify(case, row_c, "report-c", "table-label-c")
@@ -106,8 +109,10 @@ def test_item_then_whole_view_retake_and_pharmacist_handoff(client):
     initial = dict(revision=case.state["revision"], request_id="first-view", manifest=manifest,
                    existing_rows={"order-a": row_a, "order-c": row_c})
     originals = {"front": picture(6), "reverse": picture(1)}
-    case.state = submit(client, case.path, initial, originals).json()
-    alias = label("alias-c", "Demo Medicine C", attachment="unused-attachment-id", orientation=6,
+    initial_capture = capture(initial, originals)
+    assert initial_capture.status_code == 200, initial_capture.text
+    case.state = initial_capture.json()
+    alias = label("alias-c", "Demo Amber", attachment="unused-attachment-id", orientation=6,
                   area=(.67, .1, .23, .35))
     case.link(row_c, alias)
     mislabeled = deepcopy(alias)
@@ -119,15 +124,25 @@ def test_item_then_whole_view_retake_and_pharmacist_handoff(client):
     case.send("verify", row_id=row_c, source_id="report-c", identity_source_id="cross-view-alias")
     previous_c = deepcopy(case.state["rows"][row_c])
     previous_reverse = deepcopy(case.state["capture"]["reverse"])
-    case.link(row_a, label("target-a", "Demo Medicine A", orientation=3), replaces="table-label-a")
+    case.link(row_a, label("target-a", "Demo Slate", orientation=3), replaces="table-label-a")
     assert case.state["rows"][row_c] == previous_c
     assert not case.state["rows"][row_a]["verified"]
     assert case.state["capture"]["front"]["attachment_id"] == old_front
     case.interview(row_a, "report-a", ownership_source_id="target-a", note="Kept item edit.")
     case.send("verify", row_id=row_a, source_id="report-a")
-    wrong_item = label("crop-of-capture-only-sibling", "Demo Medicine A", attachment=old_front,
+    wrong_item = label("crop-of-capture-only-sibling", "Demo Slate", attachment=old_front,
                        orientation=6, area=(.41, .13, .06, .09))
     assert "overlaps a different item" in case.link(row_a, wrong_item, replaces="target-a", status=422).text
+    for pending in sorted(set(case.state["rows"]) - {row_a, row_c}):
+        case.link(pending, record(f"note-{pending}", "reviewer_record", "Appearance remains unidentified"))
+    case.interview(row_c, "report-c", ownership_source_id="cross-view-alias", dose=None,
+                   note="Preserve this clinician note.")
+    case.send("attest_current_use", row_id=row_c, source_id="report-c")
+    screened_c = case.state["rows"][row_c]
+    assert screened_c["verified"] is None
+    assert screened_c["screening_attestation"]["identity"]["source_id"] == "cross-view-alias"
+    snapshot, before_report = run_drp(case)
+    assert before_report["coverage"]["evaluated_scopes"] == 1
 
     replacement = deepcopy(manifest)
     replacement["front"].update(attachment_id="front-retaken", revision=2, exif_orientation=8)
@@ -145,48 +160,53 @@ def test_item_then_whole_view_retake_and_pharmacist_handoff(client):
                 entry["source_id"] = "new-" + entry["source_id"]
     command = dict(revision=case.state["revision"], request_id="whole-retake", manifest=replacement)
     upload = {"front": picture(8)}
-    assert submit(client, case.path, command, upload).status_code == 409
+    assert capture(command, upload).status_code == 409
     command["replaces_view"] = dict(side="front", attachment_id=old_front, revision=1)
-    assert submit(client, case.path, command, upload).status_code == 422
+    assert capture(command, upload).status_code == 422
     replacement["reverse_matches"] = [m for m in replacement["reverse_matches"] if m["status"] == "candidate"]
-    stale_candidate = submit(client, case.path, command, upload)
+    stale_candidate = capture(command, upload)
     assert stale_candidate.status_code == 422 and "reverse matches again" in stale_candidate.text
     replacement["reverse_matches"] = []
     repeated_original = deepcopy(command)
     repeated_original["manifest"]["front"]["exif_orientation"] = 6
-    repeated = submit(client, case.path, repeated_original, {"front": picture(6)})
+    repeated = capture(repeated_original, {"front": picture(6)})
     assert repeated.status_code == 422 and "different original" in repeated.text
     rejected = deepcopy(command)
     rejected["manifest"]["sources"][0]["id"] = "clinic-a"
     rejected["manifest"]["packages"][0]["items"][0]["evidence"][0]["source_id"] = "clinic-a"
-    assert submit(client, case.path, rejected, upload).status_code == 422
+    assert capture(rejected, upload).status_code == 422
 
-    saved = submit(client, case.path, command, upload)
+    saved = capture(command, upload)
     assert saved.status_code == 200, saved.text
     case.state = saved.json()
     assert case.state["rows"][row_a]["verified"]["answer"]["note"] == "Kept item edit."
     new_c = case.state["rows"][row_c]
     assert new_c["superseded"] == ["table-label-c", "alias-c", "cross-view-alias"]
     assert new_c["verified"] is None
-    assert new_c["interview"] == previous_c["interview"]
+    assert "screening_attestation" not in new_c
+    assert new_c["interview"] == screened_c["interview"]
+    _, after_report = run_drp(case, snapshot)
+    assert after_report["coverage"]["evaluated_scopes"] == 0
     assert case.state["capture"]["reverse"] == previous_reverse
     assert not case.state["capture"]["reverse_matches"]
     old_links = [p["front_regions"][0] for p in manifest["packages"]]
     for ref in old_links:
         stale = client.post(case.path + "/capture/region", headers=headers("pharmacist"), json=ref)
         assert stale.status_code == 404
-    assert submit(client, case.path, initial, originals).json() == case.state
-    assert submit(client, case.path, command, upload).json() == case.state
+    assert capture(initial, originals).json() == case.state
+    assert capture(command, upload).json() == case.state
     case.send("verify", row_id=row_c, source_id="report-c", status=422)
+    stale = case.send("attest_current_use", row_id=row_c, source_id="report-c", status=422)
+    assert stale.json()["detail"] == "Select an active source linked to this item."
     for attachment in (old_front, None, "new-attachment-id", "front-retaken"):
-        reused = label("new-logical-old-image", "Demo Medicine C", attachment=attachment,
+        reused = label("new-logical-old-image", "Demo Amber", attachment=attachment,
                        orientation=6, area=(.67, .1, .23, .35))
         assert "current capture original" in case.link(row_c, reused, status=422).text
-    current_label = label("current-clinic-c", "Demo Medicine C", attachment="front-retaken", orientation=8,
+    current_label = label("current-clinic-c", "Demo Amber", attachment="front-retaken", orientation=8,
                           area=(.67, .1, .23, .35))
     case.link(row_c, current_label)
     for attachment in ("front-retaken", None, "fresh-reverse-alias"):
-        wrong_image = label("cross-view", "Demo Medicine C", attachment=attachment, orientation=1,
+        wrong_image = label("cross-view", "Demo Amber", attachment=attachment, orientation=1,
                             area=(.67, .1, .23, .35))
         assert "match its original" in case.link(row_c, wrong_image, replaces="current-clinic-c", status=422).text
 
