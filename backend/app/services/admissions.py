@@ -14,6 +14,7 @@ from PIL import Image
 
 from app.ai.client import EvidenceImage
 from app.schemas.package_capture import PackageCapture
+from app.services.admission_intake_readback import carry_intake, intake_discrepancies
 from app.services.labels import LabelPhotoError, crop_label
 
 from app.schemas.analysis import Discrepancy
@@ -178,7 +179,7 @@ def label_overrides(entry):
 def entry_observations(entry):
     observations = {
         key: (field["status"], field["value"])
-        for key, field in entry.get("scan_fields", {}).items()
+        for key, field in {**entry.get("intake_observations", {}), **entry.get("scan_fields", {})}.items()
     }
     overrides = entry.get("label_overrides", LABEL_OVERRIDE_FIELDS)
     for key in DOCUMENTED_FIELDS:
@@ -205,7 +206,7 @@ def conflicting_fields(row):
 def reviewable_entry(entry):
     photo = entry["photo"]
     front = entry["source"]["kind"] == "label_photo" and photo and photo.get("front_attributed")
-    return not photo or ((front or photo["pairing"] == "matched") and not photo["appearance"])
+    return not photo or ((front or entry.get("intake_additional_label") or photo["pairing"] == "matched") and not photo["appearance"])
 
 
 def unresolved_photo(entry):
@@ -261,6 +262,13 @@ def capture_orientation(media_type, data):
         raise HTTPException(422, "Invalid capture image.") from None
 
 
+def new_encounter(case_id, actor, request, revision=1):
+    assigned = {actor.id, "demo-pharmacist", *("demo-" + role for role in request.assigned_roles)}
+    return dict(id=case_id, patient_alias=request.patient_alias,
+                assigned=sorted(assigned), revision=revision, status="In progress", created_at=now(),
+                rows={}, events=[], receipts=[], identity_incidents={})
+
+
 class AdmissionStore:
     def __init__(self, hospital):
         self.records = {}
@@ -272,10 +280,7 @@ class AdmissionStore:
 
     def create(self, actor, request: NewEncounter):
         require(actor.role in {"nurse", "doctor", "pharmacist"}, "Clinical reviewer required.", 403)
-        assigned = {actor.id, "demo-pharmacist", *("demo-" + role for role in request.assigned_roles)}
-        case = dict(id="admission-" + uuid4().hex, patient_alias=request.patient_alias,
-                    assigned=sorted(assigned), revision=1, status="In progress", created_at=now(),
-                    rows={}, events=[], receipts=[], identity_incidents={})
+        case = new_encounter("admission-" + uuid4().hex, actor, request)
         with self.lock:
             self.records[case["id"]] = case
         return case
@@ -668,7 +673,7 @@ class AdmissionStore:
             require(row["unknown"] or named, "Review the current identity evidence.")
             variants = {e["product"].casefold() for e in named}
             conflicts = conflicting_fields(row)
-            require((len(variants) <= 1 and not conflicts) or cmd.resolution,
+            require((len(variants) <= 1 and not conflicts and not intake_discrepancies(row)) or cmd.resolution,
                     "Document the resolution of conflicting evidence.")
             verified_at = now()
             identity = row["confirmed"]
@@ -724,13 +729,14 @@ class AdmissionStore:
             refs = {}
             for entry in active(row):
                 source = EvidenceSource.model_validate(entry["source"])
-                sources.append(source)
+                if not any(existing.id == source.id for existing in sources):
+                    sources.append(source)
                 kind = "record_excerpt"
                 if entry["photo"]:
                     kind = "label_region" if reviewable_entry(entry) else "pill_crop"
                 if kind == "label_region" and source.kind == "reverse_photo":
                     kind = "matched_reverse_label"
-                item = EvidenceItem(id=row["id"], source_id=source.id, row_id=row["id"], kind=kind)
+                item = EvidenceItem(id=entry.get("intake_item_id") or row["id"], source_id=source.id, row_id=row["id"], kind=kind)
                 items.append(item)
                 refs[source.id] = EvidenceRef(source_id=source.id, item_id=item.id)
             ref = refs[verified["source_id"]]
@@ -756,7 +762,7 @@ class AdmissionStore:
                 observations = entry_observations(entry)
                 observations_by_source[source_id] = observations
                 reported = entry["source"]["kind"] in REPORT_KINDS
-                if reported:
+                if reported and source_id not in row.get("intake_entry_ids", []):
                     reports.append(SourcedValue(value=entry["wording"], evidence=citation))
                 for key, (status, value) in observations.items():
                     if key in {"strength", "form"} and source_id != identity["source_id"]:
@@ -772,7 +778,9 @@ class AdmissionStore:
                     label_fields[key] = Observation(status=status, value=value, evidence=citation)
                 _, directions = observations.get("directions", (None, None))
                 wording = entry["wording"] if reported else directions
-                if wording:
+                captured = any(c["evidence"]["directions_text"]["source_id"] == source_id
+                               for c in (row.get("intake") or {}).get("regimens", []))
+                if wording and not captured:
                     regimens.extend(parse_directions(RegimenParseRequest(
                         evidence=manifest, row_id=row["id"], component_id=source_id,
                         basis="reported" if reported else "documented", directions_text=wording,
@@ -784,7 +792,8 @@ class AdmissionStore:
                     for source_id, observations in observations_by_source.items()
                     if key in observations and observations[key][0] == "readable"
                 ]) for key in conflicts]
-            verification.resolved_discrepancies = conflicts
+            carry_intake(row, refs, regimens, discrepancies, reports, label_fields)
+            verification.resolved_discrepancies = [d.id for d in discrepancies]
             importable.append(ReviewRow(
                 id=row["id"], identity_status="unlabeled" if row["unknown"] else "named",
                 unknown_label=row["id"] if row["unknown"] else None,

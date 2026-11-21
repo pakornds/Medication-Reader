@@ -1,0 +1,176 @@
+"""Atomically reconcile confirmed intake rows with their assigned admission encounter."""
+from base64 import b64decode, b64encode
+from binascii import Error as Base64Error
+from copy import deepcopy
+from hashlib import sha256
+
+from app.ai.client import EvidenceImage
+from app.schemas.admission import NewEncounter, Photo, SourceEntry
+from app.schemas.admission_intake import IntakeSubmission
+from app.schemas.analysis import AnalysisResult, validate_analysis_result
+from app.schemas.evidence import CaseEvidence, EvidenceSource, PHOTO_KINDS, REPORT_KINDS
+from app.services.admissions import capture_orientation, new_encounter, new_row, now, require
+
+
+def _prepare_images(request, existing):
+    attachments = {s.attachment_id for row in request.rows for s in row.sources if s.kind in PHOTO_KINDS}
+    require(None not in attachments and request.originals.keys() <= attachments, "Unexpected attachment.")
+    images = dict(existing)
+    orientations = {}
+    for aid in attachments:
+        incoming = request.originals.get(aid)
+        if incoming:
+            try:
+                data = b64decode(incoming.data, validate=True)
+            except Base64Error:
+                require(False, "Invalid image encoding.")
+            require(len(data) <= 4_000_000, "Photo exceeds the upload limit.", 413)
+            image = EvidenceImage(aid, incoming.media_type, data)
+            require(aid not in existing or existing[aid] == image, "Attachment IDs identify immutable originals.", 409)
+            images[aid] = image
+        require(aid in images, "Supply the original for every new photo.")
+        orientations[aid] = capture_orientation(images[aid].media_type, images[aid].content)
+    return images, orientations
+
+
+def _entries(medicine, encoded, images):
+    """Build ordinary admission source entries. Keep the exact suggestion alongside its citations."""
+    result = []
+    row = medicine.row
+    refs = {ref.source_id: ref for ref in row.sources}
+    require(len(refs) == len(row.sources), "Use a distinct logical source for each located region.")
+    require(set(refs) == {s.id for s in medicine.sources}, "Supply exactly the cited row sources.")
+    items = {(i.source_id, i.id): i for i in medicine.items}
+    photo_regions = {i.id for i in medicine.items if i.kind != "record_excerpt"}
+    require(set(medicine.regions) == set(medicine.physical_items) == photo_regions, "Supply the cited image regions.")
+    require(set(medicine.notes) == {s.id for s in medicine.sources if s.kind not in PHOTO_KINDS},
+            "Preserve the wording of every cited note.")
+    front_ids = {s.id for s in medicine.sources if s.kind == "label_photo"}
+    front = {medicine.physical_items[i.id] for i in medicine.items if i.source_id in front_ids}
+    for src in medicine.sources:
+        reference = refs[src.id]
+        names = {v.value for v in row.observed_names if v.evidence == reference}
+        name = next(iter(names)) if len(names) == 1 else None
+        fields = {key: obs for key, obs in row.label_fields.items() if obs.evidence == reference}
+        attrs = {}
+        for key in ("strength", "form", "dose", "directions", "indication"):
+            if key in fields and fields[key].value:
+                attrs[key] = fields[key].value
+        picture = None
+        item = items.get((src.id, reference.item_id))
+        if src.kind in PHOTO_KINDS:
+            require(item is not None and item.id in medicine.regions, "A photo must cite an exact region.")
+            image = images[src.attachment_id]
+            bounds = medicine.regions[item.id]
+            appearance = item.kind == "pill_crop"
+            picture = Photo(media_type=image.media_type, data=encoded[src.attachment_id],
+                            region=(bounds.x, bounds.y, bounds.width, bounds.height), bag=row.id,
+                            pairing="matched" if src.kind == "reverse_photo" and medicine.physical_items[item.id] in front else "uncertain",
+                            front_attributed=src.kind == "label_photo" and not appearance,
+                            appearance=(row.unknown_label or "Appearance") if appearance else None)
+            wording = name or attrs.get("directions") or next((o.value for o in fields.values() if o.value), None)
+            wording = wording or row.unknown_label or "Located medication image"
+        else:
+            wording = medicine.notes[src.id]
+        # The source's actual words remain intact. A staff-entered product selection is a separate record.
+        documented_name = name if name and name.casefold() in wording.casefold() else None
+        transcribed = {key: value for key, value in attrs.items()
+                       if value.casefold() in wording.casefold() and src.kind not in REPORT_KINDS}
+        additional_label = src.kind == "additional_photo" and item and item.kind == "label_region"
+        entry = SourceEntry(source=src, wording=wording, name=None if additional_label else documented_name,
+                            photo=picture, **({} if additional_label else transcribed))
+        saved = entry.model_dump(mode="json")
+        if additional_label:
+            saved.update(intake_additional_label=True, name=documented_name, **transcribed)
+        saved["product"] = documented_name
+        saved["label_overrides"] = []
+        saved["intake_item_id"] = reference.item_id
+        # The original field and field-level citation are part of MedicationSuggestion.
+        saved["intake_observations"] = {key: value.model_dump(mode="json") for key, value in fields.items()}
+        result.append(saved)
+        if name and not documented_name:
+            require(medicine.origin == "manual" and src.kind not in PHOTO_KINDS | REPORT_KINDS,
+                    "Reconcile a suggested name with its original source before admission.")
+            selection = SourceEntry(source=EvidenceSource(id="intake-choice-" + row.id, kind="reviewer_record"),
+                                    wording=name, name=name).model_dump(mode="json")
+            selection["product"] = name
+            result.append(selection)
+    return result
+
+
+def _used(row, intake_entry_ids):
+    return (row["verified"] or row["interview"] or row["proposal"] or row["confirmed"] or row["referred"]
+            or row["superseded"] or row.get("imported_at") or row.get("screening_attestation")
+            or any(e["source"]["id"] not in intake_entry_ids for e in row["entries"]))
+
+
+def save_intake(store, actor, request: IntakeSubmission):
+    require(actor.role in {"doctor", "nurse", "pharmacist"}, "Clinical reviewer required.", 403)
+    case_id = "admission-" + request.case_id.hex
+    by_id = {medicine.row.id: medicine for medicine in request.rows}
+    require(len(by_id) == len(request.rows), "Duplicate medicine row.")
+    for medicine in request.rows:
+        manifest = CaseEvidence(case_id=case_id, sources=medicine.sources, items=medicine.items)
+        validate_analysis_result(AnalysisResult(case_id=case_id, rows=[medicine.row]), manifest)
+    # Evidence identifiers may be reused only for the same source, including its original wording.
+    registry = {}
+    for item in request.rows:
+        for source in item.sources:
+            value = (source, item.notes.get(source.id))
+            require(source.id not in registry or registry[source.id] == value, "A source was edited after confirmation.")
+            registry[source.id] = value
+    digests = {rid: sha256(m.model_dump_json().encode()).hexdigest() for rid, m in by_id.items()}
+    with store.lock:
+        previous = store.records.get(case_id)
+        if previous:
+            store.get(actor, case_id)
+        images, orientations = _prepare_images(request, store.originals.get(case_id, {}))
+        if previous and previous.get("intake_digests") == digests:
+            return previous
+        require(request.revision == (previous["revision"] if previous else 0),
+                "Encounter changed. Refresh before sending this draft.", 409)
+        if previous:
+            require(previous["status"] == "In progress", "Intake has finished for this encounter.", 409)
+        case = deepcopy(previous) if previous else new_encounter(case_id, actor, NewEncounter(
+            patient_alias="Encounter " + request.case_id.hex[:8], assigned_roles={"nurse", "doctor", "pharmacist"}), revision=0)
+        old = case.get("intake_digests", {})
+        changed = {rid for rid in old.keys() | by_id.keys() if old.get(rid) != digests.get(rid)}
+        encoded = {aid: b64encode(im.content).decode("ascii") for aid, im in images.items() if aid in orientations}
+        for rid in sorted(changed):
+            row = case["rows"].get(rid)
+            if row:
+                require(rid in old and not _used(row, set(row["intake_entry_ids"])),
+                        "This row already has clinical activity. Amend it in clinical review.", 409)
+            if rid not in by_id:
+                del case["rows"][rid]
+                continue
+            medicine = by_id[rid]
+            entries = _entries(medicine, encoded, images)
+            unknown = medicine.row.identity_status != "named" or not any(e["name"] for e in entries)
+            if any(e["photo"] and e["photo"]["appearance"] for e in entries):
+                unknown |= all(e["source"]["kind"] in REPORT_KINDS for e in entries if e["name"])
+            prior = row
+            row = new_row(rid, unknown=unknown or bool(prior and prior["unknown"]))
+            if prior and prior["unknown"]:
+                row["unknown_capture_attachments"] = sorted({
+                    *(prior.get("unknown_capture_attachments") or ()),
+                    *(e["source"]["attachment_id"] for e in prior["entries"] if e["photo"])
+                })
+            row.update(entries=entries, intake=medicine.row.model_dump(mode="json"),
+                       intake_entry_ids=[e["source"]["id"] for e in entries],
+                       intake_catalogue=medicine.catalogue.model_dump(mode="json") if medicine.catalogue else None)
+            case["rows"][rid] = row
+        from app.services.admission_intake_capture import sync_capture
+        sync_capture(case, request.rows, orientations)
+        if previous and previous.get("intake_capture_fingerprint"):
+            require(sha256(repr(previous.get("capture")).encode()).hexdigest() == previous["intake_capture_fingerprint"]
+                    or case.get("capture") == previous.get("capture"), "The package layout changed. Refresh before updating intake.", 409)
+        if case.get("capture"):
+            case["intake_capture_fingerprint"] = sha256(repr(case["capture"]).encode()).hexdigest()
+        case.update(intake_digests=digests, intake_attachments=sorted(images))
+        case["revision"] += 1
+        case["events"].append(dict(action="intake", actor=actor.model_dump(), at=now(), revision=case["revision"],
+                                   rows=sorted(changed), sources=sorted(registry)))
+        store.originals[case_id] = images
+        store.records[case_id] = case
+        return case

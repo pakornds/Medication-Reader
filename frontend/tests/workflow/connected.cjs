@@ -1,0 +1,240 @@
+// Run against a dedicated synthetic backend. The two staff tokens must belong to that server.
+// TEST_UI_URL=... TEST_API_URL=... MEDICATION_READER_DEMO_NURSE_TOKEN=... MEDICATION_READER_DEMO_REVIEWER_TOKEN=... node frontend/tests/workflow/connected.cjs
+// Requires Playwright and Chromium. Set CHROME_PATH to use a local browser executable.
+const assert = require('node:assert/strict')
+const path = require('node:path')
+const { chromium } = require('playwright')
+
+const ui = process.env.TEST_UI_URL
+const api = process.env.TEST_API_URL
+const nurse = process.env.MEDICATION_READER_DEMO_NURSE_TOKEN
+const pharmacy = process.env.MEDICATION_READER_DEMO_REVIEWER_TOKEN
+assert.ok(ui && api && nurse && pharmacy, 'Set TEST_UI_URL, TEST_API_URL and both synthetic staff tokens.')
+
+const clinicalToken = token => ({ 'X-Demo-Reviewer-Token': token })
+const assignedEncounter = async id => {
+  const response = await fetch(api + '/admissions/' + encodeURIComponent(id), { headers: clinicalToken(pharmacy) })
+  assert.equal(response.status, 200)
+  return response.json()
+}
+const button = (page, name) => page.getByRole('button', { name, exact: true })
+const label = (page, name) => page.getByLabel(name, { exact: true })
+const routeLink = (page, pathname) => page.locator('a[href="' + pathname + '"]').filter({ visible: true }).first()
+const signIn = async (page, token) => {
+  await label(page, 'Staff token').fill(token)
+  await button(page, 'Sign in').click()
+  await button(page, 'Sign out').waitFor()
+}
+const stage = (page, name) => routeLink(page, '/new-patient/' + name).click()
+
+async function addDocumentedProduct(page) {
+  await button(page, 'Enter medicine manually').click()
+  const field = page.getByRole('combobox', { name: 'Product name or code' })
+  await field.fill('117365')
+  await page.getByRole('option').filter({ hasText: '117365' }).first().waitFor()
+  await field.press('ArrowDown')
+  await field.press('Enter')
+  assert.match(await field.inputValue(), /ZOCOR/i)
+  await label(page, 'Source wording or reference').fill('Synthetic transfer note lists ZOCOR; 21 tablets supplied.')
+  await label(page, 'Quantity prescribed (as written)').fill('21 tablets')
+  await label(page, 'Directions as written or reported').fill('1 tablet each morning')
+  await button(page, 'Fill fields from wording').click()
+  await page.waitForFunction(() => document.querySelector('.directions-card input[type=number]')?.value === '1')
+  assert.equal(await label(page, 'Dose unit').inputValue(), 'tablet')
+  assert.equal(await label(page, 'Period unit').inputValue(), 'day')
+  assert.equal(await button(page, 'Morning').getAttribute('aria-pressed'), 'true')
+  await button(page, 'Add another set of directions').click()
+  const second = page.locator('.directions-card').nth(1)
+  await second.getByLabel('Directions source', { exact: true }).selectOption('patient_report')
+  await second.getByLabel('Directions as written or reported', { exact: true }).fill('I take 1 tablet by mouth each evening')
+  await second.getByRole('button', { name: 'Fill fields from wording' }).click()
+  await page.waitForFunction(() => document.querySelectorAll('.directions-card')[1]?.querySelector('[aria-pressed=true]')?.textContent === 'Evening')
+  await button(page, 'Add to draft').click()
+  await page.locator('.draft-line').filter({ hasText: /ZOCOR/i }).waitFor()
+}
+
+// Exercise image selection, physical region and admission storage with a deterministic unreadable
+// transcription. Only this analysis response is substituted; all other network operations stay real.
+async function addUnreadablePhoto(page) {
+  await button(page, 'Read photos or notes').click()
+  const slot = page.getByRole('region', { name: 'Label side', exact: true })
+  await slot.locator('input[type=file]').first().setInputFiles(path.resolve(__dirname, '../../../backend/tests/fixtures/package_regions/empty.png'))
+  await slot.getByRole('button', { name: 'Use whole image', exact: true }).click()
+  await page.route('**/medication-analysis', async route => {
+    const request = route.request()
+    const form = await new Response(request.postDataBuffer(), { headers: { 'Content-Type': request.headers()['content-type'] } }).formData()
+    const submitted = JSON.parse(form.get('form'))
+    assert.equal(form.getAll('photos').length, 1)
+    assert.equal(submitted.evidence.items.length, 1)
+    const [area] = submitted.evidence.items
+    assert.equal(area.kind, 'label_region')
+    const ref = { source_id: area.source_id, item_id: area.id }
+    await route.fulfill({ json: {
+      case_id: submitted.evidence.case_id, rows: [{
+        id: area.row_id, identity_status: 'unreadable', unknown_label: 'Unreadable synthetic package',
+        sources: [ref], observed_names: [], label_fields: {}, reported_use: [],
+        discrepancies: [], follow_ups: [], regimens: [],
+      }], unassigned_reports: [],
+    } })
+  })
+  await button(page, 'Analyze evidence').click()
+  await page.locator('.pick-row input').filter({ visible: true }).check()
+  await button(page, 'Add selected to draft').click()
+  await page.locator('.draft-line').filter({ hasText: 'Unreadable synthetic package' }).waitFor()
+  await page.unroute('**/medication-analysis')
+}
+
+async function verifyProduct(page, rowId) {
+  // Select the documented row even when the backend returns the unreadable row first.
+  const identity = page.getByRole('button', { name: /ZOCOR/i }).filter({ visible: true })
+  if (await identity.count()) await identity.first().click()
+  const interview = page.locator('form').filter({ has: button(page, 'Save interview') })
+  const source = interview.getByLabel('Interview source')
+  const account = await source.locator('option').filter({ hasText: /I take 1 tablet by mouth each evening/ }).getAttribute('value')
+  assert.ok(account, 'Intake retained the reported evening statement as a separate interview source.')
+  await source.selectOption(account)
+  await interview.getByLabel('Whose medicine?').selectOption('patient')
+  await interview.getByLabel('Current use').selectOption('current')
+  await interview.getByLabel('Actual dose').fill('1 tablet')
+  await interview.getByLabel('Actual route').fill('oral')
+  await interview.getByLabel('Actual schedule').fill('each evening')
+  await interview.getByLabel('Reported reason for use').fill('Synthetic admission review')
+  await button(page, 'Save interview').click()
+  const verify = page.locator('form').filter({ has: button(page, 'Verify this medicine') })
+  await verify.waitFor()
+  const response = page.waitForResponse(r => r.url().endsWith('/actions') && r.request().postDataJSON()?.command.action === 'verify')
+  await button(page, 'Verify this medicine').click()
+  const saved = await response
+  assert.equal(saved.status(), 200)
+  assert.equal((await saved.json()).rows[rowId].verified.answer.current_use, 'current')
+}
+
+async function assertReceiptHistory(page, expected, canRead) {
+  await page.getByRole('button', { name: 'View receipt', exact: true }).click()
+  if (canRead) {
+    await page.getByText(expected, { exact: true }).last().waitFor()
+    assert.equal(await page.getByText('Unreadable synthetic package', { exact: true }).count(), 0)
+  } else {
+    await page.getByText('Sign in as the assigned pharmacist to open the hospital receipt.').waitFor()
+    assert.equal(await page.getByText(expected, { exact: true }).count(), 0)
+  }
+}
+
+async function workflow(browser) {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } })
+  const page = await context.newPage()
+  page.setDefaultTimeout(12000)
+  const pageErrors = []
+  const optionalChecks = []
+  page.on('pageerror', error => pageErrors.push(error.message))
+  page.on('request', req => {
+    if (req.method() === 'POST' && /(\/checks(?:\/local)?$|\/review-reports\/)/.test(new URL(req.url()).pathname)) optionalChecks.push(req.url())
+  })
+  page.on('dialog', dialog => dialog.accept())
+  await page.goto(ui + '/')
+  await routeLink(page, '/new-patient').click()
+  await addDocumentedProduct(page)
+  await addUnreadablePhoto(page)
+  await stage(page, 'review')
+  const documented = page.locator('article').filter({ hasText: /ZOCOR/i })
+  const schedules = documented.locator('.regimen-readback')
+  await schedules.nth(1).waitFor()
+  assert.match(await schedules.nth(0).innerText(), /Documented[\s\S]*Morning/)
+  assert.match(await schedules.nth(1).innerText(), /Reported[\s\S]*Evening/)
+  assert.match(await documented.innerText(), /21 tablets/)
+  await signIn(page, nurse)
+  const stored = page.waitForResponse(r => r.url().endsWith('/admissions/intake') && r.request().method() === 'POST')
+  await button(page, 'Save draft and open clinical review').click()
+  const saved = await stored
+  assert.equal(saved.status(), 200, await saved.text())
+  const initial = await saved.json()
+  const rows = Object.values(initial.rows)
+  assert.equal(rows.length, 2)
+  const known = rows.find(r => !r.unknown), unknown = rows.find(r => r.unknown)
+  assert.ok(known && unknown)
+  assert.equal(known.intake.regimens.length, 2)
+  assert.equal(known.intake_catalogue.product.tpu, '117365')
+  assert.ok(unknown.entries.some(e => e.photo && e.source.kind === 'label_photo'))
+  assert.equal(initial.intake_attachments.length, 1)
+  await verifyProduct(page, known.id)
+  await button(page, 'Dated handoff / print').click()
+  const preview = page.getByRole('dialog', { name: 'Dated medication handoff' })
+  await preview.getByRole('button', { name: 'Print handoff' }).waitFor()
+  assert.match(await preview.innerText(), /ZOCOR/i)
+  await preview.getByRole('button', { name: 'Close' }).click()
+  await stage(page, 'output')
+  assert.equal(await button(page, 'Approve and import selected medicines').isDisabled(), true)
+  await button(page, 'Sign out').click()
+  await routeLink(page, '/').click()
+  await signIn(page, pharmacy)
+  await page.locator('.staff-queue li').filter({ hasText: initial.patient_alias }).getByRole('button').click()
+  await stage(page, 'output')
+  const ready = page.getByRole('checkbox', { name: /ZOCOR/i })
+  await ready.check()
+  assert.equal(await page.getByRole('checkbox').count(), 1)
+  const requests = []
+  // Deliver the first write to the real hospital, then lose the response before it reaches React.
+  await page.route('**/admissions/*/actions', async route => {
+    const payload = route.request().postDataJSON()
+    assert.equal(payload.command.action, 'import')
+    requests.push(payload)
+    if (requests.length === 1) {
+      assert.equal((await route.fetch()).status(), 200)
+      await route.abort('failed')
+    } else await route.continue()
+  })
+  await button(page, 'Approve and import selected medicines').click()
+  await page.getByText('Import could not be confirmed. Retry the same selection.').waitFor()
+  await button(page, 'Approve and import selected medicines').click()
+  await page.getByRole('heading', { name: 'Import confirmed' }).waitFor()
+  assert.deepEqual(requests[0], requests[1])
+  await page.unroute('**/admissions/*/actions')
+  const final = await assignedEncounter(initial.id)
+  assert.equal(final.receipts.length, 1)
+  assert.deepEqual(final.receipts[0].imported_row_ids, [known.id])
+  assert.equal(final.rows[unknown.id].verified, null)
+  assert.equal(final.rows[unknown.id].imported_at, undefined)
+  const storage = await page.evaluate(() => Object.entries(localStorage))
+  assert.equal(storage.length, 1, 'Only the successful timestamp was saved in browser storage.')
+  const [key, stamp] = storage[0]
+  assert.match(stamp, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$/)
+  assert.equal(key, 'medication-reader:imported-at:' + stamp)
+  await routeLink(page, '/history').click()
+  await assertReceiptHistory(page, final.rows[known.id].verified.identity.name, true)
+  await page.reload()
+  await assertReceiptHistory(page, final.rows[known.id].verified.identity.name, false)
+  await signIn(page, pharmacy)
+  await page.getByText(final.rows[known.id].verified.identity.name, { exact: true }).last().waitFor()
+  assert.deepEqual(pageErrors, [])
+  assert.deepEqual(optionalChecks, [], 'Optional screening must not gate clinical review or import.')
+  await context.close()
+}
+
+async function mobile(browser) {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
+  const page = await ctx.newPage()
+  await page.goto(ui + '/new-patient/input')
+  await button(page, 'Switch to Thai').click()
+  await button(page, 'ใช้ธีมมืด').click()
+  await button(page, 'กรอกยาเอง').click()
+  const product = page.getByRole('combobox', { name: 'ชื่อผลิตภัณฑ์หรือรหัสยา' })
+  await product.fill('117365')
+  await page.getByRole('option').filter({ hasText: '117365' }).first().tap()
+  assert.match(await product.inputValue(), /ZOCOR/i)
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'dark')
+  for (const stagePath of ['/new-patient/review', '/new-patient/output', '/history']) {
+    await routeLink(page, stagePath).tap()
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, stagePath)
+  }
+  await page.getByRole('heading', { name: 'ประวัติ', exact: true }).waitFor()
+  await ctx.close()
+}
+
+;(async () => {
+  const browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {})
+  try {
+    await workflow(browser)
+    await mobile(browser)
+    console.log('PASS normal React staff routes: real TMT and regimen parser, synthetic unreadable analysis, admission handoff, nurse verification, pharmacist import retry, server receipt, signed-out reload, Thai mobile and dark theme.')
+  } finally { await browser.close() }
+})().catch(error => { console.error(error); process.exitCode = 1 })

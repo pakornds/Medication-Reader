@@ -3,7 +3,7 @@
 export type Action = {
   revision: number
   request_id: string
-  command: AddRow | AddEvidence | Interview | Verify | Proposal | Decision | Refer | Finish | Import
+  command: AddRow | AddEvidence | Interview | Verify | Proposal | Decision | Refer | Finish | Import | AttestCurrentUse | AssessIdentityIncident
 }
 
 export type AddEvidence = {
@@ -42,6 +42,19 @@ export type ApprovedSnapshot = {
   rows: Array<ReviewRow>
 }
 
+export type AssessIdentityIncident = {
+  action: "assess_identity_incident"
+  incident_id: string
+  outcome: "confirmed_medication_error" | "not_confirmed" | "needs_review"
+  assessment: string
+}
+
+export type AttestCurrentUse = {
+  action: "attest_current_use"
+  row_id: string
+  source_id: string
+}
+
 export type CandidateRequest = {
   evidence: CaseEvidence
   observation: PillObservation
@@ -59,6 +72,7 @@ export type CaptureCommand = {
   request_id: string
   manifest: PackageCapture
   existing_rows?: Partial<Record<string, string>>
+  replaces_view?: CaptureViewRequest | null
 }
 
 export type CaptureViewRequest = {
@@ -92,20 +106,13 @@ export type CheckSummary = {
   source?: ReferenceVersion | null
   evaluated?: Array<CheckedScope>
   excluded?: Array<CheckExclusion>
+  warnings?: Array<string>
   findings?: Array<CheckFinding>
 }
 
 export type CheckedScope = {
   row_ids: Array<string>
   rule_id?: string | null
-}
-
-export type CoverageRequest = {
-  kind: "DDI" | "DRP"
-  enabled: boolean
-  rows: Array<ReviewRow>
-  context?: Record<string, string | number | number | boolean>
-  evidence: CaseEvidence
 }
 
 export type CurrentUseVerification = {
@@ -161,6 +168,14 @@ export type DuplicateLookup = {
   status: "potential" | "lookup_complete" | "unassessed"
   reasons: Array<string>
   ingredients?: Array<Ingredient>
+}
+
+export type EncounterCheck = {
+  case_id: string
+  admission_revision: number
+  kind: "DDI" | "DRP"
+  enabled?: boolean
+  context?: Partial<Record<"fixture_context", "present" | "flagged">>
 }
 
 export type EvidenceItem = {
@@ -284,11 +299,6 @@ export type LabelPhotoRequest = {
   region_locations?: Partial<Record<string, string>>
 }
 
-export type LocalScreeningRequest = {
-  evidence: CaseEvidence
-  rows: Array<ReviewRow>
-}
-
 export type LocalScreeningResult = {
   snapshot_id: string
   tmt_release: string
@@ -296,6 +306,7 @@ export type LocalScreeningResult = {
   ddi_unavailable_reason: string | null
   ddi_scope: string
   mapping_version: string
+  warnings?: Array<string>
   checked_at: string
   rows: Array<ScreenedRow>
   pairs: Array<ScreenedPair>
@@ -463,6 +474,13 @@ export type ReferenceVersion = {
   version: string
 }
 
+export type RegimenAnalysisUnavailable = {
+  row_id: string
+  status?: "unavailable"
+  missing_fields: Array<"dose" | "route" | "schedule">
+  reason: string
+}
+
 export type RegimenComponent = {
   component_id: string
   basis: "documented" | "reported" | "verified"
@@ -596,6 +614,11 @@ export type ScreeningScope = {
   follow_up_ids?: Array<string>
 }
 
+export type ScreeningTarget = {
+  case_id: string
+  admission_revision: number
+}
+
 export type ServiceError = {
   code: string
   message: string
@@ -670,4 +693,5 @@ export type VersionedScreeningReport = {
   scopes: Array<ScreeningScope>
   mapping_version: string
   warnings?: Array<string>
+  regimen_analysis?: Array<RegimenAnalysisUnavailable>
 }

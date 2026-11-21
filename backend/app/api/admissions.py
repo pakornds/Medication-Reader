@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 from starlette.concurrency import run_in_threadpool
 
+from app.api.admission_intake import register_intake
 from app.api.medication_analysis import MAX_FORM_BYTES, PHOTO_TYPES
 from app.schemas.admission import Action, CaptureCommand, CaptureViewRequest, NewEncounter
 from app.schemas.package_capture import RegionLink
@@ -20,6 +21,7 @@ def register_admissions(app, hospital, resolve_reviewer):
     app.state.admissions = store
     router = APIRouter(prefix="/admissions", tags=["admission review"])
     reviewer = Depends(resolve_reviewer)
+    register_intake(router, store, resolve_reviewer)
 
     @router.get("/session")
     def session(actor: ReviewerIdentity = reviewer):
