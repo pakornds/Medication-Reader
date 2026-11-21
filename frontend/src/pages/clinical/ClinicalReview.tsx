@@ -235,8 +235,6 @@ function ReviewSession({ language, client, actor, encounter, onEncounter }: Prop
                   <SourceFields entry={entry} language={language} />
                   <small>
                     {[
-                      entry.source.source_date,
-                      entry.source.department_or_ward,
                       entry.source.organization_address,
                       entry.source.organization_phone,
                       entry.source.organization_phone_extension &&
