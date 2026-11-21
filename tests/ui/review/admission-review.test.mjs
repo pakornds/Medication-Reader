@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { admissionReview, canAttestCurrentUse, requiresPharmacyIdentity } from "../../../src/components/review/admission-review.mjs";
+import { admissionReview, canAttestCurrentUse, namedIdentityOptions, requiresPharmacyIdentity } from "../../../src/components/review/admission-review.mjs";
 
 const manifest = JSON.parse(readFileSync(new URL("../../../fixtures/package-capture/two-photos.json", import.meta.url), "utf8"));
 
@@ -84,25 +84,48 @@ test("a prescription, reported timing, and a verified decision remain separately
 
 test("only a doctor or pharmacist can attest sourced current use with an incomplete regimen", () => {
   const report = { source: { id: "interview", kind: "patient_report" }, wording: "Synthetic answer" };
+  const order = { source: { id: "order", kind: "prescription" }, name: "Demo A" };
   const row = {
-    id: "item-1", entries: [report], superseded: [], unknown: false,
+    id: "item-1", entries: [order, report], superseded: [], unknown: false,
     interview: { source_id: "interview", ownership: "patient", current_use: "current", dose: null, route: "oral", schedule: "each morning" },
   };
   assert.deepEqual(admissionReview({}, row).missingRegimen, ["dose"]);
   assert.equal(canAttestCurrentUse(row, { role: "nurse" }), false);
   assert.equal(canAttestCurrentUse(row, { role: "doctor" }), true);
+  assert.equal(canAttestCurrentUse({ ...row, entries: [report] }, { role: "doctor" }), false);
+  assert.equal(canAttestCurrentUse({ ...row, disputed_identity_source_ids: ["order", "other"] }, { role: "doctor" }), false);
   assert.equal(canAttestCurrentUse({ ...row, unknown: true }, { role: "pharmacist" }), false);
   assert.equal(canAttestCurrentUse({ ...row, superseded: ["interview"] }, { role: "doctor" }), false);
   const attestation = {
     identity: { name: "Demo A", source_id: "order" }, source_id: "interview",
-    answer: { ...row.interview }, active_sources: ["interview"],
+    answer: { ...row.interview }, active_sources: ["order", "interview"],
   };
   const attested = { ...row, screening_attestation: attestation };
   assert.equal(admissionReview({}, attested).screeningAttestation, attestation);
   assert.equal(canAttestCurrentUse(attested, { role: "doctor" }), false);
-  const addedSource = { ...attested, entries: [...row.entries, { source: { id: "order" } }] };
+  const addedSource = { ...attested, entries: [...row.entries, { source: { id: "extra" } }] };
   assert.equal(admissionReview({}, addedSource).screeningAttestation, null);
   assert.equal(canAttestCurrentUse(addedSource, { role: "doctor" }), true);
+});
+
+test("an initially named dispute offers only independently documented item evidence", () => {
+  const entry = (id, kind, name, attachment_id) => ({
+    source: { id, kind, attachment_id }, name, product: name, wording: name + " on bag A",
+    identity_basis: "item_specific_record",
+  });
+  const labeled = entry("bag", "label_photo", "Demo Amber", "bag-image");
+  const row = {
+    id: "item-1", superseded: ["bag"], disputed_identity_source_ids: ["bag", "transfer"],
+    entries: [labeled, entry("transfer", "transfer_record", "Demo Slate"),
+      entry("crop", "label_photo", "Demo Slate", "bag-image"),
+      entry("report", "patient_report", "Demo Slate"), entry("dispensing", "reviewer_record", "Demo Slate")],
+  };
+  assert.deepEqual(namedIdentityOptions(row).map(([id]) => id), ["dispensing"]);
+  const review = admissionReview({ identity_incidents: {
+    original: { row_id: "item-1" }, unrelated: { row_id: "item-2" },
+  } }, row);
+  assert.deepEqual(review.disputedSources.map(e => e.source.id), ["bag", "transfer"]);
+  assert.deepEqual(review.incidents, [{ row_id: "item-1" }]);
 });
 
 test("a report naming an unresolved loose item can require pharmacy identity review", () => {

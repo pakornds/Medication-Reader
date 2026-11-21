@@ -64,12 +64,7 @@ async function run() {
   const report = entry("patient-use", "patient_report", "I take one tablet in the morning only.", {}, {
     reporter: "Synthetic patient",
   });
-  const wardNote = entry("ward-note", "reviewer_record", "Requested ward record is unavailable.", {}, {
-    reporter: "Synthetic ward coordinator",
-  });
-  for (const saved of [report, wardNote]) {
-    await save("link", { row_id: "item-1", confirmed: true, entry: saved });
-  }
+  await save("link", { row_id: "item-1", confirmed: true, entry: report });
   await save("interview", { row_id: "item-1", source_id: "patient-use", ownership: "patient", current_use: "uncertain" });
 
   for (const [id, name, directions] of [
@@ -94,11 +89,32 @@ async function run() {
     await page.getByLabel("Demo reviewer token").fill(token);
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await page.getByRole("button", { name: new RegExp(alias) }).click();
+    await page.getByRole("button", { name: "Record unavailable source" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByLabel("Organization").fill("Synthetic transfer hospital");
+    await dialog.getByLabel("Department or ward").fill("Demo ward");
+    await dialog.getByLabel("Reason unavailable").fill("Records desk closed");
+    await dialog.getByLabel("Follow-up").fill("Request the ward list when the desk reopens.");
+    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    const missing = page.getByRole("region", { name: "Unavailable sources", exact: true });
+    await missing.getByText(/Synthetic transfer hospital · Demo ward/).waitFor();
+    await page.getByRole("button", { name: "Reload review" }).click();
+    await missing.getByText("Reason · Records desk closed", { exact: true }).waitFor();
+    await missing.getByText(/Request the ward list when the desk reopens/).waitFor();
+    await missing.getByText(/Recorded by .+nurse/).waitFor();
+    const reloaded = await fetch(base + admissionPath, { headers });
+    assert.equal(reloaded.status, 200);
+    encounter = await reloaded.json();
+    const [outstanding] = Object.values(encounter.unavailable_sources);
+    assert.equal(outstanding.source.availability, "unavailable");
+    assert.ok(Object.values(encounter.rows).every(medication =>
+      medication.entries.every(entry => entry.source.id !== outstanding.source.id)
+    ));
 
     const row = name => page.locator("#rows > article").filter({ has: page.getByRole("heading", { name, exact: true }) });
     const a = row("Demo A");
     await a.getByText("Verification pending", { exact: true }).waitFor();
-    await a.getByText(/Requested ward record is unavailable/).waitFor();
+    await expectCount(a.getByText(/Records desk closed/), 0);
     await a.getByText(/I take one tablet in the morning only/).first().waitFor();
     await a.getByText("Open sourced regimen fields").click();
     await expectCount(a.locator(".regimen-evidence"), 2);
@@ -146,7 +162,7 @@ async function run() {
     if (process.env.ADMISSION_EVIDENCE_DIR) {
       await page.screenshot({ path: path.join(process.env.ADMISSION_EVIDENCE_DIR, "admission-review.png"), fullPage: true });
     }
-    console.log("Passed: sourced prescription, separate report and verification, independently cited mixed-bag crops, opaque reverse, split doses and retained taper wording.");
+    console.log("Passed: unavailable ward record and follow-up, sourced prescription, separate report and verification, independently cited mixed-bag crops, opaque reverse, split doses and retained taper wording.");
   } finally {
     await browser.close();
   }

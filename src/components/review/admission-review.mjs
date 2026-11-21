@@ -4,6 +4,15 @@ const reportKinds = new Set(["patient_report", "caregiver_report"]);
 const regimenKeys = ["dose", "route", "schedule"];
 const screeningRoles = new Set(["doctor", "pharmacist"]);
 
+function documentedDirections(entry) {
+  if (entry.directions) return entry.directions;
+  const field = entry.scan_fields?.directions;
+  const overrides = entry.label_overrides;
+  if (field?.status === "readable" && overrides &&
+    !overrides.includes("directions") && !overrides.includes("directions_status")) return field.value;
+  return null;
+}
+
 export function admissionReview(encounter, row) {
   const entries = row.entries.filter(({ source }) =>
     !row.superseded.includes(source.id) && source.availability !== "unavailable"
@@ -12,7 +21,8 @@ export function admissionReview(encounter, row) {
     !reportKinds.has(entry.source.kind) &&
     entry.record_basis !== "documented_interview" &&
     entry.record_basis !== "discontinuation_order" &&
-    (entry.name || entry.directions || entry.scan_fields?.directions)
+    (documentedDirections(entry) ||
+      (entry.name && ["prescription", "label_photo", "reverse_photo"].includes(entry.source.kind)))
   );
   const documented = documentedSources.filter(entry => entry.source.source_date)
     .sort((a, b) => a.source.source_date.localeCompare(b.source.source_date)).at(-1)
@@ -24,10 +34,14 @@ export function admissionReview(encounter, row) {
     caseId: encounter.id,
     rowId: row.id,
     documented,
-    documentedSources: documentedSources.filter(entry => entry.directions),
+    documentedSources: documentedSources.filter(entry => documentedDirections(entry)),
     accounts,
     interview: row.interview,
     verified: row.verified,
+    disputedSources: (row.disputed_identity_source_ids || []).map(id =>
+      row.entries.find(entry => entry.source.id === id)
+    ).filter(Boolean),
+    incidents: Object.values(encounter.identity_incidents || {}).filter(incident => incident.row_id === row.id),
     screeningAttestation: activeAttestation(row, entries),
     missingRegimen: missingRegimen(row.interview),
     package: reviewPackage(encounter.capture, row),
@@ -59,12 +73,30 @@ export function requiresPharmacyIdentity(row) {
 }
 export function canAttestCurrentUse(row, actor) {
   const answer = row.interview;
-  if (!screeningRoles.has(actor.role) || row.verified || (row.unknown && !row.confirmed) ||
+  if (!screeningRoles.has(actor.role) || row.verified || row.disputed_identity_source_ids?.length ||
+    (row.unknown && !row.confirmed) ||
     answer?.ownership !== "patient" || answer.current_use !== "current" || !missingRegimen(answer).length) {
     return false;
   }
   const entries = row.entries.filter(entry => !row.superseded.includes(entry.source.id));
-  return entries.some(entry => entry.source.id === answer.source_id) && !activeAttestation(row, entries);
+  const source = entries.find(entry => entry.source.id === answer.source_id);
+  const documented = entries.filter(entry => entry.name && !reportKinds.has(entry.source.kind));
+  return Boolean(source && (reportKinds.has(source.source.kind) || source.record_basis === "documented_interview") &&
+    (row.confirmed || documented.length) && !activeAttestation(row, entries));
+}
+
+export function namedIdentityOptions(row) {
+  const disputed = row.disputed_identity_source_ids || [];
+  const candidates = row.entries.filter(entry => !row.superseded.includes(entry.source.id) &&
+    entry.name && (!entry.photo || (!entry.photo.appearance &&
+      (entry.photo.front_attributed || entry.photo.pairing === "matched"))));
+  return candidates.filter(entry => {
+    if (!disputed.length) return true;
+    if (disputed.includes(entry.source.id) || !entry.identity_basis || reportKinds.has(entry.source.kind)) return false;
+    return !row.entries.some(other => other !== entry && (disputed.includes(other.source.id) || candidates.includes(other)) &&
+      ((entry.source.attachment_id && entry.source.attachment_id === other.source.attachment_id) ||
+        (entry.photo?.data && entry.photo.data === other.photo?.data)));
+  }).map(entry => [entry.source.id, [entry.product || entry.name, sourceLabel(entry.source), entry.wording].join(" · ")]);
 }
 function reviewPackage(capture, row) {
   const pkg = capture?.packages.find(({ id }) => id === row.package_id);
@@ -163,10 +195,10 @@ function renderPackage(root, pkg, loadCrop) {
   root.append(details);
 }
 
-function regimenStatement(caseId, rowId, entry, basis) {
+export function regimenStatement(caseId, rowId, entry, basis) {
   const isPhoto = Boolean(entry.photo);
   const item = isPhoto ? {
-    id: "selected",
+    id: rowId,
     source_id: entry.source.id,
     row_id: rowId,
     kind: entry.source.kind === "reverse_photo" ? "matched_reverse_label" : "label_region",
@@ -176,7 +208,7 @@ function regimenStatement(caseId, rowId, entry, basis) {
     row_id: rowId,
     component_id: entry.source.id,
     basis,
-    directions_text: basis === "documented" ? entry.directions : entry.wording,
+    directions_text: basis === "documented" ? documentedDirections(entry) : entry.wording,
     source: { source_id: entry.source.id, item_id: item?.id ?? null },
   };
 }
@@ -214,12 +246,46 @@ function renderSourcedRegimens(root, review, loadRegimens) {
   });
 }
 
-export function renderAdmissionReview(root, review, { loadCrop, loadRegimens, sourceName }) {
+function renderIdentityHistory(root, review, sourceName, assessIncident) {
+  if (review.disputedSources.length && !review.verified) {
+    root.append(element("strong", "Disputed documented identity"));
+    for (const entry of review.disputedSources) {
+      root.append(element("p", `${entry.name} · ${sourceName(entry.source.id)} · ${entry.wording}`));
+    }
+    root.append(element("p", "Link independent documentation for this physical item before verifying its identity."));
+  }
+  for (const incident of review.incidents) {
+    const section = element("section");
+    section.append(
+      element("h4", "Original identity decision"),
+      element("p", `${incident.decision} · ${incident.identity} · ${incident.reviewer.name} (${incident.reviewer.role}) · ${new Date(incident.recorded_at).toLocaleString()}`),
+      element("p", incident.resolution),
+    );
+    for (const source of incident.conflicting_sources) {
+      section.append(element("p", `Conflicting source · ${source.name} · ${sourceName(source.source_id)}`));
+    }
+    section.append(element("p", `Independent evidence · ${sourceName(incident.corroborating_source_id)}`));
+    if (!incident.pharmacy_assessments.length) section.append(element("p", "Awaiting pharmacy assessment"));
+    for (const assessment of incident.pharmacy_assessments) {
+      section.append(element("p", `Pharmacy assessment · ${assessment.outcome.replaceAll("_", " ")} · ${assessment.assessment} · ${assessment.recorder.name} · ${new Date(assessment.recorded_at).toLocaleString()}`));
+    }
+    if (assessIncident) {
+      const button = element("button", "Pharmacy assessment");
+      button.type = "button";
+      button.addEventListener("click", () => assessIncident(incident));
+      section.append(button);
+    }
+    root.append(section);
+  }
+}
+
+export function renderAdmissionReview(root, review, { loadCrop, loadRegimens, sourceName, assessIncident }) {
   const { documented, accounts, package: pkg } = review;
   const last = element("p");
+  const directions = documented && documentedDirections(documented);
   last.append(
     element("strong", "Last documented prescription"),
-    document.createTextNode(documented ? ` · ${documented.directions || documented.directions_status || "Directions unavailable"} · ${sourceLabel(documented.source)}` : " · No prescription available"),
+    document.createTextNode(documented ? ` · ${directions || documented.directions_status || "Directions unavailable"} · ${sourceLabel(documented.source)}` : " · No prescription available"),
   );
   const reported = element("div");
   reported.append(element("strong", "Patient or caregiver account"));
@@ -228,6 +294,7 @@ export function renderAdmissionReview(root, review, { loadCrop, loadRegimens, so
     reported.append(element("p", `${account.wording} · ${sourceLabel(account.source)}`));
   }
   root.append(last, reported);
+  renderIdentityHistory(root, review, sourceName, assessIncident);
   const attestation = review.screeningAttestation;
   if (attestation) {
     const status = element("p");
