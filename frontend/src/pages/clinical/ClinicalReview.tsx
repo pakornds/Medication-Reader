@@ -11,6 +11,7 @@ import { Handoff } from './Handoff'
 import { LocatedImage } from './LocatedImage'
 import { rowRegions } from './locatedEvidence'
 import { InterviewForm } from './InterviewForm'
+import type { InterviewDraft, UpdateInterviewDraft } from './interviewDraft'
 import { VerifyForm } from './VerifyForm'
 import { IdentityReview } from './IdentityReview'
 import { IdentityIncident, type Incident } from './IdentityIncident'
@@ -40,6 +41,8 @@ interface Props {
   actor: ReviewerIdentity
   encounter: Encounter
   onEncounter: (value: Encounter) => void
+  interviewDrafts: Record<string, InterviewDraft>
+  onInterviewDraft: (id: string, update: UpdateInterviewDraft) => void
 }
 function statusName(value: Encounter['status'], t: Say) {
   return value === 'Finished'
@@ -72,7 +75,7 @@ function SourceFields({
     </dl>
   )
 }
-function ReviewSession({ language, client, actor, encounter, onEncounter }: Props) {
+function ReviewSession({ language, client, actor, encounter, onEncounter, interviewDrafts, onInterviewDraft }: Props) {
   const t = bilingual(language)
   const rows = Object.values(encounter.rows)
   const [selected, setSelected] = useState(rows[0]?.id || '')
@@ -317,13 +320,14 @@ function ReviewSession({ language, client, actor, encounter, onEncounter }: Prop
             <fieldset disabled={busy} className="clinical-form">
               {writable && (
                 <>
-                  <details open={!row.interview}>
+                  <details key={row.id} open={!row.interview || Boolean(interviewDrafts[row.id])}>
                     <summary>
                       {row.interview
                         ? t('Edit interview', 'แก้ไขการสัมภาษณ์')
                         : t('Record interview', 'บันทึกการสัมภาษณ์')}
                     </summary>
-                    <InterviewForm key={row.id} row={row} encounter={encounter} save={save} t={t} />
+                    <InterviewForm row={row} encounter={encounter} save={save} t={t}
+                      draft={interviewDrafts[row.id]} onDraft={update => onInterviewDraft(row.id, update)} />
                   </details>
                   {(row.unknown ||
                     new Set(

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useRef } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { messages, type Language } from '../../i18n/messages'
 import { Button } from '../../components/ui/Button'
@@ -12,12 +12,11 @@ export function NewPatientLayout({ language, hasWork, onStartFresh }: {
 }) {
   const t = messages[language]
   const dialog = useRef<HTMLDialogElement>(null)
-  const [hasManualWork, setHasManualWork] = useState(false)
   return (
     <>
       <div className="mb-2 flex justify-end">
         <Button onClick={() => {
-          if (hasWork || hasManualWork) dialog.current?.showModal()
+          if (hasWork) dialog.current?.showModal()
           else onStartFresh()
         }}>{t.freshCase}</Button>
       </div>
@@ -41,7 +40,7 @@ export function NewPatientLayout({ language, hasWork, onStartFresh }: {
           </NavLink>
         ))}
       </nav>
-      <Outlet context={setHasManualWork} />
+      <Outlet />
     </>
   )
 }
