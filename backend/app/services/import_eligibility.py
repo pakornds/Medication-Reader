@@ -1,6 +1,7 @@
 """Validate pharmacist-approved snapshots before the receiving system writes."""
 
 import json
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from hashlib import sha256
 from threading import Lock
@@ -34,7 +35,7 @@ def _validate_review(row: ReviewRow, evidence: CaseEvidence) -> None:
     verification = row.verification
     if (
         verification is None
-        or verification.reviewer.role not in {"doctor", "pharmacist"}
+        or verification.reviewer.role not in {"nurse", "doctor", "pharmacist"}
         or verification.status == "uncertain"
         or verification.identity is None
     ):
@@ -65,7 +66,7 @@ def _validate_review(row: ReviewRow, evidence: CaseEvidence) -> None:
         identity_source = sources[identity_ref.source_id]
         if identity_source.kind in PHOTO_KINDS:
             identity_item = items[(identity_ref.source_id, identity_ref.item_id)]
-            if identity_item.kind != "label_region":
+            if not identity_item.supports_label(identity_source.kind):
                 raise EvidenceValidationError("Appearance cannot verify medication identity")
     except EvidenceValidationError:
         raise EligibilityError(
@@ -130,3 +131,28 @@ class ApprovalLedger:
                     )
                 _validate_review(row, request.evidence)
         return rows
+
+
+def selected_evidence(evidence: CaseEvidence, rows: Sequence[ReviewRow]) -> CaseEvidence:
+    row_ids = {row.id for row in rows}
+    source_ids = {reference.source_id for row in rows for reference in row.sources}
+    for row in rows:
+        verification = row.verification
+        if verification is not None:
+            source_ids.update(reference.source_id for reference in verification.evidence)
+            if verification.identity is not None:
+                source_ids.add(verification.identity.evidence.source_id)
+            source_ids.update(ref.source_id for ref in verification.regimen_references())
+        source_ids.update(
+            follow_up.potential_source_id
+            for follow_up in row.follow_ups
+            if follow_up.potential_source_id is not None
+        )
+    return CaseEvidence(
+        case_id=evidence.case_id,
+        sources=[source for source in evidence.sources if source.id in source_ids],
+        items=[
+            item for item in evidence.items
+            if item.row_id in row_ids and item.source_id in source_ids
+        ],
+    )
