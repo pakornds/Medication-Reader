@@ -310,6 +310,7 @@ class AdmissionStore:
                 status="current" if answer["current_use"] == "current" else "no_longer_current",
                 dose=sourced("dose"), route=sourced("route"), frequency=sourced("schedule"))
             label_fields = {}
+            identity_entry = entry_for(row, identity["source_id"])
             reports = []
             conflicts = conflicting_fields(row)
             regimens = []
@@ -322,7 +323,9 @@ class AdmissionStore:
                     reports.append(SourcedValue(value=entry["wording"], evidence=citation))
                 for key in DOCUMENTED_FIELDS:
                     if key in {"strength", "form"} and source_id != identity["source_id"]:
-                        continue
+                        same_product = not entry["name"] or entry["name"].casefold() == identity_entry["name"].casefold()
+                        if identity_entry[key] or key in conflicts or not same_product:
+                            continue
                     if key in conflicts and key not in {"strength", "form"}:
                         continue
                     if entry[key]:

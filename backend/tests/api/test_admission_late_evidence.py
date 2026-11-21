@@ -116,3 +116,21 @@ def test_reported_fields_cannot_be_saved_as_printed_observations(client):
     for key in ("strength", "dose", "form"):
         case.send("add", entry=record("account", "caregiver_report", "Original account", **{key:"account"}), status=422)
     assert not case.state["rows"]
+
+
+def test_import_carries_unambiguous_strength_from_matched_reverse_label(client):
+    case = Case(client, "doctor")
+    row = case.add(record("front", "prescription", "Demo tablet", name="Demo tablet"))
+    reverse = photo("back", "carton")
+    reverse.update(wording="25 mg", strength="25 mg")
+    case.link(row, reverse)
+    case.link(row, record("account", "patient_report", "Patient reports taking Demo tablet"))
+    case.interview(row, "account")
+    case.send("verify", row_id=row, source_id="account", identity_source_id="front")
+    case.send("import", role="pharmacist", row_ids=[row])
+    stamp = case.state["receipts"][0]["imported_at"]
+    saved = client.get("/imports", headers=headers("pharmacist"), params={"imported_at": stamp}).json()
+    imported = saved[0]["snapshot"]["rows"][0]
+    assert imported["verification"]["identity"]["evidence"]["source_id"] == "front"
+    assert imported["label_fields"]["strength"]["value"] == "25 mg"
+    assert imported["label_fields"]["strength"]["evidence"]["source_id"] == "back"
