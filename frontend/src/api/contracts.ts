@@ -207,7 +207,7 @@ export type Finish = {
 
 export type FollowUp = {
   question: string
-  field: LabelField | "identity" | "reported_use" | "source" | "photo_match"
+  field: LabelField | "identity" | "reported_use" | "source" | "photo_match" | "treatment_referral"
   potential_source_id?: string | null
 }
 

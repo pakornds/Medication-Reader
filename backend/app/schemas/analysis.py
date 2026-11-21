@@ -41,7 +41,7 @@ class Discrepancy(ContractModel):
 
 class FollowUp(ContractModel):
     question: Text
-    field: LabelField | Literal["identity", "reported_use", "source", "photo_match"]
+    field: LabelField | Literal["identity", "reported_use", "source", "photo_match", "treatment_referral"]
     potential_source_id: Text | None = None
 
 
