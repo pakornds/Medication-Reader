@@ -1,6 +1,8 @@
-import type { Draft, Evidence, Preview, Product } from '../pages/new-patient/draft'
+import type { Draft, Evidence, Preview } from '../pages/new-patient/draft'
+import { createClient } from './client'
+import type { EvidenceItem, FormAnalysisInput } from './contracts'
 
-const base = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
+const client = createClient(import.meta.env.VITE_API_BASE_URL)
 export function analysisForm(caseId: string, evidence: Evidence): FormData {
   const notes = evidence.notes.filter((note) => note.text.trim())
   const { photos } = evidence
@@ -23,7 +25,7 @@ export function analysisForm(caseId: string, evidence: Evidence): FormData {
     })),
   ]
   const items = photos.flatMap((photo) =>
-    photo.regions.map((region) => ({
+    photo.regions.map((region): EvidenceItem => ({
       id: region.id,
       source_id: region.id,
       row_id: region.rowId,
@@ -54,31 +56,22 @@ export function analysisForm(caseId: string, evidence: Evidence): FormData {
       question: evidence.question.trim() || null,
       photo_source_ids: photos.map((photo) => photo.id),
       region_locations: locations,
-    }),
+    } satisfies FormAnalysisInput),
   )
   for (const photo of photos) body.append('photos', photo.file)
   return body
 }
 
 export async function analyze(draft: Draft, signal: AbortSignal): Promise<Preview> {
-  const response = await fetch(base + '/medication-analysis', {
-    method: 'POST',
-    body: analysisForm(draft.caseId, draft.evidence),
-    signal,
-  })
-  if (!response.ok) throw new Error('analysis')
-  const preview: Preview = await response.json()
+  const preview = await client.analyzeForm(analysisForm(draft.caseId, draft.evidence), signal)
   if (preview.case_id !== draft.caseId || !Array.isArray(preview.rows)) throw new Error('case')
-  return preview
+  return {
+    ...preview, unassigned_reports: preview.unassigned_reports ?? [],
+    rows: preview.rows.map(row => ({
+      ...row, observed_names: row.observed_names ?? [], reported_use: row.reported_use ?? [],
+      label_fields: row.label_fields ?? {}, discrepancies: row.discrepancies ?? [], follow_ups: row.follow_ups ?? [],
+    })),
+  }
 }
 
-export async function searchProducts(
-  query: string,
-  signal: AbortSignal,
-): Promise<{ products: Product[]; tmt_release: string }> {
-  const response = await fetch(base + '/checks/local/products?' + new URLSearchParams({ q: query }), {
-    signal,
-  })
-  if (!response.ok) throw new Error('catalogue')
-  return response.json()
-}
+export const searchProducts = client.products
