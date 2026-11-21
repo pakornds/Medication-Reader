@@ -28,7 +28,13 @@ export type Suggestion = {
   reverse_crop?: Ref | null
 }
 export type Preview = { case_id: string; rows: Suggestion[]; unassigned_reports: Fact[] }
-export type Product = { tpu: string; label: string; active_tmt: boolean }
+export type Product = {
+  tpu: string
+  label: string
+  active_tmt: boolean
+  strength: string
+  dose_form: string
+}
 export type CatalogueMatch = { product: Product; release: string }
 export type Evidence = { photos: Photo[]; notes: Note[]; question: string }
 export type Medicine = {

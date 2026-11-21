@@ -56,9 +56,18 @@
 
     let finishFailedRequest
     let scenario = 'fail'
+    const searches = []
+    let resolveEarlierSearch
     let submitted, uploaded, sent
     win().fetch = async (url,options) => {
-      if (String(url).includes('/checks/local/products')) return Response.json({tmt_release:'demo',products:[{tpu:'0007',label:'Demo M tablet',active_tmt:true}]})
+      if (String(url).includes('/checks/local/products')) {
+        const term = new URL(url, win().location.href).searchParams.get('q')
+        searches.push(term)
+        if (term === 'Earlier') return new Promise(resolve => { resolveEarlierSearch = resolve })
+        return Response.json({tmt_release:'demo',products:term === 'Demo' ? [
+          {tpu:'0007',label:'Demo M tablet',active_tmt:true,strength:'5 mg',dose_form:'tablet'}
+        ] : []})
+      }
       assert(String(url).endsWith('/medication-analysis'),'expected endpoint')
       submitted = JSON.parse(options.body.get('form'))
       uploaded = options.body.getAll('photos').map(file => file.name)
@@ -121,15 +130,29 @@
 
     await click('Enter medicine manually')
     assert(!button('Analyze evidence'), 'manual mode only shows its own main action')
-    type(field('Product name or code'),'Demo')
-    await click('Search catalogue')
-    await expect(() => doc().querySelector('.product-list button'),'catalogue response')
+    const medicineInput = field('Product name or code')
+    type(medicineInput,'Earlier')
+    await expect(() => resolveEarlierSearch,'first lookup in flight')
+    type(medicineInput,'D')
+    type(medicineInput,'De')
+    type(medicineInput,'Demo')
+    await expect(() => doc().querySelector('.product-list button'),'typing shows catalogue results')
+    resolveEarlierSearch(Response.json({tmt_release:'old',products:[]}))
+    await new Promise(resolve => setTimeout(resolve,30))
+    assert(searches.join(',')==='Earlier,Demo','only settled queries reach the catalogue')
+    doc().querySelector('.product-list button').click()
+    await expect(() => medicineInput.value==='Demo M tablet' && field('Strength').value==='5 mg' && field('Form').value==='tablet','selection fills the product presentation')
+    type(medicineInput,'Unlisted')
+    await expect(() => searches.includes('Unlisted') && !doc().querySelector('.product-list'),'unlisted name can be entered')
+    assert(field('Strength').value==='' && !field('Strength').readOnly && field('Form').value==='','changing identity clears the prior presentation')
+    type(medicineInput,'Demo')
+    await expect(() => doc().querySelector('.product-list button'),'can reselect after a manual name')
     doc().querySelector('.product-list button').click()
     type(field('Source wording or reference'),'Synthetic transfer record listing Demo M tablet')
     await click('Read photos or notes')
     assert(field('Patient or caregiver report').value.includes('ตอนเช้า'),'evidence retained across modes')
     await click('Enter medicine manually')
-    assert(field('Medicine name').value==='Demo M tablet','unfinished manual entry retained')
+    assert(field('Product name or code').value==='Demo M tablet','unfinished manual entry retained')
     await click('Add to draft')
     await expect(() => doc().querySelector('.draft-line')?.textContent.includes('Demo M'), 'manual draft row')
 
