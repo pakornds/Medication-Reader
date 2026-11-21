@@ -18,20 +18,31 @@
   const heading = title => expect(() => doc()?.querySelector('h1')?.textContent === title, title)
   const previousTheme = localStorage.getItem('medrec.theme')
   const previousLanguage = localStorage.getItem('medrec.language')
+  const handoffKey = 'medrec:completed-handoff:nav-fixture'
+  const previousHandoff = localStorage.getItem(handoffKey)
   try {
     localStorage.removeItem('medrec.language')
+    localStorage.setItem(handoffKey, JSON.stringify({
+      createdAt: '2099-01-11T09:10:00.000Z',
+      medicines: [{ name: 'Synthetic handoff medicine', strength: null, form: null, tpu: null,
+        quantity: '', schedule: { en: [], th: [] } }],
+    }))
     frame.src = '/new-patient'
     await heading('Add medicines')
     const stageLinks = [...doc().querySelectorAll('nav[aria-label="New Patient stages"] a')]
     const widths = stageLinks.map(link => link.getBoundingClientRect().width)
     await expect(() => stageLinks.map(link => link.innerText.replace(/\s+/g,' ').trim()).join('|') === '1 Input|2 Review|3 Output', 'numbered stages')
     await expect(() => Math.max(...widths)-Math.min(...widths) <= 1, 'equal stage widths')
-    await expect(() => doc().querySelectorAll('header nav a').length === 3, 'one link per destination')
-    await expect(() => visible('a[aria-current="page"]').pathname === '/new-patient', 'current page on direct visit')
+    await expect(() => stageLinks.every(link => link.closest('header')) &&
+      doc().querySelectorAll('header nav a').length === 4 &&
+      !doc().querySelector('header nav a[href="/"]'), 'stages and History share the header')
+    const brand = visible('header a[href="/"]')
+    await expect(() => brand?.textContent.trim() === 'MedRec TH', 'the project name links home')
+    await expect(() => visible('a[aria-current="step"]')?.pathname === '/new-patient/input', 'current stage on direct visit')
     visible('a[href="/new-patient/review"]').click()
-    await heading('Review')
+    await heading('Review medicines')
     visible('a[href="/new-patient/output"]').click()
-    await heading('Output')
+    await heading('Handoff')
     await expect(() => visible('a[aria-current="step"]').pathname === '/new-patient/output', 'selected stage')
     const historyLink = visible('a[href="/history"]')
     historyLink.focus()
@@ -40,7 +51,7 @@
     await heading('History')
     await expect(() => frame.contentWindow.location.pathname === '/history' && !frame.contentWindow.location.hash, 'clean URL')
     frame.contentWindow.history.back()
-    await heading('Output')
+    await heading('Handoff')
     frame.contentWindow.history.forward()
     await heading('History')
     const reloaded = new Promise(resolve => frame.addEventListener('load', resolve, { once: true }))
@@ -55,29 +66,36 @@
     await expect(() => doc().documentElement.dataset.theme !== initialTheme, 'theme switch')
     frame.width = '320'
     await expect(() => doc().documentElement.scrollWidth <= 320, 'phone layout fits')
-    visible('a[href="/"]').click()
-    await heading('หน้าหลัก')
+    visible('header a[href="/"]').click()
+    await heading('การทบทวนรายการยา')
     await expect(() => visible('a[aria-current="page"]').pathname === '/', 'active home link')
-    visible('a[href="/new-patient"]').click()
+    await expect(() => doc().querySelector('time[datetime="2099-01-11T09:10:00.000Z"]') &&
+      !doc().body.textContent.includes('Synthetic handoff medicine'), 'latest handoff summary contains no medicine name')
+    await expect(() => doc().documentElement.scrollWidth <= 320, 'home fits on a phone')
+    visible('a[href="/new-patient/input"]').click()
     await heading('เพิ่มรายการยา')
+    await expect(() => doc().documentElement.scrollWidth <= 320 &&
+      visible('a[aria-current="step"]')?.pathname === '/new-patient/input', 'mobile input has an active step and fits')
     visible('a[href="/new-patient/review"]').click()
-    await heading('ทบทวน')
+    await heading('ทบทวนรายการยา')
     visible('a[href="/history"]').click()
     await heading('ประวัติ')
     visible('a[href="/new-patient"]').click()
-    await heading('ทบทวน')
+    await heading('เพิ่มรายการยา')
+    visible('a[href="/new-patient/review"]').click()
+    await heading('ทบทวนรายการยา')
     const chosenTheme = doc().documentElement.dataset.theme
     const stageReload = new Promise(resolve => frame.addEventListener('load', resolve, { once: true }))
     frame.contentWindow.location.reload()
     await stageReload
-    await heading('ทบทวน')
+    await heading('ทบทวนรายการยา')
     await expect(() => doc().documentElement.lang === 'th' && frame.contentWindow.location.pathname === '/new-patient/review', 'Thai Review survives reload')
     visible('button[title="เปลี่ยนเป็นภาษาอังกฤษ"]').click()
-    await heading('Review')
+    await heading('Review medicines')
     const englishReload = new Promise(resolve => frame.addEventListener('load', resolve, { once: true }))
     frame.contentWindow.location.reload()
     await englishReload
-    await heading('Review')
+    await heading('Review medicines')
     await expect(() => doc().documentElement.lang === 'en' && localStorage.getItem('medrec.language') === 'en', 'English choice survives reload')
     await expect(() => doc().documentElement.dataset.theme === chosenTheme, 'saved theme survives reload')
     result.textContent = 'PASS'
@@ -88,6 +106,8 @@
     else localStorage.setItem('medrec.language', previousLanguage)
     if (previousTheme === null) localStorage.removeItem('medrec.theme')
     else localStorage.setItem('medrec.theme', previousTheme)
+    if (previousHandoff === null) localStorage.removeItem(handoffKey)
+    else localStorage.setItem(handoffKey, previousHandoff)
   }
 </script>
 </html>

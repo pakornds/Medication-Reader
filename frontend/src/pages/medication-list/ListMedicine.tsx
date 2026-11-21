@@ -46,8 +46,9 @@ export function ListMedicine({ row, language, selected, onSelect, onChange, onRe
   const toggle = (next: typeof panel) => setPanel(previous => previous === next ? null : next)
   return <article className="list-medicine">
     <div className="list-medicine-main">
-      {onSelect && <input type="checkbox" checked={Boolean(selected)} disabled={!ready}
-        aria-label={t('Include ', 'เลือก ') + title} onChange={onSelect} />}
+      {onSelect && <label className="list-row-select">
+        <input type="checkbox" checked={Boolean(selected)} disabled={!ready} aria-label={t('Include ', 'เลือก ') + title} onChange={onSelect} />
+      </label>}
       <div className="min-w-0">
         <h3>{title}</h3>
         {qualifiers.length > 0 && <p className="hint">{qualifiers.join(' · ')}</p>}
@@ -134,6 +135,6 @@ export function ListMedicine({ row, language, selected, onSelect, onChange, onRe
         {onRemove && <Button variant="text" onClick={onRemove}>{t('Remove row', 'ลบรายการ')}</Button>}
       </div>
     </div>}
-    {row.row.sources.length > 0 && <MedicineDetails {...row} language={language} />}
+    {row.row.sources.length > 0 && <MedicineDetails {...row} language={language} showInlineFacts={false} />}
   </article>
 }

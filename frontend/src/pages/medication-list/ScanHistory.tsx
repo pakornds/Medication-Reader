@@ -43,14 +43,14 @@ export function ScanHistory({ language }: { language: Language }) {
   }, [])
 
   return <div className="med-list intake stack">
-    <header className="intake-title">
+    <header className="list-page-heading">
       <h1>{t('History', 'ประวัติ')}</h1>
       <p>{t('Reviewed medicine lists from this device.', 'รายการยาที่ทบทวนแล้วบนอุปกรณ์นี้')}</p>
     </header>
     <section className="intake-panel stack" aria-labelledby="handoff-history">
       <h2 id="handoff-history">{t('Completed handoffs', 'รายการที่จัดทำเพื่อส่งต่อแล้ว')}</h2>
       {history.handoffs?.length ? <div className="stack">
-        {history.handoffs.map(entry => <details className="list-check-pair" key={entry.key}>
+        {history.handoffs.map(entry => <details className="list-check-pair list-history-entry" key={entry.key}>
           <summary>
             <time dateTime={entry.createdAt}>{format.format(new Date(entry.createdAt))}</time>
             {' · '}{entry.medicines.length} {t(entry.medicines.length === 1 ? 'medicine' : 'medicines', 'รายการยา')}

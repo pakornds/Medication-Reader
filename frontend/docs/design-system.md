@@ -1,6 +1,6 @@
 # Med Reader design system
 
-This guide defines the target styles for the Vite frontend. The current stylesheet still contains the starter screen styles. Use this guide as the screens are built. For page ownership, stage transitions and draft lifetime, see the [frontend architecture](../FRONTEND.md).
+This guide defines the shared styles for the Vite frontend. For page ownership, stage transitions and draft lifetime, see the [frontend architecture](../FRONTEND.md).
 
 ## Tailwind and units
 
@@ -21,14 +21,14 @@ Use numbered background and text tokens, with named tokens for interaction state
 
 | Utility | Light | Dark | Where it belongs |
 | --- | --- | --- | --- |
-| `bg-1` | `#f5f6f8` | `#121a20` | Page canvas |
-| `bg-2` | `#ffffff` | `#1c282f` | Top bar, workflow bar, panels and history list |
+| `bg-1` | `#f2f3f5` | `#171b22` | Table headings, selection toolbar and secondary surfaces |
+| `bg-2` | `#ffffff` | `#202631` | Workspace, top bar and forms |
 | `bg-3` | `#eaf0f2` | `#293840` | Inset evidence, quoted text and the area around a photo |
-| `text-1` | `#17212e` | `#f1f5f6` | Headings, names, strengths and field values |
-| `text-2` | `#526174` | `#cfdee4` | Field labels, supporting descriptions and navigation |
+| `text-1` | `#1b2432` | `#edf0f5` | Headings, names, strengths and field values |
+| `text-2` | `#526070` | `#b7c0ce` | Field labels, supporting descriptions and navigation |
 | `text-3` | `#475d68` | `#b4c5cc` | Captions, hints and timestamps |
-| `border-line` | `#d9e1eb` | `#869aa4` | Dividers and control boundaries |
-| `text-accent`, `outline-accent` | `#0c5096` | `#a5ceff` | Evidence links, selection markers and keyboard focus |
+| `border-line` | `#cfd5dd` | `#455164` | Dividers and panel boundaries |
+| `text-accent`, `outline-accent` | `#214f85` | `#abcdf3` | Evidence links, active tabs and keyboard focus |
 
 ### Actions and feedback
 
@@ -50,14 +50,14 @@ For each new color, define a light value on `:root`, a dark value on `:root[data
 @source not "../docs";
 
 :root {
-  --bg-1: #f5f6f8;
-  --text-1: #17212e;
-  --accent: #0c5096;
+  --bg-1: #f2f3f5;
+  --text-1: #1b2432;
+  --accent: #214f85;
 }
 :root[data-theme="dark"] {
-  --bg-1: #121a20;
-  --text-1: #f1f5f6;
-  --accent: #a5ceff;
+  --bg-1: #171b22;
+  --text-1: #edf0f5;
+  --accent: #abcdf3;
 }
 @theme inline {
   --background-color-1: var(--bg-1);
@@ -92,6 +92,8 @@ Reserve 700 for brief emphasis. Use body size for source wording that staff must
 
 Import named Lucide icons from `react-icons/lu`. Set size with utilities such as `size-5` and inherit the surrounding text color. Hide decorative icons with `aria-hidden="true"`. Give icon-only controls a localized accessible name. Pair consequential actions with a visible text label.
 
+Use text labels for the workspace navigation, input methods and primary actions. Preserve the native indicators on expandable details and form controls.
+
 Use native links for destinations and buttons for actions. Give enabled buttons a pointer cursor, editable text an I-beam, and disabled buttons a disabled cursor. Put the reason for an unavailable action in nearby visible text. Apply one global keyboard focus treatment.
 
 ```css
@@ -107,7 +109,9 @@ Use native links for destinations and buttons for actions. Give enabled buttons 
 
 ## Layout and spacing
 
-Use a shared `PageContainer` for horizontal gutters and content width. The top-bar background spans the viewport. Its inner content aligns with the workspace. After the logo, show **Home | + New Patient | History** in that order, with the language and theme controls at the far end. All three links use the same padding, hover, focus and current-page underline. Treat the plus as a decorative leading icon and give the link the accessible name “New Patient” in the active language. On small screens let the links wrap below the controls in a predictable keyboard order. The second navigation bar appears on New Patient and contains Input, Review and Output. Give the navigation landmarks distinct accessible names. Underline the current destination and set `aria-current="page"` or `aria-current="step"` as appropriate.
+Use a shared `PageContainer` for the header and page gutters. **MedRec TH** links to Home. In the medication list workspace, Input, Review and Output share the header with History and the language and theme controls. On phones, the steps span a row under those controls. History links back to the medicine list. The staff workspace has its own **New Patient** link and a separate step row. Mark active stages with `aria-current="step"` and current page links with `aria-current="page"`. Put **Start fresh case** on Input in the medication list workflow and keep the confirmation before discarding a draft.
+
+Put Home’s input methods beside the latest local handoff summary. On a phone, show the input methods first. The handoff summary shows the date and medicine count. Medicine details remain on History.
 
 | Layout choice | Starting value |
 | --- | --- |
@@ -118,6 +122,8 @@ Use a shared `PageContainer` for horizontal gutters and content width. The top-b
 | Related controls | `gap-2` between an icon and its label, `gap-3` between a heading and its content |
 
 Use document scrolling on narrow screens. Open a newly chosen stage at its heading. When staff return from a row detail or History, restore their place in the active case. Changing theme or language preserves focus and scroll position.
+
+Use horizontal rules to separate medicine and history entries. Align medicine names and directions in columns when space allows. Stack them on narrow screens with the row's actions beside its contents.
 
 ## Thai and English
 

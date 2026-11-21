@@ -4,27 +4,33 @@
 /* 1. Light theme values */
 :root {
   color-scheme: light;
-  --bg-1: #f5f6f8;
+  --bg-1: #f2f3f5;
   --bg-2: #fff;
-  --text-1: #17212e;
-  --text-2: #526174;
-  --line: #d9e1eb;
-  --accent: #0c5096;
-  --bg-hover: #eef4fb;
-  --bg-selected: #e2edfc;
+  --text-1: #1b2432;
+  --text-2: #526070;
+  --line: #cfd5dd;
+  --control-line: #8190a0;
+  --accent: #214f85;
+  --brand: #214f85;
+  --brand-hover: #163a66;
+  --bg-hover: #eef1f5;
+  --bg-selected: #e9eff7;
 }
 
 /* 2. Dark theme values, using the same names */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg-1: #121a20;
-  --bg-2: #1c282f;
-  --text-1: #f1f5f6;
-  --text-2: #cfdee4;
-  --line: #555c60;
-  --accent: #a5ceff;
-  --bg-hover: #273647;
-  --bg-selected: #243d59;
+  --bg-1: #171b22;
+  --bg-2: #202631;
+  --text-1: #edf0f5;
+  --text-2: #b7c0ce;
+  --line: #455164;
+  --control-line: #74849a;
+  --accent: #abcdf3;
+  --brand: #3d72ae;
+  --brand-hover: #4079b8;
+  --bg-hover: #2a3341;
+  --bg-selected: #293b53;
 }
 
 /* 3. Tailwind utilities: bg-1, bg-2, text-1, text-2, border-line */
@@ -33,7 +39,7 @@
   --background-color-2: var(--bg-2);
   --background-color-hover: var(--bg-hover);
   --background-color-selected: var(--bg-selected);
-  --color-brand: #0c5096;
+  --color-brand: var(--brand);
   --text-color-1: var(--text-1);
   --text-color-2: var(--text-2);
   --border-color-line: var(--line);
@@ -61,7 +67,65 @@
 
 @layer components {
   .preference-button {
-    @apply inline-flex min-h-10 min-w-10 items-center justify-center rounded-lg border border-line px-3 text-sm hover:bg-hover;
+    @apply inline-flex min-h-11 min-w-11 items-center justify-center px-3 text-sm hover:bg-hover;
+  }
+  .workspace-header { border-bottom: 1px solid var(--line); background: var(--bg-2); }
+  .workspace-header-inner {
+    display: flex; align-items: center; gap: clamp(.75rem, 3vw, 2rem);
+    max-width: 70rem; min-height: 3.25rem; margin-inline: auto;
+  }
+  .workspace-brand {
+    display: inline-flex; align-items: center; min-height: 44px;
+    font-size: 1rem; font-weight: 700; white-space: nowrap; color: var(--text-1);
+  }
+  .workspace-brand:hover { color: var(--accent); }
+  .workspace-navigation, .workspace-preferences { display: flex; gap: .4rem; align-items: center; }
+  .workspace-preferences { margin-inline-start: auto; gap: 0; }
+  .workspace-header--list .workspace-navigation { margin-inline-start: auto; }
+  .workspace-header--list .workspace-preferences {
+    margin-inline-start: 0; border-inline-start: 1px solid var(--line); padding-inline-start: .35rem;
+  }
+  .workspace-link {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-height: 44px; padding-inline: .7rem; border-bottom: 2px solid transparent;
+    color: var(--text-2); font-size: .9rem; font-weight: 600;
+  }
+  .workspace-link:hover { background: var(--bg-hover); }
+  .workspace-link[aria-current=page] { border-color: var(--accent); color: var(--accent); }
+  .workspace-stages {
+    display: flex; justify-content: space-between; align-items: center; gap: .75rem;
+    margin: 0 auto 1.35rem; max-width: 70rem;
+    border-bottom: 1px solid var(--line);
+  }
+  .stage-navigation { display: grid; grid-template-columns: repeat(3, minmax(6.5rem, 1fr)); gap: .25rem; }
+  .stage-navigation a {
+    display: flex; align-items: center; justify-content: center; gap: .5rem;
+    min-height: 44px; border-bottom: 2px solid transparent; padding-inline: .45rem; color: var(--text-2);
+    font-size: .875rem; font-weight: 600; line-height: 1.35;
+  }
+  .stage-navigation a > span {
+    font-variant-numeric: tabular-nums;
+  }
+  .stage-navigation a:hover { background: var(--bg-hover); }
+  .stage-navigation a[aria-current=step] { border-color: var(--accent); color: var(--accent); }
+  .workspace-stages .workspace-reset { align-self: center; color: var(--text-2); padding-inline: .5rem; }
+  @media (max-width: 43rem) {
+    .workspace-header-inner { flex-wrap: wrap; gap: .25rem 1rem; }
+    .workspace-header:not(.workspace-header--list) .workspace-navigation { width: 100%; order: 1; }
+    .workspace-header--list .workspace-header-inner { gap: 0 .3rem; }
+    .workspace-header--list .workspace-link { padding-inline: .45rem; }
+    .workspace-header--list .workspace-preferences { padding-inline-start: .15rem; }
+    .workspace-header--list .preference-button { padding-inline: .35rem; }
+    .workspace-header--list .stage-navigation {
+      flex-basis: 100%; order: 1; grid-template-columns: repeat(3, minmax(0, 1fr));
+      border-top: 1px solid var(--line);
+    }
+  }
+  @media (max-width: 34rem) {
+    .workspace-stages { display: grid; grid-template-columns: minmax(0, 1fr); gap: .2rem; padding-block-end: .2rem; }
+    .workspace-stages .stage-navigation { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .stage-navigation a { padding-inline: .25rem; }
+    .workspace-stages .workspace-reset { justify-self: end; min-height: 44px; }
   }
 }
 
@@ -84,11 +148,11 @@
   .intake .spread { justify-content: space-between; }
   .input-modes { display: flex; flex-wrap: wrap; gap: .5rem; padding-bottom: 1.2rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--line); }
   .input-modes button, .btn, .primary-btn, .text-action { display: inline-flex; align-items: center; justify-content: center; gap: .45rem; min-height: 2.6rem; font-size: .88rem; font-weight: 600; line-height: 1.4; }
-  .input-modes button, .btn { border: 1px solid var(--line); border-radius: .5rem; padding: .55rem .8rem; background: var(--bg-2); }
+  .input-modes button, .btn { border: 1px solid var(--control-line); border-radius: .2rem; padding: .55rem .8rem; background: var(--bg-2); }
   .input-modes button[aria-pressed=true] { border-color: var(--accent); background: var(--bg-selected); color: var(--accent); }
   .btn:hover:enabled, .input-modes button:hover { background: var(--bg-hover); }
-  .primary-btn { border-radius: .5rem; padding: .65rem 1rem; color: white; background: #0c5096; }
-  .primary-btn:hover:enabled { background: #093f77; }
+  .primary-btn { border-radius: .2rem; padding: .65rem 1rem; color: white; background: var(--brand); }
+  .primary-btn:hover:not(:disabled) { background: var(--brand-hover); }
   .text-action { color: var(--accent); align-self: flex-start; }
   .text-action:hover { text-decoration: underline; }
   .btn:disabled, .primary-btn:disabled, .text-action:disabled, .intake button:disabled { opacity: .52; cursor: not-allowed; }
@@ -97,7 +161,7 @@
   .intake label > small { margin-inline-start: .5rem; font-weight: normal; }
   .field-label > input, .medicine-control > input, .intake textarea, .intake select {
     display: block; min-width: 0; width: 100%; margin-top: .35rem; padding: .55rem .7rem;
-    min-height: 2.6rem; border: 1px solid var(--line); border-radius: .45rem; background: var(--bg-2); color: var(--text-1);
+    min-height: 2.6rem; border: 1px solid var(--control-line); border-radius: .2rem; background: var(--bg-2); color: var(--text-1);
     font-size: 1rem; font-weight: normal;
   }
   .intake textarea { resize: vertical; }
@@ -126,9 +190,7 @@
   .section-heading .hint { margin-top: .25rem; }
   .written-evidence { margin-top: clamp(1rem, 2.5vw, 2rem); padding-top: 1.5rem; border-top: 1px solid var(--line); }
   .note-block + .note-block { border-top: 1px solid var(--line); padding-top: 1rem; }
-  .medicine-picker, .medicine-control { position: relative; }
-  .medicine-control > input { padding-inline-start: 2.5rem; }
-  .medicine-control > svg { position: absolute; inset-inline-start: .8rem; top: 50%; transform: translateY(-40%); pointer-events: none; color: var(--text-2); }
+  .medicine-picker { position: relative; }
   .medicine-menu { position: absolute; inset-inline: 0; top: calc(100% + .25rem); z-index: 5; overflow: hidden; border: 1px solid var(--line); border-radius: .65rem; background: var(--bg-2); box-shadow: 0 8px 24px #10233c24; }
   .medicine-picker[data-placement=above] .medicine-menu { top: auto; bottom: calc(100% + .25rem); }
   .product-list { position: relative; max-height: min(18rem, var(--menu-space, 40dvh)); overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }

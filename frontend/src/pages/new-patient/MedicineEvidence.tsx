@@ -56,7 +56,8 @@ export function MedicineDetails({
   catalogueIdentity,
   language,
   edits,
-}: MedicineEvidence & { language: Language; edits?: Partial<DraftValues> }) {
+  showInlineFacts = true,
+}: MedicineEvidence & { language: Language; edits?: Partial<DraftValues>; showInlineFacts?: boolean }) {
   const [open, setOpen] = useState(false)
   const t = intake[language],
     l = labels[language]
@@ -138,24 +139,26 @@ export function MedicineDetails({
       {names.size > 1 && !catalogueIdentity && !edits?.name && (
         <p className="medicine-check">{l.check}</p>
       )}
-      {[strength, form].some(Boolean) && (
-        <p className="medicine-presentation">{[strength, form].filter(Boolean).join(' · ')}</p>
-      )}
-      {directions && (
-        <p>
-          <strong>{t.directions}</strong> · {directions}
-        </p>
-      )}
-      {dose && !directions?.includes(dose) && (
-        <p>
-          <strong>{t.dose}</strong> · {dose}
-        </p>
-      )}
-      {display('amount_prescribed') && (
-        <p>
-          <strong>{t.amount_prescribed}</strong> · {display('amount_prescribed')}
-        </p>
-      )}
+      {showInlineFacts && <>
+        {[strength, form].some(Boolean) && (
+          <p className="medicine-presentation">{[strength, form].filter(Boolean).join(' · ')}</p>
+        )}
+        {directions && (
+          <p>
+            <strong>{t.directions}</strong> · {directions}
+          </p>
+        )}
+        {dose && !directions?.includes(dose) && (
+          <p>
+            <strong>{t.dose}</strong> · {dose}
+          </p>
+        )}
+        {display('amount_prescribed') && (
+          <p>
+            <strong>{t.amount_prescribed}</strong> · {display('amount_prescribed')}
+          </p>
+        )}
+      </>}
       {row.discrepancies.map((conflict) => (
         <p className="medicine-check" key={conflict.id}>
           {conflict.question}

@@ -7,12 +7,13 @@ import sqlite3
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from itertools import combinations
+from itertools import combinations, product as cartesian_product
 
 from app.schemas.analysis import AnalysisResult, validate_analysis_result
 from app.schemas.evidence import CaseEvidence, EvidenceRef, EvidenceValidationError
 from app.schemas.local_screening import (
-    CatalogueScreeningRequest, DDILookup, DuplicateLookup, Ingredient, IngredientRouteMatch, LocalScreeningRequest, LocalScreeningResult,
+    CatalogueScreeningRequest, ClassificationSupport, DDILookup, DuplicateLookup, Ingredient, IngredientRouteMatch,
+    LocalScreeningRequest, LocalScreeningResult,
     Reference, RuleMatch, ScreenedPair, ScreenedRow,
 )
 from app.schemas.regimen import validate_regimen_evidence
@@ -198,9 +199,13 @@ def _atc_hierarchy(code: str) -> set[str]:
     return {code[:length] for length in (1, 3, 4, 5, 7)}
 
 
+RuleSides = dict[str, dict[int, set[str]]]
+
+
 @dataclass
 class Membership:
-    sides: dict[str, dict[int, set[str]]] = field(default_factory=dict)
+    sides: RuleSides = field(default_factory=dict)
+    alternative_sides: dict[str, RuleSides] = field(default_factory=dict)
     gaps: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     ingredient_atc: ingredient_reference.IngredientATC | None = None
@@ -208,7 +213,7 @@ class Membership:
 
 def _members(
     fest: sqlite3.Connection, product: Product, unassessed: set[str],
-    routes: ingredient_reference.IngredientRoutes | None = None, release: str = "",
+    routes: ingredient_reference.IngredientRoutes | None = None,
 ) -> Membership:
     matches = Membership()
     atcs = product.atcs
@@ -219,7 +224,6 @@ def _members(
         matches.gaps.append(product.row.reason or reason or "A complete product-to-FEST ATC mapping is unavailable.")
         if routes and product.catalogue_form_route and not product.row.reason:
             matches.ingredient_atc = routes.resolve(
-                release=release,
                 ingredients=product.ingredients,
                 form_route=product.catalogue_form_route,
                 composition_status=product.row.composition_status,
@@ -227,8 +231,11 @@ def _members(
             )
         if matches.ingredient_atc is None:
             return matches
-        atcs = {matches.ingredient_atc.atc}
-        matches.gaps[0] = "An oral ingredient ATC was checked. Exact product coverage remains incomplete."
+        atcs = set(matches.ingredient_atc.atcs)
+        matches.gaps[0] = "Oral ingredient ATCs were checked. Exact product coverage remains incomplete."
+        if len(atcs) > 1:
+            matches.alternative_sides = {code: {} for code in sorted(atcs)}
+            matches.notes.append("The selected oral product could have more than one ATC. Product indication is unconfirmed.")
     if product.row.route_note:
         if product.route_gap:
             matches.gaps.append(product.row.route_note)
@@ -249,6 +256,8 @@ def _members(
         )
         for rule_id, side, atc in rows:
             matches.sides.setdefault(rule_id, {}).setdefault(side, set()).add(atc)
+            if matches.alternative_sides:
+                matches.alternative_sides[code].setdefault(rule_id, {}).setdefault(side, set()).add(atc)
     return matches
 
 
@@ -271,31 +280,53 @@ def _read_rule(fest: sqlite3.Connection, rule_id: str, matched: tuple[list[str],
     )
 
 
-def _ddi(fest: sqlite3.Connection, left: Membership, right: Membership, mapping_version: str | None) -> DDILookup:
-    reasons = [f"{side}: {reason}" for side, member in (("First row", left), ("Second row", right)) for reason in member.gaps]
-    interactions = []
-    ingredient_sources = [ref for member in (left, right) if member.ingredient_atc
-                          for ref in member.ingredient_atc.references]
-    for rule_id in sorted(left.sides.keys() & right.sides.keys()):
+def _opposing_matches(left: RuleSides, right: RuleSides) -> dict[str, tuple[list[str], list[str]]]:
+    matches = {}
+    for rule_id in sorted(left.keys() & right.keys()):
         matched_left, matched_right = set(), set()
         for side in (1, 2):
-            left_codes = left.sides[rule_id].get(side, set())
-            right_codes = right.sides[rule_id].get(3 - side, set())
+            left_codes = left[rule_id].get(side, set())
+            right_codes = right[rule_id].get(3 - side, set())
             if left_codes and right_codes:
                 matched_left.update(left_codes)
                 matched_right.update(right_codes)
         if matched_left:
-            rule = _read_rule(fest, rule_id, (sorted(matched_left), sorted(matched_right)))
-            if ingredient_sources and mapping_version:
-                if rule.relevance == "Ingen tiltak nødvendig":
-                    continue
-                en, th = ingredient_reference.RULE_SUMMARIES.get(rule_id, ("", ""))
-                rule.ingredient_route_match = IngredientRouteMatch(
-                    route="oral", mapping_version=mapping_version,
-                    summary_en=en, summary_th=th,
-                    references=list({(ref.title, ref.url): ref for ref in ingredient_sources}.values()),
-                )
-            interactions.append(rule)
+            matches[rule_id] = sorted(matched_left), sorted(matched_right)
+    return matches
+
+
+def _ddi(fest: sqlite3.Connection, left: Membership, right: Membership, mapping_version: str | None) -> DDILookup:
+    reasons = [f"{side}: {reason}" for side, member in (("First row", left), ("Second row", right)) for reason in member.gaps]
+    ingredient_sources = [ref for member in (left, right) if member.ingredient_atc
+                          for ref in member.ingredient_atc.references]
+    interactions = [_read_rule(fest, rule_id, codes) for rule_id, codes in _opposing_matches(left.sides, right.sides).items()]
+    uncertain = bool(left.alternative_sides or right.alternative_sides)
+    if ingredient_sources and mapping_version:
+        interactions = [rule for rule in interactions if rule.relevance != "Ingen tiltak nødvendig"]
+        support = {}
+        if uncertain and interactions:
+            alternatives_left = left.alternative_sides or {None: left.sides}
+            alternatives_right = right.alternative_sides or {None: right.sides}
+            total = len(alternatives_left) * len(alternatives_right)
+            support = {rule.rule_id: ClassificationSupport(total=total, matches=[]) for rule in interactions}
+            covered = 0
+            for (left_code, left_sides), (right_code, right_sides) in cartesian_product(
+                alternatives_left.items(), alternatives_right.items(),
+            ):
+                applicable = support.keys() & _opposing_matches(left_sides, right_sides).keys()
+                covered += bool(applicable)
+                for rule_id in applicable:
+                    support[rule_id].matches.append((left_code, right_code))
+            if covered < total:
+                reasons.insert(0, "An actionable rule applies to only some supported classifications. Confirm the product indication.")
+        references = list({(ref.title, ref.url): ref for ref in ingredient_sources}.values())
+        for rule in interactions:
+            en, th = ingredient_reference.RULE_SUMMARIES.get(rule.rule_id, ("", ""))
+            rule.ingredient_route_match = IngredientRouteMatch(
+                route="oral", mapping_version=mapping_version, summary_en=en, summary_th=th,
+                references=references, classification_uncertain=uncertain,
+                classification_support=support.get(rule.rule_id),
+            )
     if reasons:
         status = "partial" if interactions else "unassessed"
     elif any(r.relevance != "Ingen tiltak nødvendig" for r in interactions):
@@ -325,7 +356,7 @@ def _ddi_report(products: list[Product], meta: dict[str, str]) -> tuple[str, str
             unassessed.add(node.get("V"))
         routes = (ingredient_reference.load_routes(source["sha256"])
                   if any(product.catalogue_form_route for product in products) else None)
-        members = [_members(fest, product, unassessed, routes, meta["tmt_release"]) for product in products]
+        members = [_members(fest, product, unassessed, routes) for product in products]
         version = routes.version if routes and any(member.ingredient_atc for member in members) else None
         results = [_ddi(fest, left, right, version) for left, right in combinations(members, 2)]
         return source["archive_filename"], source["sha256"], results, version

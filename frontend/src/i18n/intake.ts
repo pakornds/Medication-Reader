@@ -18,7 +18,7 @@ const en = {
   additional_photo: 'Additional photo',
   optional: 'Optional',
   browse: 'Choose photo',
-  camera: 'Camera',
+  camera: 'Take photo',
   replace: 'Replace',
   remove: 'Remove',
   formats: 'HEIC, HEIF, JPG, PNG or WebP',

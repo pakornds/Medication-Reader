@@ -1,25 +1,135 @@
-.med-list { margin-inline: auto; max-width: 66rem; }
-.med-list .list-medicine { padding: 1rem; overflow-wrap: anywhere; }
-.med-list-rows { border: 1px solid var(--line); border-radius: .75rem; background: var(--bg-2); }
-.med-list-rows > header { padding: 1rem; }
+body:has(.med-workspace) { background: var(--bg-2); }
+.med-workspace { padding-top: clamp(1rem, 2.5vw, 2rem); }
+.med-list {
+  margin-inline: auto;
+  max-width: 70rem;
+  font-size: .9375rem;
+  --medicine-columns: minmax(0, 1.25fr) minmax(0, 1fr) 12rem;
+  --review-columns: 2.75rem var(--medicine-columns);
+}
+.med-list h1 { font-size: clamp(1.45rem, 3vw, 1.85rem); line-height: 1.3; letter-spacing: -.015em; }
+.med-list h2 { font-size: 1.05rem; }
+.med-list h3 { font-size: .9375rem; line-height: 1.5; }
+.list-page-heading { margin-block-end: .25rem; }
+.list-page-heading p { color: var(--text-2); margin-block-start: .3rem; }
+
+.list-home { padding-block-start: clamp(.5rem, 3vw, 2rem); }
+.list-home > header { padding-block-end: clamp(.85rem, 3vw, 1.75rem); border-bottom: 1px solid var(--line); }
+.list-home-columns {
+  display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  align-items: start; gap: clamp(1.25rem, 4vw, 3rem);
+  padding-block-start: clamp(1rem, 2vw, 1.4rem);
+}
+.list-home-methods { margin-top: .65rem; border-block: 1px solid var(--line); }
+.list-home-methods a {
+  display: grid; align-content: center; gap: .15rem; min-height: 3.75rem;
+  padding: .55rem .7rem; color: var(--accent); font-weight: 600;
+}
+.list-home-methods a + a { border-top: 1px solid var(--line); }
+.list-home-methods a:hover { background: var(--bg-hover); }
+.list-home-methods a:hover span { text-decoration: underline; }
+.list-home-methods a:focus-visible { outline-offset: -2px; }
+.list-home-methods small { font-weight: 400; }
+.list-home-history {
+  border-inline-start: 1px solid var(--line); padding-inline-start: clamp(1rem, 3vw, 1.75rem);
+}
+.list-home-history :is(p, time) { display: block; margin-top: .35rem; color: var(--text-2); }
+.list-home-history time { margin-top: .75rem; color: var(--text-1); font-variant-numeric: tabular-nums; }
+.list-home-history a { margin-top: .3rem; min-height: 44px; }
+.list-input-page .workspace-reset { align-self: center; }
+
+.list-input-workspace {
+  display: grid; grid-template-columns: minmax(0, 1fr);
+  gap: 1.25rem;
+}
+.list-input-workspace > * { min-width: 0; }
+.med-list .intake-panel { border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: .9rem 0; }
+.med-list .list-input-source { max-width: 48rem; border: 0; padding: 0; }
+.med-list .list-input-modes { gap: .65rem; padding: 0; margin: 0; }
+.med-list .list-input-modes button {
+  padding-inline: .65rem; border: 0; border-bottom: 2px solid transparent;
+  border-radius: 0; color: var(--text-2);
+}
+.med-list .list-input-modes button[aria-pressed=true] {
+  color: var(--accent); background: var(--bg-2); border-bottom-color: var(--accent);
+}
+.list-input-source .photo-slot { align-self: stretch; padding: 0; border: 0; border-radius: 0; }
+.list-input-source .drop-area {
+  min-height: 5.5rem; justify-items: start; text-align: start;
+  padding: .75rem 1rem; border: 1px dashed var(--control-line);
+  border-radius: 0; background: var(--bg-1);
+}
+.list-manual-submit:enabled {
+  position: sticky; inset-block-end: .5rem; z-index: 2;
+  box-shadow: 0 0 0 .3rem var(--bg-2);
+}
+#manual-input :is(input, select, textarea) { scroll-margin-block-end: 4.25rem; }
+.list-section-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .65rem; }
+.list-section-heading small, .list-selection-bar p, .list-history-entry time { font-variant-numeric: tabular-nums; }
+.list-empty, .list-draft-footer { padding: .85rem .7rem; }
+.list-empty { color: var(--text-2); }
+.list-draft-footer { padding-block: .55rem; }
+
+.list-selection-bar {
+  background: var(--bg-1); border-block: 1px solid var(--line); padding: .4rem .7rem;
+}
+.list-selection-bar > p { font-size: .875rem; font-weight: 600; }
+.list-stage-actions, .list-handoff-actions { border-block-start: 1px solid var(--line); padding-block-start: .75rem; }
+.med-list-rows { border-block: 1px solid var(--line); }
+.med-list-rows > header { padding: .55rem .7rem; background: var(--bg-1); }
 .med-list-rows > * + * { border-top: 1px solid var(--line); }
-.list-medicine-main { display: flex; align-items: start; gap: .85rem; }
-.list-medicine-main > input[type=checkbox] { width: 1.2rem; height: 1.2rem; accent-color: var(--accent); flex: none; margin-top: .25rem; }
-.list-medicine-main > div:nth-child(2), .list-medicine-main > div:first-child { flex: 1; }
-.list-directions { flex: 1; min-width: 0; }
+.list-medicine { padding: .55rem .7rem; overflow-wrap: anywhere; }
+.list-medicine-columns {
+  display: grid; grid-template-columns: var(--medicine-columns); gap: .6rem;
+  padding: .45rem .7rem; background: var(--bg-1); color: var(--text-2); font-size: .825rem; font-weight: 600;
+}
+.list-medicine-columns--review { grid-template-columns: var(--review-columns); }
+.list-medicine-main { display: grid; gap: .4rem .6rem; align-items: start; }
+.list-draft .list-medicine-main { grid-template-columns: var(--medicine-columns); }
+.list-medicine-main:has(.list-row-select) { grid-template-columns: var(--review-columns); }
+.list-medicine-main > .list-row-select {
+  display: grid; place-items: center; width: 44px; min-height: 44px;
+  margin-block-start: -.45rem; cursor: pointer;
+}
+.list-row-select input { width: 1.05rem; height: 1.05rem; accent-color: var(--accent); }
+.list-row-select:has(input:disabled) { cursor: not-allowed; }
+.med-list .list-row-actions { gap: .3rem; }
+.list-row-actions .text-action { padding-inline: .4rem; }
+.list-row-actions .text-action[aria-expanded=true] { background: var(--bg-selected); }
+.list-directions { min-width: 0; }
 .med-list .list-needs-match { color: var(--text-2); font-weight: 600; font-size: .85rem; }
-.list-row-panel { padding: .85rem 0; margin-top: .75rem; border-top: 1px solid var(--line); }
+.list-row-panel { padding: .75rem 0; margin-top: .65rem; border-top: 1px solid var(--line); }
 .med-list .product-option { text-align: left; justify-content: start; }
 .med-list button, .med-list .primary-btn { min-height: 44px; }
-.list-check-pair { border-top: 1px solid var(--line); padding-top: .75rem; }
+
+.list-check-pair { border-top: 1px solid var(--line); padding-top: .45rem; }
 .list-check-pair small { display: block; }
-@media (max-width: 680px) {
-  .list-medicine-main { flex-wrap: wrap; gap: .5rem; }
-  .list-medicine-main > div:nth-child(2), .list-medicine-main > div:first-child { flex: 1 1 calc(100% - 2rem); }
-  .list-directions { flex: 1 1 100%; }
-}
-.med-list .list-input-modes { padding-bottom: .75rem; margin-bottom: 0; }
-.med-list .list-input-modes .count { padding: .1rem .45rem; min-width: 1.25rem; }
 .check-summary { display: flex; flex-wrap: wrap; gap: .35rem .85rem; align-items: baseline; }
-.check-finding { padding: .85rem 1rem; border-inline-start: .2rem solid var(--accent); background: var(--bg-selected); border-radius: .35rem; }
+.check-finding {
+  padding: .7rem .85rem; border-block: 1px solid var(--line); border-inline-start: 3px solid var(--control-line);
+  background: var(--bg-1);
+}
+.check-finding h3 + .stack { gap: .35rem; }
 .check-unassessed { padding-inline-start: 1.2rem; list-style: disc; }
+.list-history-entry summary { min-height: 44px; align-content: center; font-weight: 600; }
+.list-history-entry p { color: var(--text-2); }
+
+@media (max-width: 51rem) {
+  .list-home-columns { grid-template-columns: minmax(0, 1fr); }
+  .list-home-history {
+    border-inline-start: 0; border-top: 1px solid var(--line);
+    padding-inline-start: 0; padding-block-start: .9rem;
+  }
+  .list-medicine-columns { display: none; }
+  .list-draft .list-medicine-main { grid-template-columns: minmax(0, 1fr); }
+  .list-medicine-main:has(.list-row-select) { grid-template-columns: 2.75rem minmax(0, 1fr); }
+  .list-medicine-main > .list-row-select ~ div { grid-column: 2; }
+}
+
+@media (max-width: 34rem) {
+  .med-list .list-input-modes { gap: .15rem; }
+  .med-list .list-input-modes button {
+    flex: 1 1 0%; flex-wrap: wrap; gap: .25rem; padding: .45rem .2rem; font-size: .8rem;
+  }
+  .list-medicine { padding-inline: .4rem; }
+}

@@ -2,7 +2,6 @@ import type { RegionBounds } from '../../api/contracts'
 import { InputField } from '../../components/ui/InputField'
 import { Button } from '../../components/ui/Button'
 import { useEffect, useRef, useState } from 'react'
-import { LuCamera, LuImagePlus, LuUpload } from 'react-icons/lu'
 import { PhotoItems } from './PhotoItems'
 import type { Photo, PhotoKind } from './draft'
 import type { IntakeText } from '../../i18n/intake'
@@ -24,6 +23,7 @@ export function PhotoSlot({ kind, photo, photos, t, onReplace, onEdit, proposePh
   const pending = useRef<AbortController>(null)
   const browse = useRef<HTMLInputElement>(null)
   const camera = useRef<HTMLInputElement>(null)
+  const canRequestCamera = 'capture' in HTMLInputElement.prototype
   useEffect(() => () => pending.current?.abort(), [])
   async function choose(file?: File) {
     if (!file || pending.current) return
@@ -51,7 +51,7 @@ export function PhotoSlot({ kind, photo, photos, t, onReplace, onEdit, proposePh
     <input
       type="file"
       hidden
-      accept={PHOTO_ACCEPT}
+      accept={capture ? 'image/*' : PHOTO_ACCEPT}
       ref={capture ? camera : browse}
       aria-label={capture ? t.camera : t.browse}
       capture={capture ? 'environment' : undefined}
@@ -96,22 +96,19 @@ export function PhotoSlot({ kind, photo, photos, t, onReplace, onEdit, proposePh
         </>
       ) : (
         <div className="drop-area">
-          <LuImagePlus aria-hidden="true" />
           <strong>{t.emptySlot}</strong>
           <small>{t.formats}</small>
         </div>
       )}
       <div className="actions">
         {filePicker(false)}
-        {filePicker(true)}
+        {canRequestCamera && filePicker(true)}
         <Button disabled={preparing} onClick={() => browse.current?.click()}>
-          <LuUpload />
           {photo ? t.replace : t.browse}
         </Button>
-        <Button variant="text" disabled={preparing} onClick={() => camera.current?.click()}>
-          <LuCamera />
+        {canRequestCamera && <Button variant="text" disabled={preparing} onClick={() => camera.current?.click()}>
           {t.camera}
-        </Button>
+        </Button>}
         {(photo || kind === 'additional_photo') && (
           <Button
             variant="text"

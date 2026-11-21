@@ -327,6 +327,11 @@ export type IngredientRouteMatch = {
   summary_en: string
   summary_th: string
   references: Array<Reference>
+  classification_uncertain?: boolean
+  classification_support?: {
+    total: number
+    matches: Array<[string | null, string | null]>
+  } | null
 }
 
 export type Interview = {

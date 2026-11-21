@@ -68,12 +68,46 @@ async function run() {
       } })
     })
     await page.goto(base + '/new-patient/input')
+    const header = page.getByRole('banner')
+    assert.equal(await header.getByRole('link', { name: 'Home', exact: true }).count(), 0)
+    await header.getByRole('link', { name: 'MedRec TH', exact: true }).click()
+    await page.getByRole('heading', { name: 'Medication reconciliation' }).waitFor()
+    assert.equal(new URL(page.url()).pathname, '/')
+    await page.getByRole('link', { name: 'Upload photos', exact: true }).click()
+    await page.getByRole('heading', { name: 'Add medicines' }).waitFor()
     const image = await readFile(resolve(__dirname, '../../../backend/tests/fixtures/ai/label-side.png'))
-    await page.locator('input[type=file]').first().setInputFiles({ name: 'synthetic-labels.jpg', mimeType: 'image/jpeg', buffer: image })
+    const front = page.getByRole('region', { name: 'Label side', exact: true })
+    const captureAvailable = await page.evaluate(() => 'capture' in HTMLInputElement.prototype)
+    assert.equal(await front.getByRole('button', { name: 'Take photo', exact: true }).count(), Number(captureAvailable))
+    const picker = page.waitForEvent('filechooser')
+    await front.getByRole('button', { name: 'Choose photo', exact: true }).click()
+    const chooser = await picker
+    assert.equal(await chooser.element().getAttribute('capture'), null)
+    await chooser.setFiles({ name: 'synthetic-labels.jpg', mimeType: 'image/jpeg', buffer: image })
     await page.getByRole('button', { name: 'Analyze evidence' }).click()
     const cards = page.locator('.list-medicine')
     await cards.nth(2).waitFor()
     assert.equal(await cards.count(), 3)
+    const draft = page.getByRole('region', { name: 'Draft medicine list' })
+    const source = page.getByRole('region', { name: 'Add medicines' })
+    const reviewLink = draft.getByRole('link', { name: 'Continue to Review' })
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 844 })
+      const draftBounds = await draft.boundingBox()
+      const sourceBounds = await source.boundingBox()
+      const reviewBounds = await reviewLink.boundingBox()
+      const firstRowBounds = await cards.first().boundingBox()
+      assert.ok(draftBounds.y >= sourceBounds.y + sourceBounds.height, 'the draft belongs below the inputs')
+      assert.ok(Math.abs(draftBounds.x - sourceBounds.x) <= 1 && draftBounds.width >= sourceBounds.width)
+      assert.ok(reviewBounds.y < firstRowBounds.y, 'the review action belongs before the rows')
+      assert.ok(await assertFits())
+    }
+    const original = cards.first().locator('.medicine-source')
+    const originalDirections = original.getByText(dirs, { exact: true })
+    assert.equal(await originalDirections.isVisible(), false)
+    await original.locator('summary').click()
+    await originalDirections.waitFor()
+    await original.locator('summary').click()
     assert.equal(await cards.nth(0).getByText('Suggested match', { exact: true }).count(), 1)
     assert.equal(await cards.nth(1).getByText('Without TMT code', { exact: true }).count(), 1)
     await cards.nth(1).getByRole('button', { name: 'Find catalogue match' }).click()
@@ -97,6 +131,7 @@ async function run() {
     assert.ok(paths.includes('/checks/local/catalogue'))
     await page.getByRole('button', { name: 'Prepare handoff' }).click()
     await page.getByRole('heading', { name: '2 medicines ready to hand off' }).waitFor()
+    assert.equal(await page.evaluate(() => window.scrollY), 0)
     assert.equal(await page.getByText('Unreadable package').count(), 0)
     assert.ok(await assertFits())
     await page.getByRole('button', { name: 'Copy medicine list' }).click()
@@ -173,6 +208,12 @@ async function run() {
           return morning?.getAttribute('aria-pressed') === 'true'
         })
         assert.equal(await checks.getByLabel('Dose per use').inputValue(), '1')
+        await checks.getByRole('banner').getByRole('link', { name: 'MedRec TH', exact: true }).click()
+        await checks.getByRole('link', { name: 'Return to your draft' }).click()
+        assert.equal(await checks.getByLabel('Dose per use').inputValue(), '1')
+        await checks.getByRole('button', { name: 'Start fresh case' }).click()
+        await checks.getByRole('dialog').getByRole('button', { name: 'Keep current case' }).click()
+        assert.equal(await checks.getByLabel('Dose per use').inputValue(), '1')
         await checks.getByRole('button', { name: 'Upload photos' }).click()
         await checks.getByRole('button', { name: 'Enter medicine manually' }).click()
         assert.equal(await checks.getByLabel('Dose per use').inputValue(), '1')
@@ -200,7 +241,46 @@ async function run() {
     assert.equal(unlisted.tpu, null)
     assert.equal(unlisted.schedules[0].dose_amount, 2)
     assert.deepEqual(unlisted.schedules[0].times, ['evening'])
-    console.log('PASS photos, pasted text, structured manual entry, unmatched handoffs, local checks, and reopenable history')
+
+    // A separate synthetic case against the pinned FEST and TMT releases.
+    const conditional = await context.newPage()
+    await conditional.goto(base + '/new-patient/input')
+    await conditional.getByRole('button', { name: 'Enter medicine manually' }).click()
+    for (const code of ['250763', '1005874']) {
+      await conditional.getByRole('combobox', { name: 'Product name or code' }).fill(code)
+      await conditional.getByRole('option').filter({ hasText: code }).first().click()
+      await conditional.getByRole('button', { name: 'Add to draft' }).click()
+    }
+    await conditional.getByRole('link', { name: 'Continue to Review' }).click()
+    await conditional.getByRole('button', { name: 'Check medicines' }).click()
+    const finding = conditional.locator('.check-finding')
+    await finding.getByText('Possible interaction · confirm indication', { exact: true }).waitFor()
+    await finding.getByText('Source conditions and references', { exact: true }).click()
+    await finding.getByText('FEST classifications for this rule · B01AC06', { exact: true }).waitFor()
+    await finding.getByText(/Applies when.+Gjelder ikke ved lokal bruk/).waitFor()
+    const cameraPage = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
+    try {
+      await cameraPage.addInitScript(() => {
+        // Desktop Chromium does not expose the native mobile capture property.
+        if (!('capture' in HTMLInputElement.prototype)) {
+          Object.defineProperty(HTMLInputElement.prototype, 'capture', {
+            configurable: true, get() { return this.getAttribute('capture') ?? '' },
+          })
+        }
+      })
+      await cameraPage.goto(base + '/new-patient/input')
+      const cameraInput = cameraPage.waitForEvent('filechooser')
+      await cameraPage.getByRole('region', { name: 'Label side', exact: true })
+        .getByRole('button', { name: 'Take photo', exact: true }).click()
+      const capture = await cameraInput
+      assert.equal(await capture.element().getAttribute('capture'), 'environment')
+      assert.equal(await capture.element().getAttribute('accept'), 'image/*')
+      await capture.setFiles({ name: 'synthetic-capture.png', mimeType: 'image/png', buffer: image })
+      await cameraPage.getByRole('button', { name: 'Analyze evidence' }).filter({ visible: true }).waitFor()
+      await cameraPage.waitForFunction(() => [...document.querySelectorAll('button')]
+        .some(button => button.textContent.trim() === 'Analyze evidence' && !button.disabled))
+    } finally { await cameraPage.close() }
+    console.log('PASS upload and native capture wiring, pasted text, structured manual entry, unmatched handoffs, exact and conditional checks, and reopenable history')
   } finally { await browser.close() }
 }
 run().catch(error => { console.error(error); process.exitCode = 1 })
