@@ -4,28 +4,28 @@ Use this catalog when planning a screen. The entries below are **planned** for t
 
 ## First example: the top bar
 
-`App` renders one `TopBar` above the active page. Inside `TopBar.tsx`, define a small `TopBarLink` first, then render it for each of the three destinations in order. Keep the destination, translation key and optional icon together in a short list. Derive the current link from the active route so browser Back also updates its underline.
+`App` renders one `TopBar` above the active page. [TopBar](../src/components/layout/TopBar.tsx) renders a [TopBarLink](../src/components/layout/TopBarLink.tsx) for each destination. React Router updates the selected background and current-page state on navigation, including browser Back.
 
 | Label | Destination | Behavior |
 | --- | --- | --- |
-| Home | `#/` | Open the instruction page. |
-| + New Patient | `#/new-patient` | Open the workspace at Input for an empty case, or resume the active draft. |
-| History | `#/history` | Open the successful import list. |
+| Home | `/` | Open the instruction page. |
+| + New Patient | `/new-patient` | Open the workspace at Input for an empty case, or resume the active draft. |
+| History | `/history` | Open the successful import list. |
 
-Each link receives its address, translated label, current state and optional leading icon. It renders a native anchor and owns the shared hover, keyboard focus and current-page treatment. Only the current link gets `aria-current="page"`. The plus is decorative. Starting a fresh case is a separate workspace action. Keep language and theme controls at the far end of the bar.
+Each link receives its address, translated label and optional leading icon. It renders a native anchor and owns the shared hover, keyboard focus and current-page treatment. Only the current link gets `aria-current="page"`. The plus is decorative. Starting a fresh case is a separate workspace action. Keep language and theme controls at the far end of the bar.
 
 ## Choosing a component boundary
 
 - Start with the screen that needs the component. When two uses have the same job, name the shared piece and build both uses with it. The photo slots are a good example. Each accepts a label, a preview and a replacement callback, while Input keeps the two evidence references separate.
 - Put shell components in `src/components/layout/` and shared presentation controls in `src/components/ui/`. Keep reconciliation-specific pieces beside their pages under `src/pages/`. Review and Output can share a source display inside `pages/new-patient/`.
-- Keep a small helper beside its only caller. For example, the three instances of `TopBarLink` justify one reusable definition inside `TopBar.tsx`. Extract a separate file when another module needs it or the parent becomes hard to read.
+- Keep a small helper beside its only caller. Extract a separate file when another module needs it or the parent becomes hard to read.
 - Let the parent own data that must survive navigation. Pass values and callbacks down to controls. A photo slot can open a file picker, and a status label can display approval. The workspace handles evidence updates and the server validates imports.
 
 ## Planned catalog
 
 | Component | Owner under `src/` | Responsibility |
 | --- | --- | --- |
-| `TopBar`, `TopBarLink` | `components/layout/TopBar.tsx` | Global destinations and active-page state as described above. |
+| `TopBar`, `TopBarLink` | `components/layout/` | Global destinations using React Router NavLink. |
 | `LanguageSwitch`, `ThemeToggle` | Top bar | Read the current preference and request a change. Localize accessible names and preserve the active draft. |
 | `PageContainer` | `components/layout/` | Align shell and page gutters. Offer reading width for Home and History, wide width for Review. |
 | `Button` | `components/ui/` | Render an action with a visible label and primary or secondary styling. Support native disabled and submit behavior. |

@@ -1,122 +1,66 @@
-import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import './App.css'
+import { useEffect, useState } from 'react'
+import { Navigate, Route, Routes, useMatch } from 'react-router-dom'
+import { NewPatientLayout } from './pages/new-patient/NewPatientLayout'
+import { stages } from './pages/new-patient/stages'
+import { PageContainer } from './components/layout/PageContainer'
+import { TopBar } from './components/layout/TopBar'
+import { messages, type Language } from './i18n/messages'
 
-function App() {
-  const [count, setCount] = useState(0)
+function MockPage({ name }: { name: string }) {
+  useEffect(() => {
+    document.title = name + ' · MedRec TH'
+  }, [name])
+
+  return <h1 className="text-2xl font-bold">{name}</h1>
+}
+
+export default function App() {
+  const [language, setLanguage] = useState<Language>(() => {
+    try {
+      return localStorage.getItem('medrec.language') === 'th' ? 'th' : 'en'
+    } catch {
+      return 'en'
+    }
+  })
+  const [lastStage, setLastStage] = useState('input')
+  const stage = useMatch('/new-patient/:stage')?.params.stage
+  const t = messages[language]
+
+  if (stage && stage !== lastStage && stages.some(item => item === stage)) {
+    setLastStage(stage)
+  }
+
+  useEffect(() => {
+    document.documentElement.lang = language
+  }, [language])
+
+  function changeLanguage(next: Language) {
+    setLanguage(next)
+    try {
+      localStorage.setItem('medrec.language', next)
+    } catch {
+      // The switch still works for this session when storage is unavailable.
+    }
+  }
 
   return (
     <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
+      <TopBar language={language} onLanguage={changeLanguage} />
+      <main className="pt-7">
+        <PageContainer>
+          <Routes>
+            <Route path="/" element={<MockPage name={t.home} />} />
+            <Route path="/new-patient" element={<NewPatientLayout language={language} />}>
+              <Route index element={<Navigate to={lastStage} replace />} />
+              {stages.map(item => (
+                <Route key={item} path={item} element={<MockPage name={t[item]} />} />
+              ))}
+            </Route>
+            <Route path="/history" element={<MockPage name={t.history} />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </PageContainer>
+      </main>
     </>
   )
 }
-
-export default App

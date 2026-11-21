@@ -17,18 +17,18 @@ In `px-4`, the x means horizontal padding. At the default Tailwind scale this se
 
 ## Color tokens
 
-Use numbers for the three surface levels and names for foregrounds, interaction states and status. These example light and dark values establish the starting palette. Keep implementation values together in the global stylesheet.
+Use numbered background and text tokens, with named tokens for interaction states and status. These example light and dark values establish the starting palette. Keep implementation values together in the global stylesheet.
 
 | Utility | Light | Dark | Where it belongs |
 | --- | --- | --- | --- |
-| `bg-1` | `#f5f7f8` | `#121a20` | Page canvas |
+| `bg-1` | `#f5f6f8` | `#121a20` | Page canvas |
 | `bg-2` | `#ffffff` | `#1c282f` | Top bar, workflow bar, panels and history list |
 | `bg-3` | `#eaf0f2` | `#293840` | Inset evidence, quoted text and the area around a photo |
-| `text-ink` | `#182831` | `#f1f5f6` | Headings, names, strengths and field values |
-| `text-secondary` | `#344952` | `#cfdee4` | Field labels, supporting descriptions and navigation |
-| `text-muted` | `#475d68` | `#b4c5cc` | Captions, hints and timestamps |
-| `border-line` | `#758790` | `#869aa4` | Dividers and control boundaries |
-| `text-accent`, `outline-accent` | `#075e67` | `#81d7de` | Evidence links, selection markers and keyboard focus |
+| `text-1` | `#17212e` | `#f1f5f6` | Headings, names, strengths and field values |
+| `text-2` | `#526174` | `#cfdee4` | Field labels, supporting descriptions and navigation |
+| `text-3` | `#475d68` | `#b4c5cc` | Captions, hints and timestamps |
+| `border-line` | `#d9e1eb` | `#869aa4` | Dividers and control boundaries |
+| `text-accent`, `outline-accent` | `#0c5096` | `#a5ceff` | Evidence links, selection markers and keyboard focus |
 
 ### Actions and feedback
 
@@ -43,25 +43,25 @@ Choose the hover fill as a subtle tint and the selected fill as a stronger accen
 
 ### Registering tokens
 
-For each new color, define a light value on `:root`, a dark value on `:root[data-theme="dark"]` and its utility in `@theme inline`. Scope numbered tokens to backgrounds so a class like `text-1` cannot accidentally pick up the canvas color. A representative excerpt from the target stylesheet follows.
+For each new color, define a light value on `:root`, a dark value on `:root[data-theme="dark"]` and its utility in `@theme inline`. Register background and text values separately so `bg-1` and `text-1` each use their matching variable. A representative excerpt from the target stylesheet follows.
 
 ```css
 @import "tailwindcss";
 @source not "../docs";
 
 :root {
-  --surface-1: #f5f7f8;
-  --ink: #182831;
-  --accent: #075e67;
+  --bg-1: #f5f6f8;
+  --text-1: #17212e;
+  --accent: #0c5096;
 }
 :root[data-theme="dark"] {
-  --surface-1: #121a20;
-  --ink: #f1f5f6;
-  --accent: #81d7de;
+  --bg-1: #121a20;
+  --text-1: #f1f5f6;
+  --accent: #a5ceff;
 }
 @theme inline {
-  --background-color-1: var(--surface-1);
-  --text-color-ink: var(--ink);
+  --background-color-1: var(--bg-1);
+  --text-color-1: var(--text-1);
   --color-accent: var(--accent);
 }
 ```
@@ -70,7 +70,7 @@ Use the same pattern for other surfaces, foregrounds, status pairs, overlays and
 
 ## Theme behavior
 
-Follow the device setting on first load and on device changes until the user chooses a theme. Set the effective `data-theme` on the document root before first paint and set `color-scheme` to match for native controls. The top-bar switch overrides the device for the current app session. Hold the override in memory across navigation. A reload follows the device again.
+Follow the device setting on first load and on device changes until the user chooses a theme. Set the effective `data-theme` on the document root before first paint and set `color-scheme` to match for native controls. The top-bar switch saves the selected light or dark theme under `medrec.theme` in local storage. Apply it before first paint on subsequent visits.
 
 Give the logo a theme-appropriate asset or tint if needed. Keep filters off medication photos and crops so staff can compare the original colors. Test a device change with the switch untouched, then choose the opposite theme and navigate to History and back.
 

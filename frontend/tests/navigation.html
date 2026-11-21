@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<title>Top bar browser test</title>
+<pre id="result">Running</pre>
+<iframe title="Application under test" width="900"></iframe>
+<script type="module">
+  const frame = document.querySelector('iframe')
+  const result = document.querySelector('#result')
+  const doc = () => frame.contentDocument
+  const visible = selector => Array.from(doc().querySelectorAll(selector)).find(el => el.getClientRects().length)
+  async function expect(check, description) {
+    for (let i = 0; i < 100; i++) {
+      if (check()) return
+      await new Promise(resolve => setTimeout(resolve, 50))
+    }
+    throw new Error(description)
+  }
+  const heading = title => expect(() => doc()?.querySelector('h1')?.textContent === title, title)
+  const previousTheme = localStorage.getItem('medrec.theme')
+  const previousLanguage = localStorage.getItem('medrec.language')
+  try {
+    localStorage.removeItem('medrec.language')
+    frame.src = '/new-patient'
+    await heading('Input')
+    await expect(() => doc().querySelectorAll('header nav a').length === 3, 'one link per destination')
+    await expect(() => visible('a[aria-current="page"]').pathname === '/new-patient', 'current page on direct visit')
+    visible('a[href="/new-patient/review"]').click()
+    await heading('Review')
+    visible('a[href="/new-patient/output"]').click()
+    await heading('Output')
+    await expect(() => visible('a[aria-current="step"]').pathname === '/new-patient/output', 'selected stage')
+    const historyLink = visible('a[href="/history"]')
+    historyLink.focus()
+    await expect(() => doc().activeElement === historyLink, 'keyboard focus on navigation link')
+    historyLink.click()
+    await heading('History')
+    await expect(() => frame.contentWindow.location.pathname === '/history' && !frame.contentWindow.location.hash, 'clean URL')
+    frame.contentWindow.history.back()
+    await heading('Output')
+    frame.contentWindow.history.forward()
+    await heading('History')
+    const reloaded = new Promise(resolve => frame.addEventListener('load', resolve, { once: true }))
+    frame.contentWindow.location.reload()
+    await reloaded
+    await heading('History')
+    await expect(() => visible('button[title="Switch to Thai"]'), 'language control')
+    visible('button[title="Switch to Thai"]').click()
+    await heading('ประวัติ')
+    const initialTheme = doc().documentElement.dataset.theme
+    visible('button:last-child[title]').click()
+    await expect(() => doc().documentElement.dataset.theme !== initialTheme, 'theme switch')
+    frame.width = '320'
+    await expect(() => doc().documentElement.scrollWidth <= 320, 'phone layout fits')
+    visible('a[href="/"]').click()
+    await heading('หน้าหลัก')
+    await expect(() => visible('a[aria-current="page"]').pathname === '/', 'active home link')
+    visible('a[href="/new-patient"]').click()
+    await heading('ป้อนข้อมูล')
+    visible('a[href="/new-patient/review"]').click()
+    await heading('ทบทวน')
+    visible('a[href="/history"]').click()
+    await heading('ประวัติ')
+    visible('a[href="/new-patient"]').click()
+    await heading('ทบทวน')
+    const chosenTheme = doc().documentElement.dataset.theme
+    const stageReload = new Promise(resolve => frame.addEventListener('load', resolve, { once: true }))
+    frame.contentWindow.location.reload()
+    await stageReload
+    await heading('ทบทวน')
+    await expect(() => doc().documentElement.lang === 'th' && frame.contentWindow.location.pathname === '/new-patient/review', 'Thai Review survives reload')
+    visible('button[title="เปลี่ยนเป็นภาษาอังกฤษ"]').click()
+    await heading('Review')
+    const englishReload = new Promise(resolve => frame.addEventListener('load', resolve, { once: true }))
+    frame.contentWindow.location.reload()
+    await englishReload
+    await heading('Review')
+    await expect(() => doc().documentElement.lang === 'en' && localStorage.getItem('medrec.language') === 'en', 'English choice survives reload')
+    await expect(() => doc().documentElement.dataset.theme === chosenTheme, 'saved theme survives reload')
+    result.textContent = 'PASS'
+  } catch (error) {
+    result.textContent = 'FAIL ' + error.message
+  } finally {
+    if (previousLanguage === null) localStorage.removeItem('medrec.language')
+    else localStorage.setItem('medrec.language', previousLanguage)
+    if (previousTheme === null) localStorage.removeItem('medrec.theme')
+    else localStorage.setItem('medrec.theme', previousTheme)
+  }
+</script>
+</html>

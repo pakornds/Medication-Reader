@@ -13,7 +13,7 @@ This is the proposed structure for the existing Vite, React and TypeScript scaff
 | + New Patient | A second navigation bar moves between stages of the same draft. The stages are Input, Review and Output. Selecting a stage changes the view of the open case. |
 | History | A simple list of successful import timestamps, newest first. Selecting a timestamp looks up matching records on the mock hospital service. If several imports share a timestamp, show all matches for staff to distinguish. |
 
-Use `#/` for Home, `#/new-patient` for the workspace and `#/history` for History. Render one `TopBarLink` per destination inside `TopBar.tsx`. Each takes the destination, translated label and active state, plus an optional leading icon for New Patient. Keep the selected stage and row in React state above the page switch so returning from Home or History restores the same spot.
+Use `/` for Home, `/new-patient` for the workspace and `/history` for History. Configure the production host to serve `index.html` for these page routes on direct visits and reloads. Render one `TopBarLink` per destination inside `TopBar.tsx`. Each takes the destination, translated label and active state, plus an optional leading icon for New Patient. The workspace has nested routes at `/new-patient/input`, `/new-patient/review`, and `/new-patient/output`. The workspace link resumes the last visited stage in memory and defaults to Input on a fresh visit.
 
 ## New Patient workspace
 
