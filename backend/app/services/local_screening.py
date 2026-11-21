@@ -12,7 +12,7 @@ from itertools import combinations
 from app.schemas.analysis import AnalysisResult, validate_analysis_result
 from app.schemas.evidence import CaseEvidence, EvidenceRef, EvidenceValidationError
 from app.schemas.local_screening import (
-    DDILookup, DuplicateLookup, Ingredient, LocalScreeningRequest, LocalScreeningResult,
+    CatalogueScreeningRequest, DDILookup, DuplicateLookup, Ingredient, LocalScreeningRequest, LocalScreeningResult,
     Reference, RuleMatch, ScreenedPair, ScreenedRow,
 )
 from app.schemas.regimen import validate_regimen_evidence
@@ -157,14 +157,18 @@ def _resolve(
         result.row.reason = "The verified identity and TPU do not match the product label for the selected catalogue release."
         return result
 
+    references = [verification.identity.evidence, *verification.evidence, *verification.regimen_references()]
+    result.row.evidence = list({(ref.source_id, ref.item_id): ref for ref in references}.values())
+    result.row.route_note, result.route_gap = _route_scope(row, product["fest_route"])
+    return _attach_product(tmt, result, product)
+
+
+def _attach_product(tmt, result, product):
     tpu = product["tpu"]
     result.row.tpu = tpu
     result.row.label = product["label"]
-    references = [verification.identity.evidence, *verification.evidence, *verification.regimen_references()]
-    result.row.evidence = list({(ref.source_id, ref.item_id): ref for ref in references}.values())
     result.row.composition_status = product["composition_status"]
     result.row.ddi_status = product["ddi_status"]
-    result.row.route_note, result.route_gap = _route_scope(row, product["fest_route"])
     result.ingredients = dict(tmt.execute("SELECT subs_id,name FROM ingredient WHERE tpu=?", (tpu,)))
     result.atcs = {r[0] for r in tmt.execute("SELECT atc FROM product_atc WHERE tpu=?", (tpu,))}
     return result
@@ -307,6 +311,38 @@ def screen_local(request: LocalScreeningRequest, *, encounter: bool = False) -> 
     except (sqlite3.Error, OSError) as exc:
         raise ReferenceUnavailable("The Thai product reference is missing or unreadable.") from exc
 
+    warnings = [STOPPED_WARNING] if any(use_exclusion(row) == STOPPED_WARNING for row in request.rows) else []
+    return _report(products, meta, request.model_dump(mode="json"), warnings)
+
+
+def screen_catalogue_list(request: CatalogueScreeningRequest) -> LocalScreeningResult:
+    products = []
+    try:
+        with open_reference("LOCAL_TMT_DB") as tmt:
+            meta = dict(tmt.execute("SELECT key,value FROM metadata"))
+            if not all(meta.get(key) for key in ("tmt_release", "mapping_version", "mapping_sha256")):
+                raise ReferenceUnavailable("The Thai product database has incomplete release metadata.")
+            for row in request.rows:
+                result = Product(ScreenedRow(row_id=row.row_id, label=row.row_id))
+                products.append(result)
+                if not row.tpu or row.release != meta["tmt_release"]:
+                    result.row.reason = "Choose a product from the current TMT release."
+                    continue
+                product = tmt.execute(
+                    """SELECT tpu,label,composition_status,ddi_status FROM product
+                    WHERE tpu = ? AND active_tmt = 1""", (row.tpu,),
+                ).fetchone()
+                if not product:
+                    result.row.reason = "The selected product is unavailable."
+                    continue
+                result.row.route_note = "Product-only lookup. Actual use and route were not assessed."
+                _attach_product(tmt, result, product)
+    except (sqlite3.Error, OSError) as exc:
+        raise ReferenceUnavailable("The Thai product reference is missing or unreadable.") from exc
+    return _report(products, meta, request.model_dump(mode="json"), [])
+
+
+def _report(products, meta, snapshot_input, warnings):
     ddi_unavailable_reason = None
     fest_release = fest_sha = None
     pair_products = list(combinations(products, 2))
@@ -321,7 +357,7 @@ def screen_local(request: LocalScreeningRequest, *, encounter: bool = False) -> 
         for (left, right), ddi in zip(pair_products, ddi_results, strict=True)
     ]
     snapshot = json.dumps(
-        [request.model_dump(mode="json"), meta["mapping_sha256"], meta["tmt_release"], fest_sha, ddi_unavailable_reason],
+        [snapshot_input, meta["mapping_sha256"], meta["tmt_release"], fest_sha, ddi_unavailable_reason],
         ensure_ascii=False, separators=(",", ":"), sort_keys=True,
     )
     return LocalScreeningResult(
@@ -329,6 +365,6 @@ def screen_local(request: LocalScreeningRequest, *, encounter: bool = False) -> 
         fest_release=fest_release, mapping_version=meta["mapping_version"],
         ddi_unavailable_reason=ddi_unavailable_reason,
         ddi_scope="Product/form-based lookup using supported constituent ATCs and their FEST classes. Rules indexed solely by combination-product ATCs or substance names/IDs are outside this scope. Review actual route, dose, timing and exposure separately.",
-        warnings=[STOPPED_WARNING] if any(use_exclusion(row) == STOPPED_WARNING for row in request.rows) else [],
+        warnings=warnings,
         checked_at=datetime.now(UTC), rows=[p.row for p in products], pairs=pairs,
     )

@@ -97,7 +97,18 @@ export type CatalogueIdentity = {
   trade_name: string | null
   release: string
   candidate_tpus: Array<string>
+  compatible_tpus?: Array<string> | null
   evidence: Array<EvidenceRef>
+}
+
+export type CatalogueScreeningRequest = {
+  rows: Array<CatalogueScreeningRow>
+}
+
+export type CatalogueScreeningRow = {
+  row_id: string
+  tpu?: string | null
+  release?: string | null
 }
 
 export type CheckExclusion = {

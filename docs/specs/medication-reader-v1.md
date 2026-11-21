@@ -6,47 +6,28 @@
 
 During urgent intake or a transfer, the referring clinic's medication list may be unavailable. The receiving team may have a ward record, only some of the patient's medicines, and a patient or caregiver who is uncertain about what was taken. Staff need to identify the source of each entry and what they still need to confirm.
 
-In the fixture-only, 12-hour Medication Reader demo, community and hospital pharmacists, clinic staff, and nurses gather histories and evidence. An assigned nurse, doctor or pharmacist verifies current use for this encounter. The draft keeps printed directions, reported use, and reviewer-verified current use distinct. [WHO technical report on medication safety in transitions of care](https://www.who.int/publications/i/item/WHO-UHC-SDS-2019.9)
+MedRec TH helps pharmacists read, check and prepare a medicine list for entry in their hospital system. Label directions and patient-reported use retain their own sources. [WHO technical report on medication safety in transitions of care](https://www.who.int/publications/i/item/WHO-UHC-SDS-2019.9)
 
 ## Workflow
 
 ```mermaid
 flowchart TD
-  manual["Search catalogue as you type; select one product"] --> row["Editable medicine row with source and structured directions"]
-  front["Photo 1: lay out items label-side up"] --> locate["OpenAI locates packages across the whole photo"]
-  reverse["Optional photo 2: flip the same items in place"] --> pair["Staff match a reverse crop to its front item"]
-  locate --> pair
-  locate --> extract["Analyze evidence or transcribe a located label"]
-  pair --> extract
-  note["Patient report or transfer record"] --> extract
-  extract -->|"Printed medicine names"| lookup["Retrieve compatible products from local TMT"]
-  lookup --> interpret["OpenAI compares printed names with candidate brand and ingredient records"]
-  interpret -->|"Catalogue-supported identity or original wording for review"| row
-  extract -->|"Unidentified item"| row
-  row --> compare["Check original evidence, correct fields and compare catalogue candidates"]
-  compare --> save["Save the draft into the assigned encounter"]
-  save --> interview["Interview and record actual use per medicine"]
-  interview --> verify["Assigned clinician verifies individual rows"]
-  interview --> refer["Refer unresolved identity with its evidence"]
-  refer -->|"Independent confirmation by pharmacist"| verify
-  refer -->|"Still unknown"| pending["Keep pending with follow-up; exclude from import"]
-  verify --> finish["Record completion or pharmacist handoff"]
-  verify -.-> checks["Optional local interaction and duplicate-ingredient checks; show unassessed rows"]
-  save -.-> print["Print dated worksheet or handoff"]
-  verify --> output["Preview eligible rows and exclusions"]
-  pending --> output
-  output --> approve["Assigned pharmacist approves and imports the selected rows once"]
-  approve --> receipt["Mock hospital writes selected rows and returns a dated receipt"]
-  receipt --> history["Browser history keeps the successful timestamp"]
+  manual["Input: search Thai TMT by brand, ingredient or code"] --> row["Editable medicine list"]
+  front["Input: upload one label-side photo"] --> locate["OpenAI locates packages and reads each label"]
+  extra["Optional reverse photo, additional photo or notes"] --> locate
+  locate --> match["OpenAI compares printed names against local TMT candidates"]
+  match --> row
+  row --> review["Review: correct rows and choose medicines"]
+  review -.-> check["Optional local interaction and ingredient overlap lookup"]
+  review --> output["Output: prepare the selected list"]
+  output --> handoff["Pharmacist copies or downloads the list for hospital entry"]
 ```
 
-1. **Add a medicine manually.** Search and select one catalogue product. The combined name, strength and form appear on one editable row immediately. Keep the product ID, name, strength and form in separate fields internally. Staff enter the patient’s dose, schedule and source on that row. Manual selection bypasses AI extraction. If the catalogue has no match, enter the evidenced name, strength and form in the same row and leave the catalogue ID blank.
-2. **Prefill the same row layout from a scan.** Keep items in their original packaging or separate groups. Photograph the labels first, then optionally flip the same items in place for a reverse photo. If pairing is uncertain, ask staff to match the item or retake the photo. Extract legible label fields, retain the original wording and cite the matching label region. For a named label, retrieve candidate records from the installed Thai TMT catalogue and let OpenAI compare the printed spellings, strength and form against the shortlist. The server checks the returned identifiers against compatible records. Display the supported ingredient and trade name together in one heading. Keep original spellings and the source crop in the details. An unresolved match remains available for manual review, and selecting a product or verifying clinical use requires staff action. For a loose or unreadable item, create an unknown row and attach a matched crop when supported. Mark scan-prefilled fields as awaiting review. A typed patient account or transfer record can supply additional evidence.
-3. **Review in place.** Staff can correct a prefill, discard an erroneous suggestion or link new evidence to an existing medicine. If a scan might describe a manually entered medicine, ask staff to confirm the association before combining rows. A retry or rescan preserves manual edits, verified values and unrelated rows. Keep conflicting source values visible. Selecting a catalogue product supplies its identity as a candidate and does not verify actual use.
-4. **Interview and finish the clinical review.** The [admission workspace](reconciliation-contract.md#admission-encounters) makes a dated worksheet available with the first row. An assigned clinician can explicitly finish routine review. Refer items in current use whose identity remains unresolved and all pending proposals for previously unknown items. Only a pharmacist can resolve a previously unknown identity using independently documented, item-specific evidence. Finishing and referring produce dated review events.
+1. **Input.** Select a catalogue product to add a row immediately, or enter the name shown on a source. For photo intake, upload the labels together. Add another view or note if needed. The scanner keeps each crop and its printed facts together. OpenAI compares printed names against the installed Thai TMT shortlist. A single compatible product can prefill the picker. When several presentations are compatible, choose an option or search the catalogue.
+2. **Review.** Edit the same rows. Change the product, source, directions, structured dose, schedule or quantity in place. If the patient reports different use, attribute the edit to that report and retain the printed wording. Select individual rows or every row with a product or staff-entered name. Unresolved items stay visible for review. The optional local lookup shows potential interactions, duplicate ingredients and unassessed pairs at product level.
+3. **Output.** Prepare a read-only preview of the selected rows. Copy a tab-separated list or download JSON with the source and structured fields. The pharmacist enters the reviewed information in the hospital system. The open list and photos live in browser memory and clear on refresh, tab close or starting a fresh list.
 
-   **Verify actual use on the row.** An assigned nurse, doctor or pharmacist records the patient’s current-use status and supporting evidence. A disputed identity needs independent, item-specific confirmation. Keep unresolved rows pending with a question and a source to contact. A dated digital or printed handoff can include pending items with their status.
-5. **Approve once for import.** Show the eligible selected rows and any excluded rows. One explicit pharmacist action, **Approve and import selected rows**, authorizes that selection at its reviewed revisions. The server validates each selected row and rejects the entire write if any is ineligible or stale. A failed write preserves the draft. A successful write returns the imported row IDs and UTC timestamp. Only successful timestamps enter local history.
+The separate [staff reconciliation fixture](reconciliation-contract.md#admission-encounters) covers encounter custody, formal clinical verification and mock hospital writes. The fixture-specific rules and ticket history later in this document describe that test workspace.
 
 ### Source fields and attribution
 
@@ -71,7 +52,7 @@ When a label or letterhead supplies a facility name, address or number, display 
 
 Facility contact fields are optional. A missing phone or address cannot establish or disprove identity. Leave undocumented values blank. Keep patient addresses, personal phone numbers and prescriber details out of facility fields. Use synthetic contacts and a masked clinic number such as `075-356XXXX` in the demo. Contacts belong to the open case and may accompany its authorized handoff. Browser history contains timestamps only.
 
-### Decisions at review
+### Decisions in the staff reconciliation fixture
 
 | Situation | Expected decision |
 | --- | --- |
@@ -121,7 +102,7 @@ For different morning and evening amounts, create two components with their resp
 | Verification | An assigned nurse, doctor or pharmacist records identity, current-use status, actual regimen and supporting evidence. For a confirmed catalogue match, keep the TPU code as a string and the release version. Product strength and dispensing unit describe the reference product. The patient's regimen comes from case evidence. Carry a verified stopped medicine in the history with its status. Exclude it from the active list. |
 | Mock import | One final pharmacist action approves the selected row revisions and initiates mock import. Successful import returns row IDs and a UTC timestamp. Pending rows stay visible. Only the successful import timestamp enters local history. |
 
-**Implementation status.** The backend parses supported Thai and English transcriptions into fixed regimen components. Unrecognized directions retain their original wording for review. The synthetic review workspace exercises editing, verification, one final pharmacist action and readback from the in-memory mock hospital. The label transcription service uses the same parser to prefill the scanned row from its validated directions. The React staff workspace connects source capture, clinical review, import and receipt readback to the synthetic admission service. Production hospital connectivity remains open. Legacy imports with sourced dose, route and frequency remain readable. The local TMT lookup uses release TMTRF20200217. [Regimen schema](../../backend/app/schemas/regimen.py) · [Run the review demo](reconciliation-contract.md#try-the-regimen-round-trip) · [Catalogue scope](../data/tmt-2020.md)
+**Implementation status.** The backend parses supported Thai and English transcriptions into fixed regimen components. Unrecognized directions retain their original wording for review. The default workspace carries the structured draft to the copy and download page. The separate staff reconciliation fixture exercises verification and mock hospital receipts. The local TMT lookup uses release TMTRF20200217. [Regimen schema](../../backend/app/schemas/regimen.py) · [Run the review demo](reconciliation-contract.md#try-the-regimen-round-trip) · [Catalogue scope](../data/tmt-2020.md)
 
 ## Medication agent analysis form
 
@@ -139,7 +120,11 @@ Version the label extraction, pill description, and form analysis prompts in the
 
 Use synthetic labeled, unlabeled, mixed, and blurry images, bilingual labels, conflicting sources, text embedded in evidence that attempts to change the task, and responses with missing or out-of-case references. Run deterministic fixture tests in CI. Run a separate opt-in model smoke test on synthetic inputs and record the prompt version, model, and results. Verify source coverage and evidence correctness as well as name and directions transcription. A populated field with an unsupported source fails verification.
 
-## Optional DDI and DRP summaries
+## Optional medication checks
+
+The default workspace compares TMT product identities against the installed FEST and ingredient references. The request includes only row IDs, product IDs and the catalogue release. Results mark unsupported items and pairs as unassessed.
+
+### Staff reconciliation fixture
 
 The local review workspace now provides real TMT/FEST reference lookup and an exact-substance overlap check alongside the original synthetic route. [Local workflow, coverage and unassessed scopes](../data/local-screening.md)
 
@@ -153,16 +138,15 @@ Only an assigned doctor or pharmacist may run either a drug–drug interaction (
 
 | Component | Responsibility |
 | --- | --- |
-| TypeScript frontend | Staff-facing intake and analysis form, review, and print layouts. Call FastAPI through a typed client. Keep photos, form inputs, results, and review edits in memory. |
-| FastAPI and Python | Own the application API under `backend/`, including multipart form analysis, label extraction, pill observations, candidate search, summary checks, and mock import. Use Pydantic models for validation and publish the OpenAPI contract consumed by the frontend. Keep the demo reviewer role and import authorization on the backend. |
+| Browser | Holds the working photos, draft, edits and selected list in memory. Writes a handoff file only when the pharmacist downloads it. Browser preferences can retain language and theme. |
+| FastAPI | Validates analysis requests and reads the local Thai TMT and FEST databases. The default workspace uses request-scoped evidence and product checks. |
 | FastAPI OpenAI adapter | Sends synthetic fixture photos and case evidence for label transcription, appearance description, and medication form analysis. Validates model responses against the shared contract. Keep credentials server-side and use stateless requests with response storage disabled where supported. Review provider data controls before any real-data integration. [OpenAI API data controls](https://developers.openai.com/api/docs/guides/your-data) |
-| Candidate search | Rank a small bundled catalog of fictional reference images using image similarity and observed imprint, shape, form, and color. Use known crops or manual selection for the demo. Return multiple plausible results or an unresolved state. |
-| Import service and mock hospital DB | Validates approved rows and evidence server-side and writes the accepted snapshot to a fixture-only mock receiving system. Retries of the same approved import return the original timestamp without duplicate writes. A failed write leaves the draft available for retry and creates no local history entry. |
-| Browser history | Store only successful UTC timestamps. Keep case UUIDs, filenames, source names, contacts, medication fields, images, and analysis inputs and results out of persistent browser storage, caches, analytics, and app logs. Assigned staff can reopen admission review records on the mock server. The mock hospital stores only selected imports. |
+| Hospital entry | The pharmacist copies or downloads the list and enters it in the hospital system. |
+| Staff reconciliation fixture | The optional encounter workflow uses synthetic records and mock hospital storage. Its browser history contains successful UTC receipt timestamps. |
 
 ## Demo scope
 
-Demonstrate one transfer case with the label-side and reverse-side photos of the same items. Read a Thai/English label into an editable draft row and review its prefilled fields, leave an unreadable field blank, and show an unlabeled item with its reverse-side crop in both review formats. Include a difference between printed directions and what the patient reports. Verify that the reviewer can record actual use and that one approved row can be imported while a pending row stays out. With both summaries off, the review still works. A synthetic partial-coverage example shows a checked pair or rule, an omitted item, and the reason for the omission. Use synthetic fixtures throughout. Production authentication and hospital connectivity, clinic-specific rule sets, live DDI and DRP integrations, automated urgency assessment, symptom–drug associations, and longitudinal medication histories are future work.
+Use synthetic labels to show one photo becoming several rows. Correct a dose, choose a catalogue match, run the optional product check, then select the ready rows and prepare Output. Copy or download the handoff while an unreadable item stays available in Review.
 
 ## Post-hackathon roadmap
 

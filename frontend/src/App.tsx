@@ -1,3 +1,4 @@
+import MedicationListApp from './pages/medication-list/MedicationListApp'
 import { useEffect, useRef, useState } from 'react'
 import { Link, Navigate, Route, Routes, useMatch, useNavigate } from 'react-router-dom'
 import { HomePage } from './pages/home/HomePage'
@@ -24,6 +25,10 @@ import type { Encounter } from './api/admission'
 const localDemo = Boolean(import.meta.env.MEDREC_LOCAL_DEMO)
 
 export default function App() {
+  return import.meta.env.VITE_MEDREC_STAFF_WORKSPACE === 'true' ? <StaffApp /> : <MedicationListApp />
+}
+
+function StaffApp() {
   const [language, setLanguage] = useState<Language>(() => {
     try { return localStorage.getItem('medrec.language') === 'th' ? 'th' : 'en' } catch { return 'en' }
   })

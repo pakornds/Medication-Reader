@@ -9,4 +9,5 @@ class CatalogueIdentity(ContractModel):
     trade_name: Text | None
     release: Text
     candidate_tpus: list[Text] = Field(min_length=1, max_length=16)
+    compatible_tpus: list[Text] | None = Field(default=None, min_length=1, max_length=16)
     evidence: list[EvidenceRef] = Field(min_length=1, max_length=1)

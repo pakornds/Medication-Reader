@@ -162,7 +162,7 @@ def supported_intake_identity(identity, row, items, sources):
         not ids or len(ids) != len(identity.candidate_tpus) or not ids.issubset(c["tpu"] for c in candidates)
     ):
         return None
-    return identity
+    return identity.model_copy(update={"compatible_tpus": [item["tpu"] for item in candidates]})
 
 
 def resolve_scan_identities(preview, form, get_provider):
@@ -200,7 +200,8 @@ def resolve_scan_identities(preview, form, get_provider):
         if not proposed or not set(proposed).issubset(available):
             return None
         return row_id, CatalogueIdentity(ingredient=ingredient, trade_name=trade, release=release[0],
-                                          candidate_tpus=list(dict.fromkeys(proposed)), evidence=[ref])
+                                          candidate_tpus=list(dict.fromkeys(proposed)),
+                                          compatible_tpus=[candidate["tpu"] for candidate in candidates], evidence=[ref])
 
     with ThreadPoolExecutor(max_workers=3) as workers:
         return dict(result for result in workers.map(adjudicate, jobs) if result is not None)

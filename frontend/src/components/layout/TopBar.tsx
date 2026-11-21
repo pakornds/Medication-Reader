@@ -5,11 +5,12 @@ import { ThemeToggle } from './ThemeToggle'
 import { TopBarLink } from './TopBarLink'
 
 type Props = {
+  showHistory?: boolean
   language: Language
   onLanguage: (value: Language) => void
 }
 
-export function TopBar({ language, onLanguage }: Props) {
+export function TopBar({ language, onLanguage, showHistory = true }: Props) {
   const t = messages[language]
 
   return (
@@ -23,8 +24,8 @@ export function TopBar({ language, onLanguage }: Props) {
         </span>
         <nav aria-label={t.navigation} className="order-last flex w-full flex-wrap gap-1 sm:order-none sm:w-auto">
           <TopBarLink to="/">{t.home}</TopBarLink>
-          <TopBarLink to="/new-patient"><LuPlus aria-hidden="true" />{t.patient}</TopBarLink>
-          <TopBarLink to="/history">{t.history}</TopBarLink>
+          <TopBarLink to="/new-patient"><LuPlus aria-hidden="true" />{showHistory ? t.patient : language === 'th' ? 'รายการยา' : 'Medication list'}</TopBarLink>
+          {showHistory && <TopBarLink to="/history">{t.history}</TopBarLink>}
         </nav>
         <div className="ml-auto flex gap-2">
           <LanguageSwitch language={language} onChange={onLanguage} />

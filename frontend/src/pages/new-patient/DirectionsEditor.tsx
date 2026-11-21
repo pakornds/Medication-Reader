@@ -19,8 +19,10 @@ export function ScheduleEditor({
   s,
   onChange,
   t,
+  showCompletion = true,
 }: {
   s: Schedule
+  showCompletion?: boolean
   onChange: (s: Schedule) => void
   t: RegimenText
 }) {
@@ -167,7 +169,7 @@ export function ScheduleEditor({
           </label>
         </div>
       </details>
-      {hasFields(s) && (
+      {showCompletion && hasFields(s) && (
         <label className="pick-row">
           <input
             type="checkbox"

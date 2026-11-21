@@ -1,0 +1,20 @@
+.med-list { margin-inline: auto; max-width: 66rem; }
+.med-list .list-medicine { padding: 1rem; overflow-wrap: anywhere; }
+.med-list-rows { border: 1px solid var(--line); border-radius: .75rem; background: var(--bg-2); }
+.med-list-rows > header { padding: 1rem; }
+.med-list-rows > * + * { border-top: 1px solid var(--line); }
+.list-medicine-main { display: flex; align-items: start; gap: .85rem; }
+.list-medicine-main > input[type=checkbox] { width: 1.2rem; height: 1.2rem; accent-color: var(--accent); flex: none; margin-top: .25rem; }
+.list-medicine-main > div:nth-child(2), .list-medicine-main > div:first-child { flex: 1; }
+.list-directions { flex: 1; min-width: 0; }
+.med-list .list-needs-match { color: var(--text-2); font-weight: 600; font-size: .85rem; }
+.list-row-panel { padding: .85rem 0; margin-top: .75rem; border-top: 1px solid var(--line); }
+.med-list .product-option { text-align: left; justify-content: start; }
+.med-list button, .med-list .primary-btn { min-height: 44px; }
+.list-check-pair { border-top: 1px solid var(--line); padding-top: .75rem; }
+.list-check-pair small { display: block; }
+@media (max-width: 680px) {
+  .list-medicine-main { flex-wrap: wrap; gap: .5rem; }
+  .list-medicine-main > div:nth-child(2), .list-medicine-main > div:first-child { flex: 1 1 calc(100% - 2rem); }
+  .list-directions { flex: 1 1 100%; }
+}

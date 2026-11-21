@@ -4,8 +4,24 @@ from typing import Literal
 
 from pydantic import AwareDatetime, Field, model_validator
 
-from .evidence import CaseEvidence, ContractModel, EvidenceRef
+from .evidence import CaseEvidence, ContractModel, EvidenceRef, Text
 from .review import ReviewRow
+
+
+class CatalogueScreeningRow(ContractModel):
+    row_id: Text
+    tpu: Text | None = None
+    release: Text | None = None
+
+
+class CatalogueScreeningRequest(ContractModel):
+    rows: list[CatalogueScreeningRow] = Field(max_length=100)
+
+    @model_validator(mode="after")
+    def unique_ids(self) -> "CatalogueScreeningRequest":
+        if len({row.row_id for row in self.rows}) != len(self.rows):
+            raise ValueError("Duplicate row IDs")
+        return self
 
 
 class LocalScreeningRequest(ContractModel):

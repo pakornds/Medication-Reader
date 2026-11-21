@@ -66,7 +66,7 @@ def test_model_adjudicates_scanned_brand_generic_and_variant_against_actual_cand
     model = Reviewer()
     result = resolve_scan_identities(preview, form, lambda: model)["row"]
     assert result.model_dump() == {"ingredient":"doxycycline", "trade_name":"SIADOCIN",
-        "release":"fixture-snapshot", "candidate_tpus":["1"], "evidence":[{"source_id":"scan","item_id":"box"}]}
+        "release":"fixture-snapshot", "candidate_tpus":["1"], "compatible_tpus":["1"], "evidence":[{"source_id":"scan","item_id":"box"}]}
     assert model.calls[0]["printed_names"] == names
     assert [f.value for f in preview.rows[0].observed_names] == names
 
