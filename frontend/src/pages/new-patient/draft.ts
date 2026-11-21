@@ -52,7 +52,7 @@ export type DraftValues = { name: string; strength: string; form: string; direct
 export type Medicine = MedicineEvidence & {
   origin: 'analysis' | 'manual'
   catalogue?: CatalogueMatch
-  corrections?: DraftValues
+  corrections?: Partial<DraftValues>
   linkedScans?: MedicineEvidence[]
 }
 export type Draft = {
@@ -85,9 +85,9 @@ export function rowName(row: Suggestion, language: Language) {
   )
 }
 
-export function draftValues(medicine: Medicine): DraftValues {
+function sourcedValues(medicine: Medicine): DraftValues {
   const { row, catalogue } = medicine
-  return medicine.corrections ?? {
+  return {
     name: row.observed_names.length === 1 ? row.observed_names[0].value : '',
     strength: row.label_fields.strength?.value ?? catalogue?.product.strength ?? '',
     form: row.label_fields.form?.value ?? catalogue?.product.dose_form ?? '',
@@ -95,7 +95,23 @@ export function draftValues(medicine: Medicine): DraftValues {
   }
 }
 
+export function draftValues(medicine: Medicine): DraftValues {
+  return { ...sourcedValues(medicine), ...medicine.corrections }
+}
+
+export function withDraftValues(medicine: Medicine, values: DraftValues): Medicine {
+  const original = sourcedValues(medicine)
+  const corrections: Partial<DraftValues> = {}
+  for (const field of ['name', 'strength', 'form', 'directions'] as const) {
+    if (values[field] !== original[field]) corrections[field] = values[field]
+  }
+  return { ...medicine, corrections: Object.keys(corrections).length ? corrections : undefined }
+}
+
 export function medicineName(medicine: Medicine, language: Language) {
+  if (medicine.row.identity_status === 'named' && medicine.corrections?.name === '') {
+    return language === 'th' ? 'ยาไม่ทราบชื่อ' : 'Unknown medicine'
+  }
   return (medicine.row.identity_status === 'named' && draftValues(medicine).name)
     || rowName(medicine.row, language)
 }

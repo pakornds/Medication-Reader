@@ -4,7 +4,7 @@ import { HomePage } from './pages/home/HomePage'
 import { NewPatientLayout } from './pages/new-patient/NewPatientLayout'
 import { InputPage } from './pages/new-patient/InputPage'
 import { DraftReview } from './pages/new-patient/AnalysisPreview'
-import { createDraft, type DraftValues } from './pages/new-patient/draft'
+import { createDraft, withDraftValues, type DraftValues } from './pages/new-patient/draft'
 import { stages } from './pages/new-patient/stages'
 import { PageContainer } from './components/layout/PageContainer'
 import { TopBar } from './components/layout/TopBar'
@@ -52,11 +52,11 @@ export default function App() {
     }
   }
 
-  function saveDraftValues(id: string, corrections: DraftValues) {
+  function saveDraftValues(id: string, values: DraftValues) {
     setDraft((current) => ({
       ...current,
       medicines: current.medicines.map((medicine) => (
-        medicine.row.id === id ? { ...medicine, corrections } : medicine
+        medicine.row.id === id ? withDraftValues(medicine, values) : medicine
       )),
     }))
   }

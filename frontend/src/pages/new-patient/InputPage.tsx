@@ -130,7 +130,7 @@ export function InputPage({
           return false
         }
         const index = medicines.findIndex((medicine) => medicine.row.id === target)
-        if (index < 0 || (priorOrder && priorOrder.row.id !== target)) return true
+          if (index < 0) return true
         medicines[index] = linkScan(medicines[index], scan)
         return false
       })

@@ -205,8 +205,7 @@ export function AnalysisPreview({
     if (!selected.includes(row.id)) continue
     const target = targets.get(row.id)
     const existing = knownOrder(draft.medicines, row.id)
-    if (target && draft.medicines.some((medicine) => medicine.row.id === target)
-      && (!existing || existing.row.id === target)) {
+    if (target && draft.medicines.some((medicine) => medicine.row.id === target)) {
       placements.set(row.id, target)
     } else if (!target && !existing) {
       placements.set(row.id, null)
@@ -220,7 +219,6 @@ export function AnalysisPreview({
         const existing = knownOrder(draft.medicines, row.id)
         const checked = selected.includes(row.id)
         const heading = rowName(row, language)
-        const orders = existing ? [existing] : draft.medicines
         return (
           <div className="suggestion stack" key={row.id}>
             <div className="spread">
@@ -245,9 +243,9 @@ export function AnalysisPreview({
                 }}
               >
                 <option value="">{existing ? t.chooseOrder : t.addNewOrder}</option>
-                {orders.map((medicine) => {
-                  const { strength, form } = draftValues(medicine)
-                  const label = [medicineName(medicine, language), strength, form].filter(Boolean).join(' · ')
+                {draft.medicines.map((medicine) => {
+                  const { strength, form, directions } = draftValues(medicine)
+                  const label = [medicineName(medicine, language), strength, form, directions].filter(Boolean).join(' · ')
                   return <option key={medicine.row.id} value={medicine.row.id}>{label}</option>
                 })}
               </select>
@@ -336,10 +334,16 @@ export function DraftReview({ draft, language, onSave }: {
             )}
             <DraftEditor medicine={medicine} t={t} onSave={(values) => onSave(row.id, values)} />
             {corrections && (
-              <div>
+              <div className="staff-corrections">
                 <strong>{t.draftChanges}</strong>
-                <p>{[corrections.name, corrections.strength, corrections.form, corrections.directions]
-                  .filter(Boolean).join(' · ')}</p>
+                <dl>
+                  {([['name', t.draftName], ['strength', t.draftStrength], ['form', t.draftForm],
+                    ['directions', t.draftDirections]] as const).map(([field, label]) => (
+                    corrections[field] !== undefined && (
+                      <div key={field}><dt>{label}</dt><dd>{corrections[field] || t.missing}</dd></div>
+                    )
+                  ))}
+                </dl>
               </div>
             )}
             <RowEvidence {...medicine} scan={medicine.origin === 'analysis'} rt={regimenText[language]} t={t} />

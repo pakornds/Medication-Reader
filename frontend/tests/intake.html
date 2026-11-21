@@ -216,9 +216,14 @@
     assert(scannedOrder.textContent.includes(facilityPhones['Demo South Facility']) && !scannedOrder.textContent.includes(facilityPhones['Demo North Facility']), 'the separate scanned order retains just its dispensing phone')
     const correction = scannedOrder.querySelector('.med-corrections')
     correction.querySelector('summary').click()
+    correction.querySelector('button[type="submit"]').click()
+    assert(!scannedOrder.querySelector('.staff-corrections'), 'saving unchanged fields does not mark observations as staff corrections')
     type(field('Draft strength', correction), '12 mg')
     correction.querySelector('button[type="submit"]').click()
     await expect(() => scannedOrder.textContent.includes('12 mg'), 'staff correction saved to the intended order')
+    assert(scannedOrder.querySelector('.staff-corrections').querySelectorAll('dt').length===1
+      && scannedOrder.querySelector('.staff-corrections dt').textContent==='Draft strength',
+      'only the changed strength is attributed to staff')
 
     input()
     await expect(() => draftRows().some(row => row.textContent.includes('12 mg')), 'correction reflected in the draft')
@@ -253,6 +258,31 @@
     assert(linkedOrder.textContent.includes('neighboring-labels.png') && linkedOrder.textContent.includes('retaken-labels.png'), 'both original and retaken source remain attributable')
     assert(linkedOrder.textContent.includes(facilityPhones['Demo South Facility']) && linkedOrder.textContent.includes(facilityPhones['Demo South Facility Retake']) && !linkedOrder.textContent.includes(facilityPhones['Demo North Facility']), 'retake preserves both attributed dispensing phones without borrowing the neighboring number')
     assert(linkedOrder.querySelector('h2').textContent==='Demo order' && linkedOrder.textContent.includes('Demo retake reading'), 'retaken identity is preserved as an observation without overwriting the order')
+    input()
+    await click('Enter medicine manually')
+    type(field('Product name or code'), 'Second documented order')
+    type(field('Strength'), '9 mg')
+    type(field('Form'), 'Tablet')
+    type(field('Source wording or reference'), 'Synthetic separate order for the same package')
+    await click('Add to draft')
+    await expect(() => draftRows().length===3, 'second order added independently')
+    await click('Read photos or notes')
+    await click('Analyze evidence')
+    await expect(() => suggestion('Demo South Facility Retake'), 'same physical crop can be reviewed again')
+    await accept(suggestion('Demo South Facility Retake'), 'Second documented order')
+    review()
+    await expect(() => reviewRows().filter(r => r.textContent.includes('Demo South Facility Retake')).length===2,
+      'explicit confirmation links one package to two distinct orders')
+    assert(reviewRows().length===3, 'sharing a crop does not merge orders or duplicate a scan row')
+    const clearedOrder = reviewRows().find(row => row.querySelector('h2').textContent==='Demo order'
+      && row.textContent.includes('12 mg'))
+    const edit = clearedOrder.querySelector('.med-corrections')
+    edit.open = true
+    type(field('Draft name', edit), '')
+    edit.querySelector('button[type="submit"]').click()
+    await expect(() => clearedOrder.querySelector('h2').textContent==='Unknown medicine', 'cleared draft name stays unresolved')
+    assert(clearedOrder.querySelector('.row-evidence').textContent.includes('Demo order'),
+      'original documented name remains visible as evidence after clearing')
   }
   const previousLanguage = localStorage.getItem('medrec.language')
   try {
