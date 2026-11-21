@@ -12,6 +12,27 @@ This playbook applies to an active run. A later run can pick up from GitHub once
 >
 > Have the coordinator check authenticated access, current issues, comments and PRs, then claim an eligible open ticket labeled agent-ready and status:todo. Start only after its dependencies have merged. Assign one worker, branch and PR per issue. Run its acceptance checks and the repository checks, respect merge order and required reviews, and record verification and blockers on GitHub. Refresh the queue after each handoff or merge. When no work can advance, report what finished and what is waiting. Finish setup by showing me the changed files and how to start the first run. Leave implementation for that run.
 
+## Coordinator ownership across computers
+
+Before claiming or dispatching, inspect active issues, comments and PRs. If an earlier coordinator has active assignments, confirm a handoff first. Each coordinator run must acquire the same remote ref, using a unique commit and a create-only lease. Workers use their recorded assignments and do not acquire this lock.
+
+```powershell
+$runId = [guid]::NewGuid().ToString()
+$lockRef = 'refs/heads/codex-queue-coordinator'
+$lockOid = git -c user.name=Codex -c user.email=codex@localhost commit-tree 'HEAD^{tree}' -p HEAD -m "Queue coordinator $runId"
+if ($LASTEXITCODE -ne 0) { throw 'Could not create run identity' }
+git push "--force-with-lease=${lockRef}:" origin "${lockOid}:$lockRef"
+if ($LASTEXITCODE -ne 0) { throw 'Stop dispatch and check the remote lock' }
+```
+
+Only dispatch if the remote SHA matches this run's SHA. Recheck with `git ls-remote origin refs/heads/codex-queue-coordinator` if a push result is uncertain. Release after workers finish or acknowledge a handoff with `git push "--force-with-lease=${lockRef}:$lockOid" origin ":$lockRef"`. For an abandoned lock, a human confirms that the previous coordinator has stopped and reconciles active workers and PRs before removing the ref with a lease against the observed SHA.
+
+## Five-minute checks during work
+
+Record the run ID, worker name, branch and owned paths in each assignment. Before editing, the worker checks the live ticket, comments, active assignments and related PRs once. With ownership confirmed, **start immediately**. While continuing implementation, recheck after five minutes and every five minutes thereafter, and immediately before pushing or opening a PR. Use a background timer when available or check at the next safe breakpoint during a long command. Resume with a fresh check after interruption.
+
+If another worker claims the ticket, starts an overlapping change or requests a handoff, pause only the affected work. Preserve edits, link both claims or branches on the issue, and ask the coordinator to resolve ownership. Continue independent assigned work. Use named issue comments for questions, decisions, material progress, blockers and handoffs. Update the checklist as items finish. An unchanged poll needs no comment.
+
 ## Coordinator
 
 1. Read [AGENTS.md](../AGENTS.md), the [task-writing guide](WRITING_TASKS.md), and the [current spec](specs/medication-reader-v1.md). Verify authenticated GitHub access, fetch current `origin/main`, and inspect issues, their comments, and linked PRs. Resume work already assigned to this run when ownership is clear. Leave tickets actively owned by another run with their current owners.
