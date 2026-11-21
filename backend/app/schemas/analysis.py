@@ -10,6 +10,8 @@ from .evidence import (
     REPORT_KINDS,
     CaseEvidence,
     ContractModel,
+    EvidenceItem,
+    EvidenceSource,
     EvidenceRef,
     Observation,
     SourceKind,
@@ -79,6 +81,25 @@ class AnalysisResult(ContractModel):
         return self
 
 
+class DispensingFacility(ContractModel):
+    evidence: EvidenceRef
+    organization: Text
+    organization_type: Literal["clinic", "hospital", "community_pharmacy", "other"] | None = None
+    department_or_ward: Text | None = None
+    organization_address: Text | None = None
+    organization_phone: Text | None = None
+    organization_phone_extension: Text | None = None
+    organization_email: Text | None = None
+
+
+class LabelMedicationSuggestion(MedicationSuggestion):
+    dispensing_facility: DispensingFacility | None = None
+
+
+class LabelAnalysisResult(AnalysisResult):
+    rows: list[LabelMedicationSuggestion]
+
+
 class AnalysisRequest(ContractModel):
     evidence: CaseEvidence
     patient_report: list[SourcedValue] = Field(default_factory=list)
@@ -100,6 +121,32 @@ class AnalysisRequest(ContractModel):
                 ):
                     raise ValueError("Form evidence must cite an available source of the matching type")
         return self
+
+
+def documented_dispensing_refs(
+    row: MedicationSuggestion,
+    sources: dict[str, EvidenceSource],
+    items: dict[tuple[str, str], EvidenceItem],
+) -> list[EvidenceRef]:
+    source = sources.get(row.dispensing_source_id)
+    if (
+        source is None
+        or source.availability != "available"
+        or (source.kind not in PHOTO_KINDS and not source.organization)
+        or source.kind in REPORT_KINDS
+    ):
+        return []
+
+    refs = []
+    for ref in row.sources:
+        if ref.source_id != source.id:
+            continue
+        item = items.get((ref.source_id, ref.item_id))
+        if source.kind in PHOTO_KINDS:
+            if item is None or item.row_id != row.id or not item.supports_label(source.kind):
+                continue
+        refs.append(ref)
+    return refs
 
 
 def validate_analysis_result(result: AnalysisResult, evidence: CaseEvidence) -> AnalysisResult:
@@ -141,16 +188,8 @@ def validate_analysis_result(result: AnalysisResult, evidence: CaseEvidence) -> 
             if kind in PHOTO_KINDS and not items[(reference.source_id, reference.item_id)].supports_label(kind):
                 raise EvidenceValidationError("Documented photo fields require a label region")
 
-        if row.dispensing_source_id is not None:
-            dispensing = sources.get(row.dispensing_source_id)
-            if (
-                row.dispensing_source_id not in row_source_ids
-                or dispensing is None
-                or dispensing.organization is None
-                or dispensing.kind in REPORT_KINDS
-                or dispensing.kind == SourceKind.REVERSE_PHOTO
-            ):
-                raise EvidenceValidationError("Dispensing provenance requires a documented source")
+        if row.dispensing_source_id is not None and not documented_dispensing_refs(row, sources, items):
+            raise EvidenceValidationError("Dispensing provenance requires a documented source for this row")
         for observed in row.observed_names:
             check_label_region(observed.evidence, check_field(observed.evidence))
         for field in row.label_fields.values():

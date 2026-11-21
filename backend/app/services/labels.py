@@ -16,10 +16,12 @@ from app.ai.prompts import LABEL_EXTRACTION
 from app.schemas.analysis import (
     AnalysisResult,
     EvidenceValidationError,
+    LabelAnalysisResult,
     LabelField,
+    LabelMedicationSuggestion,
     validate_analysis_result,
 )
-from app.schemas.evidence import CaseEvidence, ContractModel, EvidenceItem, EvidenceSource, Observation, SourceKind, Text
+from app.schemas.evidence import CaseEvidence, ContractModel, EvidenceItem, EvidenceRef, EvidenceSource, Observation, SourceKind, Text
 from app.schemas.regimen import RegimenParseRequest
 from app.services.regimens import parse_directions
 
@@ -82,6 +84,7 @@ def crop_label(photo: EvidenceImage, location: str, source_id: str) -> EvidenceI
 def read_label(
     case_id: str, source: EvidenceSource, item: EvidenceItem | None,
     image: EvidenceImage, location: str | None, provider: OpenAIClient,
+    *, extract_facility: bool = False,
 ) -> AnalysisResult:
     evidence = CaseEvidence(case_id=case_id, sources=[source], items=[item] if item else [])
     manifest = evidence.model_dump(mode="json")
@@ -91,9 +94,22 @@ def read_label(
     result = provider.generate(
         instructions=LABEL_EXTRACTION.instructions,
         evidence_text=json.dumps(manifest, ensure_ascii=False),
-        output_type=AnalysisResult,
+        output_type=LabelAnalysisResult if extract_facility else AnalysisResult,
         images=[image],
     )
+    for row in result.rows:
+        facility = row.dispensing_facility if isinstance(row, LabelMedicationSuggestion) else None
+        if facility is not None:
+            ref = EvidenceRef(source_id=source.id, item_id=item.id) if item else None
+            if item is None or row.id != item.row_id or facility.evidence != ref or not item.supports_label(source.kind):
+                row.dispensing_facility = None
+                row.dispensing_source_id = None
+            else:
+                row.dispensing_source_id = source.id
+                if ref not in row.sources:
+                    row.sources.append(ref)
+        elif row.dispensing_source_id == source.id and not source.organization:
+            row.dispensing_source_id = None
     try:
         validate_analysis_result(result, evidence)
         if item and [row.id for row in result.rows] != [item.row_id]:
