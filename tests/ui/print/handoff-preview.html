@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Medication handoff fixture</title>
+<link rel="stylesheet" href="../../../src/components/print/medication-handoff.css">
+<main id="handoff"></main>
+<script type="module">
+  import { renderMedicationHandoff } from "../../../src/components/print/medication-handoff.mjs";
+
+  const response = await fetch("../../../backend/tests/fixtures/contracts/transfer_case.json");
+  const { request, response: draft } = await response.json();
+  const query = new URLSearchParams(location.search);
+  const rows = [draft.rows[0], draft.rows[2]];
+  renderMedicationHandoff(document.querySelector("#handoff"), {
+    evidence: request.evidence,
+    rows: query.has("first") ? rows.slice(0, 1) : rows,
+    datedAt: "2026-11-21T04:00:00Z",
+    mode: query.get("mode") === "worksheet" ? "worksheet" : "reviewed",
+    cropUrl: () => query.has("crop") ? "../../../backend/tests/fixtures/ai/reverse-crop.png" : null,
+  });
+</script>
+</html>
