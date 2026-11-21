@@ -307,6 +307,9 @@ class AdmissionStore:
             verified = row["verified"]
             require(verified and verified["identity"] and not needs_identity(row),
                     "Select verified rows with a resolved identity.")
+            answer = verified["answer"]
+            require(answer["ownership"] == "patient" and answer["current_use"] != "not_owned",
+                    "Only medicines verified as belonging to this patient can be imported.")
             refs = {}
             for entry in active(row):
                 source = EvidenceSource.model_validate(entry["source"])
@@ -319,7 +322,6 @@ class AdmissionStore:
                 item = EvidenceItem(id=row["id"], source_id=source.id, row_id=row["id"], kind=kind)
                 items.append(item)
                 refs[source.id] = EvidenceRef(source_id=source.id, item_id=item.id)
-            answer = verified["answer"]
             ref = refs[verified["source_id"]]
             identity = verified["identity"]
             name = SourcedValue(value=identity["name"], evidence=refs[identity["source_id"]])

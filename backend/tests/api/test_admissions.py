@@ -108,6 +108,33 @@ def test_two_strengths_and_documented_interview_survive_later_photos(client):
     assert len(case.state["rows"]) == 2
 
 
+def test_import_rejects_other_ownership_atomically_and_keeps_patient_history(client):
+    case = Case(client, "nurse")
+    rows = {}
+    for name, ownership, use in [("Home medicine", "patient", "current"),
+                                 ("Former medicine", "patient", "reported_stopped"),
+                                 ("Family medicine", "other", "not_owned")]:
+        row = case.add(record(name, "transfer_record", name, name=name))
+        source = "report-" + row
+        case.link(row, record(source, "patient_report", "Synthetic account of ownership and use"))
+        case.interview(row, source, ownership=ownership, current_use=use)
+        case.send("verify", row_id=row, source_id=source)
+        rows[use] = row
+    case.send("finish")
+    for selected in ([rows["not_owned"]], [rows["current"], rows["not_owned"]]):
+        error = case.send("import", role="pharmacist", row_ids=selected, status=422)
+        assert "belonging to this patient" in error.text
+        persisted = client.get(case.path, headers=headers("pharmacist")).json()
+        assert persisted == case.state and not persisted["receipts"]
+    case.send("import", role="pharmacist", row_ids=[rows["current"], rows["reported_stopped"]])
+    receipt, = case.state["receipts"]
+    stored, = client.get("/imports", headers=headers("pharmacist"),
+                         params={"imported_at": receipt["imported_at"]}).json()
+    assert {r["id"]: r["verification"]["status"] for r in stored["snapshot"]["rows"]} == {
+        rows["current"]: "current", rows["reported_stopped"]: "no_longer_current"}
+    assert case.state["rows"][rows["not_owned"]]["verified"]["answer"]["ownership"] == "other"
+
+
 def test_mixed_bags_referral_separate_sessions_and_decisions(client):
     case = Case(client, "nurse")
     r1 = case.add(photo("left", "bag A", "round", "uncertain"))
