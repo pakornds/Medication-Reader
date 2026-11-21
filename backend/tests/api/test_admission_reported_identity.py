@@ -1,6 +1,7 @@
 """A reported name remains a hypothesis when an unidentified physical item is linked."""
 import json
 from base64 import b64encode
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -162,3 +163,28 @@ def test_named_prescription_remains_usable_when_appearance_observation_is_added(
     saved = case.state["rows"][row]
     assert not saved["unknown"]
     assert saved["verified"]["identity"]["source_id"] == "prescription"
+
+
+def test_associated_unknown_is_excluded_from_encounter_screening(client):
+    client.app.state.review_snapshots.clock = lambda: datetime(2026, 11, 21, 7, tzinfo=UTC)
+    case = Case(client, "doctor")
+    reported = case.add(record("account", "patient_report", "I think this tablet is Demo Amber", name="Demo Amber"))
+    case.interview(reported, "account", schedule="scheduled")
+    case.send("verify", row_id=reported, source_id="account")
+    case.link(reported, photo("unmarked", "bag A", "unmarked tablet"))
+
+    current = case.add(record("prescription", "prescription", "Demo Slate", name="Demo Slate"))
+    case.link(current, record("slate-use", "patient_report", "Reports taking Demo Slate"))
+    case.interview(current, "slate-use", schedule="scheduled")
+    case.send("verify", row_id=current, source_id="slate-use")
+
+    snapshot = client.put(case.path + "/review-snapshot", headers=headers("doctor"),
+                          json={"admission_revision": case.state["revision"]})
+    assert snapshot.status_code == 200
+    for kind in ("DDI", "DRP"):
+        response = client.post(case.path + f"/review-reports/{kind}", headers=headers("doctor"),
+                               json={"snapshot_id": snapshot.json()["snapshot_id"]})
+        assert response.status_code == 200
+        relevant = [scope for scope in response.json()["scopes"] if reported in scope["row_ids"]]
+        assert relevant
+        assert {scope["reason_code"] for scope in relevant} == {"unresolved_identity"}
