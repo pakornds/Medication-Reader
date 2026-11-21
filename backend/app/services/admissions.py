@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 from PIL import Image
+from pydantic import ValidationError
 
 from app.ai.client import EvidenceImage
 from app.schemas.package_capture import PackageCapture
@@ -19,10 +20,13 @@ from app.services.labels import LabelPhotoError, crop_label
 
 from app.schemas.analysis import Discrepancy
 from app.schemas.admission import (
-    Action, AddEvidence, AddRow, AssessIdentityIncident, AttestCurrentUse, Decision,
-    Finish, Import, Interview, NewEncounter, Proposal, RecordUnavailableSource, Refer, Verify,
+    DOCUMENT_KINDS, Action, AddEvidence, AddRow, AssessIdentityIncident, AttestCurrentUse, Decision, DocumentExcerpt,
+    Finish, Import, Interview, NewEncounter, Proposal, RecordUnavailableSource, Refer, RegisterDocument, SourceEntry, Verify,
 )
-from app.schemas.evidence import REPORT_KINDS, Observation, CaseEvidence, EvidenceItem, EvidenceRef, EvidenceSource, EvidenceValidationError, SourcedValue
+from app.schemas.evidence import (
+    REPORT_KINDS, CaseEvidence, EvidenceItem, EvidenceRef, EvidenceSource, EvidenceValidationError,
+    Observation, QuotedEvidenceItem, SourcedValue,
+)
 from app.schemas.review import CurrentUseVerification, ImportRequest, ReviewRow
 from app.schemas.regimen import RegimenParseRequest, validate_regimen_evidence
 from app.services.regimens import parse_directions
@@ -78,6 +82,48 @@ def confirm_catalogue_product(row, identity, product):
 def entry_for(row, source_id):
     entry = next((e for e in active(row) if e["source"]["id"] == source_id), None)
     require(entry is not None, "Select an active source linked to this item.")
+    return entry
+
+
+def sources_used_by_rows(case, source_id):
+    return any(e["source"]["id"] == source_id for row in case["rows"].values() for e in row["entries"])
+
+
+def check_document_id(case, source):
+    require(source["id"] not in case.get("unavailable_sources", {}), "Source ID is reserved for unavailable evidence.")
+    require(source["id"] not in case.get("retired_capture_sources", ()), "Use a new logical source ID.")
+    require(all(s["id"] != source["id"] or s == source for s in case.get("capture", {}).get("sources", ())),
+            "The document source conflicts with capture evidence.")
+
+
+def resolve_entry(case, submitted):
+    documents = case.setdefault("documents", {})
+    if isinstance(submitted, DocumentExcerpt):
+        document = documents.get(submitted.source_id)
+        require(submitted.case_id == case["id"] and document, "Select a document from this encounter.")
+        if document["wording"] is None:
+            require(any(submitted.wording in e["wording"] for row in case["rows"].values()
+                        for e in row["entries"] if e["source"]["id"] == submitted.source_id),
+                    "Select an existing excerpt or supply the new excerpt with its document.")
+        try:
+            entry = SourceEntry(source=document["source"], **submitted.model_dump(exclude={"case_id", "source_id"}))
+        except ValidationError:
+            raise HTTPException(422, "The selected excerpt must support the documented fields.") from None
+    else:
+        entry = submitted
+    source = entry.source.model_dump(mode="json")
+    sid = entry.source.id
+    document = documents.get(sid)
+    if document:
+        require(source == document["source"], "The document source definition conflicts with its registration.")
+        if document["wording"] is not None:
+            require(entry.wording in document["wording"], "Select a verbatim excerpt from the registered document.")
+    else:
+        require(not sources_used_by_rows(case, sid), "Use a new logical source ID.")
+        if entry.source.kind in DOCUMENT_KINDS:
+            check_document_id(case, source)
+            # Inline add/link clients supply the current excerpt, rather than the full document.
+            documents[sid] = {"source": source, "wording": None}
     return entry
 
 
@@ -289,6 +335,9 @@ def import_snapshot_key(row):
 
 def entry_evidence(row_id, entry):
     source = EvidenceSource.model_validate(entry["source"])
+    if source.kind in DOCUMENT_KINDS:
+        return source, QuotedEvidenceItem(id=row_id, source_id=source.id, row_id=row_id,
+                                          kind="record_excerpt", excerpt=entry["wording"])
     kind = "record_excerpt"
     if entry["photo"]:
         kind = "label_region" if reviewable_entry(entry) else "pill_crop"
@@ -375,7 +424,7 @@ class AdmissionStore:
             key = (case_id, actor.id, request.request_id)
             cmd = request.command
             fingerprint = sha256(request.model_dump_json().encode())
-            if isinstance(cmd, (AddRow, AddEvidence)) and cmd.entry.scan_fields:
+            if isinstance(cmd, (AddRow, AddEvidence)) and isinstance(cmd.entry, SourceEntry) and cmd.entry.scan_fields:
                 fingerprint.update(b"\0" + ",".join(label_overrides(cmd.entry)).encode())
             digest = fingerprint.hexdigest()
             if key in self.retries:
@@ -388,7 +437,8 @@ class AdmissionStore:
                     "Review is finished.", 409)
             unavailable = original.get("unavailable_sources", {})
             if isinstance(cmd, (AddRow, AddEvidence)):
-                require(cmd.entry.source.id not in unavailable, "Use a new logical source ID.")
+                source_id = cmd.entry.source_id if isinstance(cmd.entry, DocumentExcerpt) else cmd.entry.source.id
+                require(source_id not in unavailable, "Use a new logical source ID.")
             if isinstance(cmd, Proposal):
                 require(cmd.reference not in unavailable, "An unavailable source cannot support identity.")
             if isinstance(cmd, Verify):
@@ -438,6 +488,10 @@ class AdmissionStore:
                 retired_sources.update(retired_view_sources(original, originals, previous, manifest, replaced))
             require(not retired_sources.intersection(s.id for s in manifest.sources),
                     "Use new source IDs for evidence on a retaken or invalidated view.")
+            for source in manifest.sources:
+                document = original.get("documents", {}).get(source.id)
+                require(not document or document["source"] == source.model_dump(mode="json"),
+                        "The capture source conflicts with a registered document.")
             require(not any(source.id in original.get("unavailable_sources", {}) for source in manifest.sources),
                     "Use a new logical source ID.")
 
@@ -580,6 +634,14 @@ class AdmissionStore:
 
     def transition(self, case, actor, cmd, request_id):
         rows = case["rows"]
+        if isinstance(cmd, RegisterDocument):
+            documents = case.setdefault("documents", {})
+            sid = cmd.source.id
+            require(sid not in documents and not sources_used_by_rows(case, sid), "Source ID is already registered.")
+            source = cmd.source.model_dump(mode="json")
+            check_document_id(case, source)
+            documents[sid] = {"source": source, "wording": cmd.wording}
+            return dict(rows=[], sources=[sid])
         if isinstance(cmd, RecordUnavailableSource):
             source_id = cmd.source.id
             unavailable = case.setdefault("unavailable_sources", {})
@@ -593,10 +655,11 @@ class AdmissionStore:
         if isinstance(cmd, (AddEvidence, Interview, Proposal, Decision)) and cmd.row_id in rows:
             rows[cmd.row_id].pop("screening_attestation", None)
         if isinstance(cmd, (AddRow, AddEvidence)):
-            entry = cmd.entry.model_dump(mode="json")
-            if cmd.entry.scan_fields:
+            resolved = resolve_entry(case, cmd.entry)
+            entry = resolved.model_dump(mode="json")
+            if resolved.scan_fields:
                 # Keep explicit reviewer overrides separate from omitted defaults and the raw scan.
-                entry["label_overrides"] = label_overrides(cmd.entry)
+                entry["label_overrides"] = label_overrides(resolved)
             if entry["name"]:
                 parts = [entry["name"]]
                 for field in ("strength", "form"):
@@ -607,14 +670,13 @@ class AdmissionStore:
             require(sid not in case.get("retired_capture_sources", ()), "Use a new logical source ID.")
             targeted_retake = isinstance(cmd, AddEvidence) and cmd.replaces is not None
             capture_attachment = self.photo_origin(case, entry, targeted_retake=targeted_retake)
-            require(not any(sid == e["source"]["id"] for r in rows.values() for e in r["entries"]),
-                    "Use a new logical source ID.")
             if isinstance(cmd, AddRow):
                 rid = "item-" + str(len(rows) + 1)
                 row = new_row(rid, unknown=not bool(entry["name"]))
                 rows[rid] = row
             else:
                 row = self.row(rows, cmd.row_id)
+                require(all(e["source"]["id"] != sid for e in row["entries"]), "Source already linked to this item.")
                 if cmd.replaces:
                     old = entry_for(row, cmd.replaces)
                     validate_item_retake(case, row, old, entry, capture_attachment)
@@ -786,7 +848,13 @@ class AdmissionStore:
             row["verified"] = dict(actor=actor.model_dump(), at=verified_at, source_id=cmd.source_id,
                                    identity=identity, resolution=cmd.resolution, answer=deepcopy(answer))
             if cmd.regimens:
-                row["verified"]["regimens"] = [component.model_dump(mode="json") for component in cmd.regimens]
+                quoted_items = {item.source_id: item.id for item in evidence.items if isinstance(item, QuotedEvidenceItem)}
+                components = [component.model_dump(mode="json") for component in cmd.regimens]
+                for component in components:
+                    for citation in component["evidence"].values():
+                        if citation["item_id"] is None and citation["source_id"] in quoted_items:
+                            citation["item_id"] = quoted_items[citation["source_id"]]
+                row["verified"]["regimens"] = components
             return dict(**details, verification=row["verified"], sources=[cmd.source_id] +
                         ([identity["source_id"]] if identity else []))
         row["verified"] = None
@@ -804,7 +872,7 @@ class AdmissionStore:
         return None
 
     def import_rows(self, case, selected, actor, request_id):
-        sources, items, importable = [], [], []
+        sources, items, importable = {}, [], []
         for row in selected:
             verified = row["verified"]
             require(verified and verified["identity"] and not needs_identity(row),
@@ -815,7 +883,7 @@ class AdmissionStore:
             refs = {}
             for entry in active(row):
                 source, item = entry_evidence(row["id"], entry)
-                sources.append(source)
+                sources[source.id] = source
                 items.append(item)
                 refs[source.id] = EvidenceRef(source_id=source.id, item_id=item.id)
             ref = refs[verified["source_id"]]
@@ -832,7 +900,7 @@ class AdmissionStore:
             reports = []
             conflicts = conflicting_fields(row)
             regimens = []
-            manifest = CaseEvidence(case_id=case["id"], sources=sources, items=items)
+            manifest = CaseEvidence(case_id=case["id"], sources=list(sources.values()), items=items)
             observations_by_source = {}
             for entry in active(row):
                 source_id = entry["source"]["id"]
@@ -875,7 +943,7 @@ class AdmissionStore:
                 observed_names=[] if row["unknown"] else [name], reported_use=reports,
                 label_fields=label_fields, regimens=regimens, discrepancies=discrepancies, sources=list(refs.values()),
                 revision=case["revision"], verification=verification))
-        evidence = CaseEvidence(case_id=case["id"], sources=sources, items=items)
+        evidence = CaseEvidence(case_id=case["id"], sources=list(sources.values()), items=items)
         ledger = ApprovalLedger()
         try:
             for row in importable:
