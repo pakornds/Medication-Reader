@@ -18,6 +18,8 @@ from app.schemas.review_scopes import (
 )
 
 _DUPLICATE_RULE = "demo-duplicate-ingredient-v1"
+_CONDITIONAL_EXPOSURE_RULE = "demo-ddi-conditional-exposure"
+_DEMO_PRODUCTS = {"demo-amber": "Demo Amber", "demo-slate": "Demo Slate"}
 _INGREDIENT_FOLLOW_UP = "ask-shared-ingredient-intent"
 _OVERLAP_FOLLOW_UP = "ask-last-use-and-overlap"
 _IDENTITY_FOLLOW_UP = "ask-independent-identity"
@@ -69,11 +71,12 @@ def _evaluate_scopes(
     kind: ScreeningKind,
     evaluated_at: datetime,
 ) -> list[ScreeningScope]:
-    rules = [rule for rule in release.rules if rule.kind == kind]
+    rules = sorted((rule for rule in release.rules if rule.kind == kind), key=lambda rule: rule.id)
     follow_ups = {follow_up.id for follow_up in release.follow_ups}
     exposures = {frozenset(item.row_ids): item for item in snapshot.exposures}
     reference_gap = _reference_gap(release.reference, evaluated_at)
     duplicate_rule = next((rule for rule in rules if rule.id == _DUPLICATE_RULE), None)
+    unsupported_drp_rules = [rule for rule in rules if rule.kind == "DRP" and rule.id != _DUPLICATE_RULE]
     scopes = []
     for left, right in combinations(sorted(snapshot.rows, key=lambda row: row.id), 2):
         rows = [left.id, right.id]
@@ -88,7 +91,16 @@ def _evaluate_scopes(
         if pair.reason_code in {"unresolved_identity", "incomplete_mapping"}:
             pair = _follow_up(pair, follow_ups, _IDENTITY_FOLLOW_UP)
         if kind == "DRP":
-            scopes.append(_evaluate_duplicate(pair, left, right, duplicate_rule, evaluated_at, follow_ups))
+            if duplicate_rule is not None or not unsupported_drp_rules:
+                scopes.append(_evaluate_duplicate(pair, left, right, duplicate_rule, evaluated_at, follow_ups))
+            # Each declared DRP rule in this fixture service has its own row-pair scope.
+            for rule in unsupported_drp_rules:
+                scope = pair.model_copy(update={
+                    "scope_id": f"{pair.scope_id}-{_scope_id(rule.id)}",
+                    "reason_code": "unsupported_rule",
+                    "follow_up_ids": [],
+                })
+                scopes.append(_cite_rule(scope, rule))
         elif gap:
             scopes.append(pair)
         else:
@@ -139,6 +151,10 @@ def _follow_up(scope: ScreeningScope, allowed: set[str], follow_up: str) -> Scre
     return scope
 
 
+def _is_demo_product_pair(left: ScreeningRow, right: ScreeningRow) -> bool:
+    return {row.product_id: row.product_name for row in (left, right)} == _DEMO_PRODUCTS
+
+
 def _evaluate_ddi(
     pair: ScreeningScope,
     left: ScreeningRow,
@@ -149,6 +165,9 @@ def _evaluate_ddi(
     follow_ups: set[str],
 ) -> list[ScreeningScope]:
     ingredients = {tuple(sorted(ids)) for ids in product(left.ingredient_ids, right.ingredient_ids)}
+    overlap_follow_up_applies = _is_demo_product_pair(left, right) and any(
+        row.product_id == "demo-slate" and row.schedule == "prn" for row in (left, right)
+    )
     children = []
     for ids in sorted(ingredients):
         child = pair.model_copy(update={
@@ -164,7 +183,11 @@ def _evaluate_ddi(
             if len(candidates) == 1:
                 child = _cite_rule(child, candidates[0])
             child = child.model_copy(update={"reason_code": "unsupported_route"})
-        if child.reason_code in {"unconfirmed_overlap", "stale_overlap", "future_overlap"}:
+        if (
+            overlap_follow_up_applies
+            and child.rule_id == _CONDITIONAL_EXPOSURE_RULE
+            and child.reason_code in {"unconfirmed_overlap", "stale_overlap", "future_overlap"}
+        ):
             child = _follow_up(child, follow_ups, _OVERLAP_FOLLOW_UP)
         children.append(child)
 
@@ -242,4 +265,6 @@ def _evaluate_duplicate(
     shared = sorted(set(left.ingredient_ids) & set(right.ingredient_ids))
     outcome = rule.fixture_outcome if shared else "no_finding"
     result = pair.model_copy(update={"ingredient_ids": shared, "outcome": outcome, "reason_code": None})
-    return _follow_up(result, follow_ups, _INGREDIENT_FOLLOW_UP) if outcome == "finding" else result
+    if outcome == "finding" and _is_demo_product_pair(left, right):
+        return _follow_up(result, follow_ups, _INGREDIENT_FOLLOW_UP)
+    return result

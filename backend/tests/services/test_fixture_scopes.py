@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from app.schemas.review_scopes import ScreeningFixture
+from app.schemas.review_scopes import ScreeningFixture, ScreeningRelease
 from app.services.fixture_scopes import evaluate_fixture_report
 
 _CASE_PATH = Path(__file__).resolve().parents[3] / "fixtures/checks/demo-overlap-v2/case.json"
@@ -186,3 +186,65 @@ def test_sourced_exclusion_evaluates_ddi_without_finding(fixture_case):
     conditional = next(scope for scope in report.scopes if scope.scope_id == "ddi-R1-R2-X-Y")
     assert conditional.outcome == "no_finding"
     assert conditional.evidence_ids == ["E1", "E2", "E4"]
+
+
+
+@pytest.mark.parametrize("include_supported", [True, False])
+def test_unsupported_drp_release_rule_remains_visible_in_coverage(fixture_case, include_supported):
+    before = fixture_case.snapshots[0]
+    snapshot = before.model_copy(update={"rows": before.rows[:2]})
+    configured = fixture_case.release.model_dump()
+    supported = next(rule for rule in configured["rules"] if rule["kind"] == "DRP")
+    if not include_supported:
+        configured["rules"].remove(supported)
+    configured["rules"].append({**supported, "id": "unsupported-demo-rule", "version": "2"})
+    release = ScreeningRelease.model_validate(configured)
+
+    report = evaluate_fixture_report(snapshot, release, "DRP", evaluated_at=fixture_case.reports[0].ran_at)
+    assert report.status == ("partial" if include_supported else "unavailable")
+    assert report.coverage.total_scopes == (2 if include_supported else 1)
+    assert report.coverage.findings == (1 if include_supported else 0)
+    assert report.coverage.excluded_scopes == 1
+    unsupported = next(scope for scope in report.scopes if scope.rule_id == "unsupported-demo-rule")
+    assert unsupported.row_ids == ["R1", "R2"]
+    assert unsupported.outcome == "unevaluated"
+    assert unsupported.reason_code == "unsupported_rule"
+    assert unsupported.rule_version == "2"
+    assert unsupported.reference_section == supported["reference"]["source_section"]
+
+
+@pytest.mark.parametrize(
+    "unrelated_product",
+    [
+        {"product_id": "demo-teal", "product_name": "Demo Teal"},
+        {"product_name": "Demo Teal"},
+    ],
+)
+def test_named_follow_ups_do_not_leak_to_other_products(fixture_case, unrelated_product):
+    before = fixture_case.snapshots[0]
+    left, right, _ = before.rows
+    snapshot = before.model_copy(update={"rows": [left.model_copy(update=unrelated_product), right]})
+    evaluated_at = fixture_case.reports[0].ran_at
+
+    ddi = evaluate_fixture_report(snapshot, fixture_case.release, "DDI", evaluated_at=evaluated_at)
+    assert ddi.scopes[0].reason_code == "unconfirmed_overlap"
+    assert all(not scope.follow_up_ids for scope in ddi.scopes)
+
+    drp = evaluate_fixture_report(snapshot, fixture_case.release, "DRP", evaluated_at=evaluated_at)
+    assert drp.coverage.findings == 1
+    assert drp.scopes[0].follow_up_ids == []
+
+
+def test_named_prn_follow_up_requires_slates_prn_role(fixture_case):
+    before = fixture_case.snapshots[0]
+    left, right, _ = before.rows
+    snapshot = before.model_copy(update={"rows": [
+        left.model_copy(update={"schedule": "prn"}),
+        right.model_copy(update={"schedule": "scheduled"}),
+    ]})
+    report = evaluate_fixture_report(
+        snapshot, fixture_case.release, "DDI", evaluated_at=fixture_case.reports[0].ran_at
+    )
+
+    assert report.scopes[0].reason_code == "unconfirmed_overlap"
+    assert all(not scope.follow_up_ids for scope in report.scopes)
