@@ -131,3 +131,13 @@ async def test_drp_excludes_dose_with_unknown_source(client, transfer, rows):
     result = await run(client, transfer, kind="DRP", rows=rows[:1], context={"fixture_context": "present"})
     assert result.status == "unavailable"
     assert "traceable evidence" in result.excluded[0].reason
+
+
+@pytest.mark.parametrize("kind", ["DDI", "DRP"])
+async def test_checks_exclude_current_use_with_unknown_source(client, transfer, rows, kind):
+    rows[0]["verification"]["evidence"] = [{"source_id": "unknown"}]
+    scope = rows[:2] if kind == "DDI" else rows[:1]
+    result = await run(client, transfer, kind=kind, rows=scope, context={"fixture_context": "flagged"})
+    assert result.status == "unavailable"
+    assert result.evaluated == result.findings == []
+    assert "Current-use verification lacks traceable evidence" in result.excluded[0].reason

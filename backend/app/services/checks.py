@@ -59,6 +59,8 @@ def _eligibility(row: ReviewRow, evidence: CaseEvidence) -> tuple[str | None, st
         validate_analysis_result(AnalysisResult(case_id=evidence.case_id, rows=[row]), evidence)
     except EvidenceValidationError:
         return None, "The row has invalid case evidence."
+    if not all(_traceable(reference, row.id, evidence) for reference in verification.evidence):
+        return None, "Current-use verification lacks traceable evidence."
     if not _traceable(verification.identity.evidence, row.id, evidence):
         return None, "Verified identity lacks traceable non-appearance evidence."
     if verification.normalized_medication_id not in DEMO_IDS:
