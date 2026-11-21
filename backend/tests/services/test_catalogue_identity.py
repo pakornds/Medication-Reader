@@ -128,3 +128,50 @@ def test_intake_rechecks_candidate_source_ids_release_and_display_names(catalogu
     ]:
         assert supported_intake_identity(identity.model_copy(update=patch),*inputs) is None
     assert supported_intake_identity(identity,inputs[0],[],inputs[2]) is None
+
+
+@pytest.mark.parametrize("marked", [True, False], ids=["marked-label", "whole-scene"])
+def test_analysis_endpoint_adjudicates_each_grounded_label_once(catalogue, marked):
+    from io import BytesIO
+
+    from fastapi.testclient import TestClient
+    from PIL import Image
+
+    from app.main import create_app
+
+    class ScanReviewer(Reviewer):
+        def generate(self, *, evidence_text, output_type, **kwargs):
+            match output_type.__name__:
+                case "ProposedBounds":
+                    return output_type(regions=[dict(x=0, y=0, width=1, height=1)])
+                case "PrintedLabel":
+                    return output_type(names=["Siadocin", "Doxycycline"], strength="100 mg", form="hard capsule")
+                case "LabelAnalysisResult":
+                    raise ProviderError("provider_invalid_output", "Use the per-crop transcript")
+                case "CatalogueDecision":
+                    return super().generate(evidence_text=evidence_text, output_type=output_type)
+                case _:
+                    pytest.fail(f"Unexpected provider roundtrip: {output_type.__name__}")
+
+    photo = BytesIO()
+    Image.new("RGB", (30, 30)).save(photo, format="PNG")
+    request = dict(evidence=dict(case_id="case", sources=[
+        dict(id="front", kind="label_photo", attachment_id="front")
+    ]), photo_source_ids=["front"], scene_photo_ids=[] if marked else ["front"])
+    if marked:
+        request["evidence"]["sources"].append(dict(id="mark", kind="label_photo", attachment_id="front"))
+        request["evidence"]["items"] = [dict(id="box", row_id="row", source_id="mark", kind="label_region")]
+        request["region_locations"] = {"mark": {"box":"0%,0%,100%,100%"}}
+    model = ScanReviewer()
+    with TestClient(create_app(get_provider=lambda:model)) as client:
+        response = client.post("/medication-analysis", files=[
+            ("form", (None, json.dumps(request), "application/json")),
+            ("photos", ("synthetic.png", photo.getvalue(), "image/png")),
+        ])
+    assert response.is_success, response.text
+    data = response.json()
+    row, = data["rows"]
+    assert len(model.calls) == 1
+    identity = data["catalogue_identities"][row["id"]]
+    assert (identity["ingredient"], identity["trade_name"], identity["candidate_tpus"]) == ("doxycycline","SIADOCIN",["1"])
+    assert identity["evidence"] == row["sources"]

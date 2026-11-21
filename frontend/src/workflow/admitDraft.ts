@@ -1,6 +1,6 @@
 import type { createClient } from '../api/client'
 import type { Encounter } from '../api/admission'
-import type { DispensingFacility, EvidenceItem, EvidenceSource, RegionBounds } from '../api/contracts'
+import type { CatalogueIdentity, DispensingFacility, EvidenceItem, EvidenceSource, RegionBounds } from '../api/contracts'
 import { photoCitation, type Draft, type Medicine, type MedicineEvidence, type DraftValues, type CatalogueMatch, type Suggestion } from '../pages/new-patient/draft'
 
 type Original = { media_type: string; data: string }
@@ -8,6 +8,7 @@ type IntakePart = {
   row: Suggestion
   origin: Medicine['origin']
   catalogue: CatalogueMatch | null
+  catalogue_identity?: CatalogueIdentity
   sources: EvidenceSource[]
   items: EvidenceItem[]
   notes: Record<string, string>
@@ -36,7 +37,7 @@ function attributedFacility(facility: DispensingFacility | undefined, ref: Sugge
   return details
 }
 
-function prepareSnapshot({ row, evidence, facility }: MedicineEvidence, originals: Map<string, File>,
+function prepareSnapshot({ row, evidence, facility, catalogueIdentity }: MedicineEvidence, originals: Map<string, File>,
   origin: Medicine['origin'], catalogue: CatalogueMatch | null): IntakePart {
   const sources = new Map<string, EvidenceSource>()
   const items: EvidenceItem[] = []
@@ -72,7 +73,7 @@ function prepareSnapshot({ row, evidence, facility }: MedicineEvidence, original
     regions[region.id] = { x: region.box.x / 100, y: region.box.y / 100,
       width: region.box.w / 100, height: region.box.h / 100 }
   }
-  return { row, origin, catalogue,
+  return { row, origin, catalogue, catalogue_identity: catalogueIdentity,
     sources: [...sources.values()], items, notes, regions, physical_items: physicalItems }
 }
 

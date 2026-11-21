@@ -171,6 +171,9 @@ def retire_sources(row, source_ids):
     if not source_ids:
         return
     row["superseded"].extend(source_ids)
+    hint = row.get("intake_catalogue_identity")
+    if hint and any(ref["source_id"] in source_ids for ref in hint["evidence"]):
+        row.pop("intake_catalogue_identity")
     row["verified"] = None
     row.pop("imported_at", None)
     row.pop("screening_attestation", None)
@@ -706,6 +709,8 @@ class AdmissionStore:
                     row["proposal"] = dict(name=entry["product"], reference=sid, proposer=actor.id,
                                            independent_entry=bool(entry["identity_basis"]))
             row["entries"].append(entry)
+            if entry.get("name") or entry.get("form") or entry.get("strength") or unresolved_photo(entry):
+                row.pop("intake_catalogue_identity", None)
             if not row["unknown"]:
                 remember_identity_dispute(row, [e for e in active(row) if e["name"] and reviewable_entry(e)])
             row["verified"] = None

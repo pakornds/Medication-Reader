@@ -3,20 +3,10 @@ import sqlite3
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 
-from pydantic import Field
-
 from app.ai.client import ProviderError
-from app.schemas.evidence import ContractModel, EvidenceRef, Text
+from app.schemas.catalogue_identity import CatalogueIdentity
 from app.services.catalogue_adjudication import adjudicate_names
 from app.services.local_reference_db import open_reference
-
-
-class CatalogueIdentity(ContractModel):
-    ingredient: Text
-    trade_name: Text | None
-    release: Text
-    candidate_tpus: list[Text] = Field(min_length=1, max_length=16)
-    evidence: list[EvidenceRef] = Field(min_length=1, max_length=1)
 
 
 def _key(value):
@@ -169,7 +159,7 @@ def supported_intake_identity(identity, row, items, sources):
     generic, trade, candidates = matched
     ids = set(identity.candidate_tpus)
     if (identity.ingredient, identity.trade_name) != (generic, trade) or (
-        len(ids) != len(identity.candidate_tpus) or not ids.issubset(c["tpu"] for c in candidates)
+        not ids or len(ids) != len(identity.candidate_tpus) or not ids.issubset(c["tpu"] for c in candidates)
     ):
         return None
     return identity
@@ -181,6 +171,8 @@ def resolve_scan_identities(preview, form, get_provider):
                          if s.kind in {"label_photo", "additional_photo"}}
     label_items.update((r.row_id, r.source_id, r.item_id) for r in preview.located_regions
                        if r.attachment_id in front_attachments)
+    if not label_items:
+        return {}
     jobs = []
     try:
         with open_reference("LOCAL_TMT_DB") as db:

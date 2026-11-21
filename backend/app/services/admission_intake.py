@@ -9,6 +9,7 @@ from app.schemas.admission import NewEncounter, Photo, SourceEntry
 from app.schemas.admission_intake import IntakeSubmission
 from app.schemas.analysis import FollowUp
 from app.schemas.evidence import EvidenceSource, PHOTO_KINDS, REPORT_KINDS
+from app.services.catalogue_identity import supported_intake_identity
 from app.services.admission_intake_evidence import prepare_sources
 from app.services.admissions import capture_orientation, new_encounter, new_row, now, require, unresolved_photo
 
@@ -99,6 +100,39 @@ def _entries(medicine, encoded, images, by_source, names_by_source):
     ids = [e["source"]["id"] for e in result]
     require(len(ids) == len(set(ids)), "Use distinct IDs for document evidence and staff selection.")
     return result
+
+
+def _display_identity(medicine, current_views):
+    """A display hint is independent of the clinical identity, verification and import."""
+    if not medicine.catalogue_identity or {"name", "form", "strength"} & medicine.corrections.keys():
+        return None
+    if medicine.origin != "analysis" or medicine.row.discrepancies:
+        return None
+    checked = []
+    for part in (medicine, *medicine.linked):
+        if not part.row.observed_names and part.row.identity_status == "named":
+            return None
+        if (part.row.identity_status != "named" or part.row.discrepancies
+                or any(s.kind == "label_photo" and current_views.get("front", s.attachment_id) != s.attachment_id
+                       for s in part.sources)):
+            return None
+        identity = supported_intake_identity(part.catalogue_identity, part.row, part.items, part.sources)
+        if not identity or not identity.candidate_tpus:
+            return None
+        if part.catalogue and (part.catalogue.release != identity.release
+                               or part.catalogue.product.tpu not in identity.candidate_tpus):
+            return None
+        checked.append(identity)
+    primary = checked[0]
+    if any((entry.ingredient, entry.trade_name, entry.release) !=
+           (primary.ingredient, primary.trade_name, primary.release) for entry in checked[1:]):
+        return None
+    candidates = set(primary.candidate_tpus).intersection(*(entry.candidate_tpus for entry in checked[1:]))
+    if not candidates:
+        return None
+    refs = {(ref.source_id, ref.item_id): ref for identity in checked for ref in identity.evidence}
+    return primary.model_copy(update={"evidence": list(refs.values()),
+                                      "candidate_tpus": sorted(candidates)}).model_dump(mode="json")
 
 
 def _reserved_evidence(case):
@@ -196,6 +230,9 @@ def save_intake(store, actor, request: IntakeSubmission):
             row.update(entries=entries, intake=medicine.row.model_dump(mode="json"),
                        intake_entry_ids=[e["source"]["id"] for e in entries],
                        intake_catalogue=medicine.catalogue.model_dump(mode="json") if medicine.catalogue else None)
+            display_identity = _display_identity(original, request.current_views)
+            if display_identity:
+                row["intake_catalogue_identity"] = display_identity
             if original.linked or original.corrections:
                 row["intake_sources"] = [part.row.model_dump(mode="json") for part in [original, *original.linked]]
                 row["intake_corrections"] = original.corrections.copy()

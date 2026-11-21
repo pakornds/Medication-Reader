@@ -45,9 +45,12 @@ export const interviewSource = (e: Entry) => reported(e) || Boolean(e.record_bas
 export const entryName = (e: Entry) => e.product || [e.name, e.strength, e.form].filter(Boolean).join(' ')
 export function rowName(row: AdmissionRow, t: Say) {
   if (row.confirmed) return row.confirmed.name
+  if (row.verified?.identity) return row.verified.identity.name
+  const hint = row.intake_catalogue_identity
+  if (hint) return hint.trade_name && hint.trade_name.toLowerCase() !== hint.ingredient.toLowerCase()
+    ? hint.ingredient + ' (' + hint.trade_name + ')' : hint.ingredient
   if (row.unknown) return t('Unidentified medicine', 'ยาที่ยังระบุไม่ได้')
   return (
-    row.verified?.identity?.name ||
     active(row).find(supportsIdentity)?.product ||
     active(row).find(supportsIdentity)?.name ||
     t('Medicine', 'ยา')
