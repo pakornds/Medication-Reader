@@ -22,6 +22,7 @@ class CurrentUseVerification(ContractModel):
     status: Literal["current", "no_longer_current", "uncertain"]
     identity: SourcedValue | None = None
     normalized_medication_id: Text | None = None
+    tmt_release: Text | None = None
     dose: SourcedValue | None = None
     route: SourcedValue | None = None
     frequency: SourcedValue | None = None

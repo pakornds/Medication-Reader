@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Medication review | Medication Reader</title>
+    <link rel="stylesheet" href="/regimen-review/regimen-editor.css">
+    <link rel="stylesheet" href="/regimen-review/local-screening.css">
+  </head>
+  <body>
+    <header class="demo-header"><span>Medication Reader</span><span>Local review workspace</span></header>
+    <main class="demo-workspace">
+      <header class="demo-intro">
+        <h1>Review medications</h1>
+        <p><a href="/admission/">Open admission reconciliation and pharmacist referrals</a></p>
+        <p>Add medicines from the Thai catalogue, verify their identity and use, then check the list. Use de-identified evidence. Closing or reloading this page clears the review.</p>
+      </header>
+      <div id="screening-workspace"></div>
+    </main>
+    <script type="module" src="/regimen-review/workspace/index.js"></script>
+  </body>
+</html>

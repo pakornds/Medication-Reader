@@ -48,4 +48,5 @@ def register_admissions(app, hospital, resolve_reviewer):
 
     app.include_router(router)
     directory = Path(__file__).resolve().parents[3] / "src" / "admission"
-    app.mount("/admission", StaticFiles(directory=directory, html=True), name="admission")
+    if directory.is_dir():
+        app.mount("/admission", StaticFiles(directory=directory, html=True), name="admission")

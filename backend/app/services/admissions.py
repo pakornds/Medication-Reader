@@ -44,6 +44,15 @@ def needs_identity(row):
                 (row["interview"] or {}).get("current_use") in {"current", "uncertain"})
 
 
+def shares_origin(entry, other):
+    attachment = entry["source"]["attachment_id"]
+    if attachment and attachment == other["source"]["attachment_id"]:
+        return True
+    if entry["photo"] and other["photo"]:
+        return entry["photo"]["data"] == other["photo"]["data"]
+    return False
+
+
 def reviewable_entry(entry):
     photo = entry["photo"]
     return not photo or (photo["pairing"] == "matched" and not photo["appearance"])
@@ -195,6 +204,11 @@ class AdmissionStore:
             require(row["unknown"], "Select an original unknown item.")
             entry = entry_for(row, cmd.source_id)
             if cmd.outcome in {"confirm", "correct"}:
+                challenged = [row["entries"][0]]
+                if row["proposal"]:
+                    challenged.extend(e for e in row["entries"] if e["source"]["id"] == row["proposal"]["reference"])
+                require(not any(shares_origin(entry, other) for other in challenged),
+                        "A second crop of the same challenged source cannot confirm identity.")
                 require(cmd.name and entry["name"] and cmd.name.casefold() == entry["name"].casefold()
                         and entry["identity_basis"] and entry != row["entries"][0] and reviewable_entry(entry)
                         and entry["source"]["kind"] in {"prescription", "reviewer_record", "transfer_record",

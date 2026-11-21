@@ -881,6 +881,7 @@ document.addEventListener("click", async (ev) => {
             c.origin + " · " + c.name + " · " + c.id,
           ]),
         ]) +
+          field("Search local Thai catalogue", "query") + button("Search catalogue", "tmt") +
           field("Proposed identity", "name", "", "text", true) +
           field("Source or lookup reference", "reference", "", "text", true),
         (f) =>
@@ -891,6 +892,25 @@ document.addEventListener("click", async (ev) => {
             reference: get(f, "reference"),
           }),
       );
+      const search = form.querySelector('[data-action="tmt"]');
+      search.onclick = async () => {
+        const query = form.elements.query.value.trim();
+        if (!query) return;
+        search.disabled = true;
+        try {
+          const result = await api("/checks/local/products?q=" + encodeURIComponent(query));
+          for (const product of result.products) {
+            const reference = "TMT " + result.tmt_release + " / " + product.tpu;
+            if (!choices.some(c=>c.id === reference)){
+              choices.push({id:reference, name:product.label});
+              form.elements.candidate.add(new Option(product.label + " · " + reference, reference));
+            }
+          }
+          $("formerror").textContent = result.products.length ? "Choose a catalogue result above." : "No match. Enter a proposed name and reference.";
+        } catch(err) {
+          $("formerror").textContent = err.message + " Free-text proposals are available.";
+        } finally {search.disabled=false;}
+      };
       form.elements.candidate.onchange = () => {
         const c = choices.find((v) => v.id === form.elements.candidate.value);
         if (c) {

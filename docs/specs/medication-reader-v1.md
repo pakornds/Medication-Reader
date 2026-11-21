@@ -139,6 +139,8 @@ Use synthetic labeled, unlabeled, mixed, and blurry images, bilingual labels, co
 
 ## Optional DDI and DRP summaries
 
+The local review workspace now provides real TMT/FEST reference lookup and an exact-substance overlap check alongside the original synthetic route. [Local workflow, coverage and unassessed scopes](../data/local-screening.md)
+
 The reviewer can request either a drug–drug interaction (DDI) summary or a drug-related problem (DRP) summary. The two-photo draft, the reviewer handoff, and pharmacist approval work with both summaries off. Enable a check only when a versioned, clinically validated reference or rule set is available for the intended scope. DDI checks require reviewer-verified current medications with supported normalized identities. DRP checks also require the verified regimen and any patient context specified by each rule. The model transcribes evidence and does not generate clinical findings. Synthetic fixtures demonstrate the existing backend checks. The proposed pharmacist panel, versioned rule catalogue and optional evidence-bound LLM explanation are specified in the [DDI and DRP review design](ddi-drp-review.md).
 
 - Show the source or rule-set name and version, when the checks ran, the medications or pairs actually evaluated, and the DRP rules applied. Tie each possible finding to the affected rows and its supporting source or rule.

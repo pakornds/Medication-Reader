@@ -7,6 +7,7 @@ from fastapi import FastAPI
 
 from app.ai.client import OpenAIClient
 from app.api.feature_routes import register_feature_routes, resolve_demo_reviewer
+from app.review_workspace import mount_review_workspace
 from app.schemas.review import ReviewerIdentity
 from app.services.hospital import MockHospital
 
@@ -52,6 +53,7 @@ def create_app(
         get_provider=get_provider,
         resolve_reviewer=resolve_reviewer,
     )
+    mount_review_workspace(application)
     return application
 
 

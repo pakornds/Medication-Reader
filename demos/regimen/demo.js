@@ -1,3 +1,4 @@
+import { mountLocalScreening } from "/regimen-review/local-screening.js";
 import {
   mountRegimenEditor,
   renderRegimenEvidence,
@@ -25,6 +26,17 @@ const verifiedSummary = document.querySelector("#verified-summary");
 
 let draft;
 let editor;
+const screening = mountLocalScreening(document.querySelector("#screening-workspace"), {
+  getBaseCase: () => draft ? {
+    evidence: draft.evidence,
+    rows: [draft.verifiedRow || { ...draft.originalRow, revision: draft.revision }],
+  } : null,
+  onListChange: count => {
+    // A case switch must never silently move reviewed medicines to a different encounter.
+    loadButton.disabled = count > 0;
+    loadButton.title = count ? "Remove the catalogue rows to start a different case." : "";
+  },
+});
 
 function errorContent(detail) {
   if (typeof detail === "string") return detail;
@@ -101,6 +113,7 @@ function makeRow(observations) {
 function clearVerification() {
   if (!draft.verifiedRow) return;
   draft.verifiedRow = null;
+  screening.baseChanged();
   draft.approval = null;
   draft.receipt = null;
   draft.retryToken = null;
@@ -152,6 +165,7 @@ function saveVerification(components) {
       resolved_discrepancies: ["timing-differs"],
     },
   };
+  screening.baseChanged();
   reviewStatus.textContent = "Current use verified";
   reviewStatus.dataset.complete = "true";
   verifiedSummary.textContent = components.map(summarizeRegimen).join(" · ");
@@ -162,6 +176,8 @@ function saveVerification(components) {
 }
 
 async function loadCase() {
+  if (screening.rowCount) return;
+  screening.setLocked(true);
   const previousStatus = status.textContent;
   const previousEditor = editor;
   const importWasDisabled = importButton.disabled;
@@ -178,6 +194,7 @@ async function loadCase() {
     ]);
     const observations = [...documented.regimens, ...reported.regimens];
     draft = { evidence, originalRow: makeRow(observations), revision: 1 };
+    screening.baseChanged();
     renderRegimenEvidence(sourcePanel, observations, evidence.sources);
     editor = mountRegimenEditor(document.querySelector("#regimen-editor"), {
       components: documented.regimens,
@@ -204,7 +221,8 @@ async function loadCase() {
     importButton.disabled = importWasDisabled;
     showError(failure.message);
   } finally {
-    loadButton.disabled = false;
+    screening.setLocked(false);
+    loadButton.disabled = screening.rowCount > 0;
   }
 }
 
@@ -231,6 +249,7 @@ function renderReceipt(receipt, stored) {
 
 async function approveImport() {
   if (!draft.verifiedRow) return;
+  screening.setLocked(true);
   showError("");
   loadButton.disabled = true;
   importButton.disabled = true;
@@ -266,7 +285,8 @@ async function approveImport() {
     importButton.disabled = false;
   } finally {
     editor.setDisabled(false);
-    loadButton.disabled = false;
+    screening.setLocked(false);
+    loadButton.disabled = screening.rowCount > 0;
   }
 }
 
