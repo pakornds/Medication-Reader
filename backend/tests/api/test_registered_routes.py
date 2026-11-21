@@ -76,7 +76,8 @@ async def test_main_factory_dispatches_sourced_analysis_form(client):
     assert named["label_fields"]["directions"]["evidence"]["source_id"] == "label-photo"
     assert named["reported_use"][0]["evidence"]["source_id"] == "patient-account"
     assert unknown["identity_status"] == "unlabeled"
-    assert unknown["reverse_crop"]["item_id"] == "pill-c"
+    assert unknown["reverse_crop"] is None
+    assert {"source_id": "reverse-photo", "item_id": "pill-c"} in unknown["sources"]
     assert len(calls) == 3
     assert calls[0]["model"] == "fixture-model"
     assert calls[0]["store"] is False
@@ -85,7 +86,7 @@ async def test_main_factory_dispatches_sourced_analysis_form(client):
         "provider": calls[0]["model"],
         "directions_source": named["label_fields"]["directions"]["evidence"]["source_id"],
         "reported_use_source": named["reported_use"][0]["evidence"]["source_id"],
-        "unknown_crop": unknown["reverse_crop"]["item_id"],
+        "unpaired_crop": unknown["sources"][0]["item_id"],
     }))
 
 

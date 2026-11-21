@@ -50,7 +50,7 @@ def test_reported_intake_name_becomes_proposal_and_new_rows_keep_distinct_ids(cl
 
 def test_unpaired_original_allows_next_independent_photo_without_a_capture_manifest(client):
     ref = {"source_id": "unmarked", "item_id": "crop"}
-    medicine = dict(row=dict(id="loose", identity_status="unlabeled", unknown_label="Loose tablet", sources=[ref]),
+    medicine = dict(row=dict(id="loose", identity_status="unlabeled", unknown_label="Loose tablet", sources=[ref], reverse_crop=ref),
                     origin="analysis", sources=[dict(id="unmarked", kind="reverse_photo", attachment_id="original")],
                     items=[dict(id="crop", source_id="unmarked", row_id="loose", kind="pill_crop")],
                     notes={}, regions={"crop": dict(x=0, y=0, width=.5, height=1)}, physical_items={"crop": "bag"})
@@ -58,6 +58,8 @@ def test_unpaired_original_allows_next_independent_photo_without_a_capture_manif
     payload["originals"] = {"original": dict(media_type="image/png", data=b64encode(picture(1)).decode())}
     case = submit(client, payload)
     assert "capture" not in case
+    assert case["rows"]["loose"]["intake"]["reverse_crop"] is None
+    assert case["rows"]["loose"]["intake"]["sources"] == [ref]
     updated = send(client, case, dict(action="link", row_id="loose", confirmed=True,
                                       entry=photo("different-evidence", "bag", "new photo of tablet")))
     assert len(updated["rows"]["loose"]["entries"]) == 2
