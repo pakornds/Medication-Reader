@@ -182,14 +182,15 @@ class Action(ContractModel):
     ]
 
 
+class CaptureViewRequest(ContractModel):
+    side: Side
+    attachment_id: Text
+    revision: Revision
+
+
 class CaptureCommand(ContractModel):
     revision: int = Field(ge=1)
     request_id: Text
     manifest: PackageCapture
     existing_rows: dict[Text, Text] = Field(default_factory=dict)
-
-
-class CaptureViewRequest(ContractModel):
-    side: Side
-    attachment_id: Text
-    revision: Revision
+    replaces_view: CaptureViewRequest | None = None
