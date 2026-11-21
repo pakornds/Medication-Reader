@@ -1,6 +1,7 @@
 """Domain contract for the versioned synthetic screening fixtures."""
 
 from datetime import date
+from itertools import combinations, product
 from typing import Annotated, Literal
 
 from pydantic import AnyHttpUrl, AwareDatetime, Field, model_validator
@@ -262,12 +263,17 @@ class ScreeningReport(ContractModel):
         ) or self.release_id != release.id:
             raise ValueError("Report snapshot or release does not match the encounter")
         rows = {row.id: row for row in snapshot.rows}
-        evidence_ids = {item.id for item in snapshot.evidence}
+        exposure_evidence = {
+            frozenset(observation.row_ids): set(observation.evidence_ids)
+            for observation in snapshot.exposures
+        }
         follow_up_ids = {follow_up.id for follow_up in release.follow_ups}
         rules = {rule.id: rule for rule in release.rules}
         for scope in self.scopes:
             _require_ids(scope.row_ids, set(rows), "scope row IDs")
-            _require_ids(scope.evidence_ids, evidence_ids, "scope evidence IDs")
+            row_evidence = {ref for row_id in scope.row_ids for ref in rows[row_id].evidence_ids}
+            pair_evidence = exposure_evidence.get(frozenset(scope.row_ids), set())
+            _require_ids(scope.evidence_ids, row_evidence | pair_evidence, "scope evidence IDs")
             _require_ids(scope.follow_up_ids, follow_up_ids, "scope follow-up IDs")
             available_ingredients = {
                 ingredient for row_id in scope.row_ids for ingredient in rows[row_id].ingredient_ids
@@ -288,6 +294,35 @@ class ScreeningReport(ContractModel):
                     raise ValueError("Scope rule reference does not match the release and report kind")
                 if scope.parent_scope_id is not None and sorted(scope.ingredient_ids) != sorted(rule.ingredient_ids):
                     raise ValueError("Child ingredient scope does not match its rule")
+        if self.kind == "DDI" and self.status != "not_run":
+            self._check_ddi_coverage(rows)
+
+    def _check_ddi_coverage(self, rows: dict[str, ScreeningRow]) -> None:
+        parents = [scope for scope in self.scopes if scope.parent_scope_id is None]
+        expected_pairs = {frozenset(pair) for pair in combinations(rows, 2)}
+        if {frozenset(scope.row_ids) for scope in parents} != expected_pairs:
+            raise ValueError("DDI coverage must include every distinct snapshot row pair")
+
+        children: dict[str, set[tuple[str, ...]]] = {}
+        for scope in self.scopes:
+            if scope.parent_scope_id is None:
+                continue
+            ingredient_pair = tuple(sorted(scope.ingredient_ids))
+            covered = children.setdefault(scope.parent_scope_id, set())
+            if ingredient_pair in covered:
+                raise ValueError("Duplicate ingredient comparison in a DDI row pair")
+            covered.add(ingredient_pair)
+        for parent in parents:
+            if parent.outcome == "unevaluated":
+                continue
+            left, right = (rows[row_id] for row_id in parent.row_ids)
+            if any(row.mapping_status != "complete" for row in (left, right)):
+                raise ValueError("Evaluated DDI row pairs require complete ingredient mappings")
+            expected_ingredients = {
+                tuple(sorted(pair)) for pair in product(left.ingredient_ids, right.ingredient_ids)
+            }
+            if children.get(parent.scope_id, set()) != expected_ingredients:
+                raise ValueError("Evaluated DDI row pairs require every cross-row ingredient comparison")
 
 
 class ScreeningFixture(ContractModel):

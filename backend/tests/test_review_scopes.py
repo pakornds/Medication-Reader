@@ -119,3 +119,44 @@ def test_empty_encounter_can_have_a_no_pair_report(payload):
     result = ScreeningFixture.model_validate(payload).reports[0]
     assert result.status == "unavailable"
     assert result.coverage.total_scopes == 0
+
+
+def test_ddi_denominator_includes_even_unidentified_pairs(payload):
+    report = payload["reports"][2]
+    report["scopes"] = report["scopes"][:3]
+    report["status"] = "complete"
+    report["coverage"].update(total_scopes=1, excluded_scopes=0)
+    with pytest.raises(ValidationError, match="every distinct snapshot row pair"):
+        ScreeningFixture.model_validate(payload)
+
+
+def test_ddi_parent_cannot_be_promoted_by_omitting_unchecked_ingredients(payload):
+    report = payload["reports"][0]
+    del report["scopes"][1]
+    report["scopes"][0].update(outcome="no_finding", reason_code=None)
+    report["status"] = "partial"
+    report["coverage"].update(evaluated_scopes=1, excluded_scopes=2)
+    with pytest.raises(ValidationError, match="every cross-row ingredient comparison"):
+        ScreeningFixture.model_validate(payload)
+
+
+def test_ddi_child_with_new_id_cannot_repeat_same_ingredient_pair(payload):
+    report = payload["reports"][0]
+    original = report["scopes"][1]
+    report["scopes"].append({
+        **original, "scope_id": "another-child", "ingredient_ids": list(reversed(original["ingredient_ids"]))
+    })
+    with pytest.raises(ValidationError, match="Duplicate ingredient comparison"):
+        ScreeningFixture.model_validate(payload)
+
+
+def test_incomplete_ingredient_mapping_cannot_count_as_evaluated(payload):
+    payload["snapshots"][1]["rows"][1]["mapping_status"] = "incomplete"
+    with pytest.raises(ValidationError, match="require complete ingredient mappings"):
+        ScreeningFixture.model_validate(payload)
+
+
+def test_scope_evidence_must_belong_to_its_rows_or_exposure_pair(payload):
+    payload["reports"][2]["scopes"][0]["evidence_ids"].append("E3")
+    with pytest.raises(ValidationError, match="Unknown scope evidence IDs"):
+        ScreeningFixture.model_validate(payload)
