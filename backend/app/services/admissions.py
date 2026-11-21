@@ -653,18 +653,25 @@ def attest_current_use(row, actor, cmd):
 
     require(not needs_identity(row), "Identity requires pharmacist review.")
     entries = active(row)
+    conflict = "Resolve the documented identity conflict before attesting current use."
     if row["unknown"]:
         identity = _attested_identity(row["confirmed"])
         require(identity, "Identity requires pharmacist review.")
-        entry_for(row, identity["source_id"])
+        documented = entry_for(row, identity["source_id"])
+        observations = [source]
     else:
-        named = [entry for entry in entries if entry["name"] and reviewable_entry(entry)
-                 and entry["source"]["kind"] not in REPORT_KINDS]
-        require(named, "Cite active evidence of this medication’s identity.")
-        variants = {entry["product"].casefold() for entry in named}
-        require(len(variants) == 1 and not {"strength", "form"}.intersection(conflicting_fields(row)),
-                "Resolve the documented identity conflict before attesting current use.")
-        identity = dict(name=named[-1]["product"], source_id=named[-1]["source"]["id"])
+        observations = [entry for entry in entries if entry["name"] and reviewable_entry(entry)]
+        named_documents = [entry for entry in observations if entry["source"]["kind"] not in REPORT_KINDS]
+        require(named_documents, "Cite active evidence of this medication’s identity.")
+        variants = {entry["product"].strip().casefold() for entry in named_documents}
+        require(len(variants) == 1 and not {"strength", "form"}.intersection(conflicting_fields(row)), conflict)
+        documented = named_documents[-1]
+        identity = dict(name=documented["product"], source_id=documented["source"]["id"])
+
+    supported_names = {documented[key].strip().casefold() for key in ("name", "product")}
+    # A report can cite the documented product or its unqualified name. It cannot establish identity.
+    require(all(not entry["name"] or entry["product"].strip().casefold() in supported_names
+                for entry in observations), conflict)
 
     attestation = dict(actor=actor.model_dump(), at=now(), source_id=cmd.source_id, identity=identity,
                        answer=deepcopy(answer), active_sources=[entry["source"]["id"] for entry in entries])

@@ -2,6 +2,8 @@
 
 from datetime import UTC, datetime
 
+import pytest
+
 from test_admissions import Case, client, headers, record
 
 
@@ -116,3 +118,25 @@ def test_patient_report_cannot_establish_identity_for_screening(client):
     row = case.add(record("report", "patient_report", "Reports taking Demo Amber", name="Demo Amber"))
     case.interview(row, "report", dose=None, route="oral", schedule="scheduled")
     case.send("attest_current_use", row_id=row, source_id="report", status=422)
+
+
+@pytest.mark.parametrize("cited_source", ["conflicting-report", "unnamed-report"])
+def test_structured_report_name_conflict_prevents_attestation(client, cited_source):
+    case = Case(client, "doctor")
+    row = case.add(record("label", "prescription", "Demo Amber", name="Demo Amber"))
+    case.link(row, record("conflicting-report", "patient_report", "Reports taking Demo Slate", name="Demo Slate"))
+    case.link(row, record("unnamed-report", "patient_report", "Reports using this package"))
+    case.interview(row, cited_source, dose=None, route="oral", schedule="scheduled")
+    denied = case.send("attest_current_use", row_id=row, source_id=cited_source, status=422)
+    assert denied.json()["detail"] == "Resolve the documented identity conflict before attesting current use."
+    assert "screening_attestation" not in case.state["rows"][row]
+
+
+def test_unqualified_report_name_can_cite_a_documented_product(client):
+    case = Case(client, "doctor")
+    row = case.add(record("label", "prescription", "Demo Amber 5 mg", name="Demo Amber", strength="5 mg"))
+    case.link(row, record("report", "patient_report", "Reports taking demo amber", name="demo amber"))
+    case.interview(row, "report", dose=None, route="oral", schedule="scheduled")
+    case.send("attest_current_use", row_id=row, source_id="report")
+    saved = case.state["rows"][row]["screening_attestation"]
+    assert saved["identity"] == {"name": "Demo Amber 5 mg", "source_id": "label"}
