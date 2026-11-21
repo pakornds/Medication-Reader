@@ -29,7 +29,7 @@ from app.schemas.evidence import (
     Text,
 )
 from app.schemas.regimen import RegimenComponent, RegimenParseRequest
-from app.services.labels import _matches_media_type
+from app.services.labels import LabelPhotoError, _matches_media_type, crop_label, read_label
 from app.services.regimens import parse_directions
 
 
@@ -103,7 +103,8 @@ def validate_form_input(
 
 
 class FormGrounding:
-    def __init__(self, form: FormAnalysisInput) -> None:
+    def __init__(self, form: FormAnalysisInput, transcripts: dict) -> None:
+        self.transcripts = transcripts
         self.form = form
         self.sources = {source.id: source for source in form.evidence.sources}
         self.items = {(item.source_id, item.id): item for item in form.evidence.items}
@@ -121,16 +122,19 @@ class FormGrounding:
                 return None
         return source
 
-    def supports_fact(self, fact: SourcedValue, row: MedicationSuggestion) -> bool:
+    def supports_fact(self, fact: SourcedValue, row: MedicationSuggestion, field: str = "identity") -> bool:
         ref = fact.evidence
         source = self.available_reference(ref, row.id)
         if source is None:
             return False
         if source.kind in PHOTO_KINDS:
-            item = self.items.get((ref.source_id, ref.item_id))
-            return (
-                item is not None and item.supports_label(source.kind)
-            )
+            transcript = self.transcripts.get((ref.source_id, ref.item_id))
+            if transcript is None:
+                return False
+            if field == "identity":
+                return fact in transcript.observed_names
+            observation = transcript.label_fields.get(field)
+            return observation is not None and observation.value == fact.value and observation.evidence == ref
         return any(fact.value in text for text in self.texts.get(source.id, []))
 
     def supports_report(
@@ -168,7 +172,7 @@ class FormGrounding:
     def supports_disputed_value(
         self, field: str, fact: SourcedValue, row: MedicationSuggestion
     ) -> bool:
-        if not self.supports_fact(fact, row):
+        if not self.supports_fact(fact, row, field):
             return False
         kind = self.sources[fact.evidence.source_id].kind
         if kind in REPORT_KINDS:
@@ -236,7 +240,7 @@ class FormGrounding:
                 and (
                     observation.value is None
                     or self.supports_fact(
-                        SourcedValue(value=observation.value, evidence=observation.evidence), row
+                        SourcedValue(value=observation.value, evidence=observation.evidence), row, field
                     )
                 )
             )
@@ -315,14 +319,41 @@ def analyze_medication_form(
     linked_sources = validate_form_input(form, photos)
     provider_input = form.model_dump(mode="json")
     provider_input["uploaded_photo_sources"] = linked_sources
-    proposed = get_provider().generate(
-        instructions=FORM_ANALYSIS.instructions,
-        evidence_text=json.dumps(provider_input, ensure_ascii=False),
-        output_type=FormProposal,
-        images=photos,
-    )
-    grounding = FormGrounding(form)
+    sources = {s.id: s for s in form.evidence.sources}
+    transcripts = {}
+    other_images = []
+    provider = get_provider()
+    for photo in photos:
+        linked = linked_sources[photo.evidence_id]
+        items = [i for i in form.evidence.items if i.source_id in linked]
+        labels = [i for i in items if i.supports_label(sources[i.source_id].kind)]
+        if not labels:
+            other_images.append(photo)
+        for item in labels:
+            location = form.region_locations.get(item.source_id, {}).get(item.id)
+            if not location and (len(items) > 1 or len(linked) > 1):
+                raise FormAnalysisError("Each item on a shared attachment needs a bounded region.")
+            try:
+                image = crop_label(photo, location, item.source_id) if location else photo
+            except LabelPhotoError as exc:
+                raise FormAnalysisError(str(exc)) from None
+            result = read_label(form.evidence.case_id, sources[item.source_id], item, image, location, provider)
+            transcripts[item.source_id, item.id] = result.rows[0]
+    provider_input["label_transcripts"] = [r.model_dump(mode="json") for r in transcripts.values()]
+    if (len(transcripts) == 1 and len(form.evidence.sources) == 1 and
+            len(form.evidence.items) == 1 and not form.question):
+        proposed = AnalysisResult(case_id=form.evidence.case_id, rows=list(transcripts.values()))
+    else:
+        proposed = provider.generate(
+            instructions=FORM_ANALYSIS.instructions,
+            evidence_text=json.dumps(provider_input, ensure_ascii=False),
+            output_type=FormProposal,
+            images=other_images,
+        )
+    grounding = FormGrounding(form, transcripts)
     try:
+        if {r.id for r in transcripts.values()} - {r.id for r in proposed.rows}:
+            raise EvidenceValidationError("The preview omitted a transcribed item.")
         for row in proposed.rows:
             grounding.ground_names(row)
         for row in proposed.rows:

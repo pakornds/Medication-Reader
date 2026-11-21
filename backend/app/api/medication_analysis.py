@@ -99,7 +99,7 @@ def create_medication_analysis_router(
             raise HTTPException(422, detail=detail.model_dump(mode="json")) from None
         except ProviderError as exc:
             status = 502 if exc.detail.code in {
-                "provider_invalid_output", "unsupported_form_evidence"
+                "provider_invalid_output", "unsupported_form_evidence", "unsupported_label_evidence"
             } else 503
             raise HTTPException(status, detail=exc.detail.model_dump(mode="json")) from None
 

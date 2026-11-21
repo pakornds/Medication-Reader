@@ -65,7 +65,8 @@ def conflicting_fields(row):
 
 def reviewable_entry(entry):
     photo = entry["photo"]
-    return not photo or (photo["pairing"] == "matched" and not photo["appearance"])
+    front = entry["source"]["kind"] == "label_photo" and photo and photo.get("front_attributed")
+    return not photo or ((front or photo["pairing"] == "matched") and not photo["appearance"])
 
 
 class AdmissionStore:
