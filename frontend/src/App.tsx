@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Navigate, Route, Routes, useMatch } from 'react-router-dom'
 import { NewPatientLayout } from './pages/new-patient/NewPatientLayout'
+import { InputPage } from './pages/new-patient/InputPage'
+import { DraftReview } from './pages/new-patient/AnalysisPreview'
+import { createDraft } from './pages/new-patient/draft'
 import { stages } from './pages/new-patient/stages'
 import { PageContainer } from './components/layout/PageContainer'
 import { TopBar } from './components/layout/TopBar'
@@ -22,9 +25,14 @@ export default function App() {
       return 'en'
     }
   })
+  const [draft, setDraft] = useState(createDraft)
   const [lastStage, setLastStage] = useState('input')
   const stage = useMatch('/new-patient/:stage')?.params.stage
   const t = messages[language]
+
+  useEffect(() => {
+    if (stage === 'input' || stage === 'review') document.title = t[stage] + ' · MedRec TH'
+  }, [stage, t])
 
   if (stage && stage !== lastStage && stages.some(item => item === stage)) {
     setLastStage(stage)
@@ -52,9 +60,9 @@ export default function App() {
             <Route path="/" element={<MockPage name={t.home} />} />
             <Route path="/new-patient" element={<NewPatientLayout language={language} />}>
               <Route index element={<Navigate to={lastStage} replace />} />
-              {stages.map(item => (
-                <Route key={item} path={item} element={<MockPage name={t[item]} />} />
-              ))}
+              <Route path="input" element={<InputPage draft={draft} setDraft={setDraft} language={language} />} />
+              <Route path="review" element={<DraftReview draft={draft} language={language} />} />
+              <Route path="output" element={<MockPage name={t.output} />} />
             </Route>
             <Route path="/history" element={<MockPage name={t.history} />} />
             <Route path="*" element={<Navigate to="/" replace />} />
