@@ -23,10 +23,11 @@ from app.schemas.admission import (
     Finish, Import, Interview, NewEncounter, Proposal, RecordUnavailableSource, Refer, RegisterDocument, SourceEntry, Verify,
 )
 from app.schemas.evidence import (
-    REPORT_KINDS, CaseEvidence, EvidenceItem, EvidenceRef, EvidenceSource, Observation, QuotedEvidenceItem, SourcedValue,
+    REPORT_KINDS, CaseEvidence, EvidenceItem, EvidenceRef, EvidenceSource, EvidenceValidationError,
+    Observation, QuotedEvidenceItem, SourcedValue,
 )
 from app.schemas.review import CurrentUseVerification, ImportRequest, ReviewRow
-from app.schemas.regimen import RegimenParseRequest
+from app.schemas.regimen import RegimenParseRequest, validate_regimen_evidence
 from app.services.regimens import parse_directions
 from app.services.admission_incidents import record_identity_incident, remember_identity_dispute
 from app.services.hospital import HospitalError
@@ -253,21 +254,6 @@ def reviewable_entry(entry):
     return not photo or ((front or photo["pairing"] == "matched") and not photo["appearance"])
 
 
-def entry_evidence(row_id, entry):
-    source = EvidenceSource.model_validate(entry["source"])
-    if source.kind in DOCUMENT_KINDS:
-        item = QuotedEvidenceItem(id=row_id, source_id=source.id, row_id=row_id,
-                                  kind="record_excerpt", excerpt=entry["wording"])
-    else:
-        kind = "record_excerpt"
-        if entry["photo"]:
-            kind = "label_region" if reviewable_entry(entry) else "pill_crop"
-            if kind == "label_region" and source.kind == "reverse_photo":
-                kind = "matched_reverse_label"
-        item = EvidenceItem(id=row_id, source_id=source.id, row_id=row_id, kind=kind)
-    return source, item
-
-
 def unresolved_photo(entry):
     return bool(entry["photo"] and (not entry["name"] or not reviewable_entry(entry)))
 
@@ -303,9 +289,39 @@ def import_snapshot_key(row):
     # Keep the verified identity, use, regimen and their selected citations.
     # Audit metadata and incidental evidence do not change the clinical snapshot.
     answer = verified["answer"]
-    review = [verified["identity"], verified["source_id"], answer["ownership"],
-              answer["current_use"], answer["dose"], answer["route"], answer["schedule"]]
+    review = [verified["identity"], verified["source_id"], answer["ownership"], answer["current_use"]]
+    if verified.get("regimens"):
+        clinical_components = [
+            {key: value for key, value in component.items() if key != "component_id"}
+            for component in verified["regimens"]
+        ]
+        review.append(sorted(dumps(component, sort_keys=True) for component in clinical_components))
+    else:
+        review.extend([answer["dose"], answer["route"], answer["schedule"]])
     return sha256(dumps(review, sort_keys=True).encode()).hexdigest()
+
+
+def entry_evidence(row_id, entry):
+    source = EvidenceSource.model_validate(entry["source"])
+    if source.kind in DOCUMENT_KINDS:
+        return source, QuotedEvidenceItem(id=row_id, source_id=source.id, row_id=row_id,
+                                          kind="record_excerpt", excerpt=entry["wording"])
+    kind = "record_excerpt"
+    if entry["photo"]:
+        kind = "label_region" if reviewable_entry(entry) else "pill_crop"
+        if kind == "label_region" and source.kind == "reverse_photo":
+            kind = "matched_reverse_label"
+    return source, EvidenceItem(id=row_id, source_id=source.id, row_id=row_id, kind=kind)
+
+
+def verified_regimen_fields(verified, interview_ref):
+    if verified.get("regimens"):
+        return {"regimens": verified["regimens"]}
+    fields = {}
+    for key, interview_key in (("dose", "dose"), ("route", "route"), ("frequency", "schedule")):
+        if value := verified["answer"].get(interview_key):
+            fields[key] = SourcedValue(value=value, evidence=interview_ref)
+    return fields
 
 
 def capture_orientation(media_type, data):
@@ -751,7 +767,18 @@ class AdmissionStore:
                     "Clarify ownership and current use.")
             require((answer["ownership"] == "other") == (answer["current_use"] == "not_owned"),
                     "Resolve conflicting ownership and use.")
-            if answer["current_use"] == "current":
+            if cmd.regimens:
+                entries = [entry_evidence(row["id"], entry) for entry in active(row)]
+                evidence = CaseEvidence(case_id=case["id"], sources=[source for source, _ in entries],
+                                        items=[item for _, item in entries])
+                try:
+                    for component in cmd.regimens:
+                        validate_regimen_evidence(component, row["id"], evidence)
+                        if answer["current_use"] == "current":
+                            require(component.has_verified_regimen(), "Complete every verified regimen component.")
+                except EvidenceValidationError as exc:
+                    raise HTTPException(422, str(exc)) from None
+            elif answer["current_use"] == "current":
                 require(all(answer[k] for k in ("dose", "route", "schedule")), "Record the actual regimen.")
             require(not needs_identity(row), "Identity requires pharmacist review.")
             named = [e for e in active(row) if e["name"] and reviewable_entry(e)]
@@ -786,6 +813,8 @@ class AdmissionStore:
                 identity = dict(name=chosen["product"], source_id=chosen["source"]["id"])
             row["verified"] = dict(actor=actor.model_dump(), at=verified_at, source_id=cmd.source_id,
                                    identity=identity, resolution=cmd.resolution, answer=deepcopy(answer))
+            if cmd.regimens:
+                row["verified"]["regimens"] = [component.model_dump(mode="json") for component in cmd.regimens]
             return dict(**details, verification=row["verified"], sources=[cmd.source_id] +
                         ([identity["source_id"]] if identity else []))
         row["verified"] = None
@@ -820,12 +849,10 @@ class AdmissionStore:
             ref = refs[verified["source_id"]]
             identity = verified["identity"]
             name = SourcedValue(value=identity["name"], evidence=refs[identity["source_id"]])
-            def sourced(key):
-                return SourcedValue(value=answer[key], evidence=ref) if answer[key] else None
             verification = CurrentUseVerification(
                 reviewer=verified["actor"], verified_at=verified["at"], identity=name, evidence=[ref],
                 status="current" if answer["current_use"] == "current" else "no_longer_current",
-                dose=sourced("dose"), route=sourced("route"), frequency=sourced("schedule"))
+                **verified_regimen_fields(verified, ref))
             label_fields = {}
             identity_entry = entry_for(row, identity["source_id"])
             identity_observations = entry_observations(identity_entry)

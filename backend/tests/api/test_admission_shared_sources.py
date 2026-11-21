@@ -1,13 +1,14 @@
 """One transfer document can supply distinct row-linked evidence through the admission API."""
 
+from test_admission_regimens import component
 from test_admissions import Case, client, headers, record
 from test_local_screening import refs
 
 
 WARD = {"id": "W1", "kind": "transfer_record", "organization": "Demo Hospital",
         "department_or_ward": "Transfer ward"}
-LINES = ("1. Demo Amber, recorded interview: taken in the morning.",
-         "2. Demo Slate, recorded interview: taken in the evening.")
+LINES = ("1. Demo Amber, recorded interview: 1 tablet by mouth each morning.",
+         "2. Demo Slate, recorded interview: 2 tablets by mouth each evening.")
 
 
 def register(case, source=WARD):
@@ -92,11 +93,20 @@ def test_optional_screening_accepts_both_rows_of_one_document(client, refs):
     for index in range(2):
         row = case.add(excerpt(case, index))
         case.interview(row, "W1")
-        case.send("verify", row_id=row, source_id="W1")
+        timing = ("morning", "evening")[index]
+        case.send("verify", row_id=row, source_id="W1", regimens=[component(row, "W1", index + 1, timing)])
+    case.send("verify", row_id="item-2", source_id="W1", regimens=[component("item-1", "W1", 1, "morning")],
+              status=422)
     target = {"case_id": case.state["id"], "admission_revision": case.state["revision"]}
     for path, payload in (("/checks", target | {"kind": "DDI"}), ("/checks/local", target)):
         response = client.post(path, headers=headers(case.role), json=payload)
         assert response.status_code == 200, response.text
+    case.send("import", role="pharmacist", row_ids=["item-1", "item-2"])
+    receipt, = case.state["receipts"]
+    stored, = client.get("/imports", headers=headers("pharmacist"), params={"imported_at": receipt["imported_at"]}).json()
+    for row in stored["snapshot"]["rows"]:
+        regimen, = row["verification"]["regimens"]
+        assert regimen["evidence"]["dose_amount"] == {"source_id": "W1", "item_id": row["id"]}
 
 
 def test_registered_document_and_unavailable_followup_reserve_distinct_ids(client):
