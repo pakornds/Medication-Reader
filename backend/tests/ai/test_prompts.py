@@ -93,7 +93,7 @@ def assert_expected_form(result: AnalysisResult, fixture: dict, request: Analysi
 
 def test_versioned_prompts_keep_task_boundaries():
     assert [prompt.version for prompt in (LABEL_EXTRACTION, PILL_OBSERVATION, FORM_ANALYSIS)] == [
-        "label-extraction-v2",
+        "label-extraction-v3",
         "pill-observation-v1",
         "form-analysis-v4",
     ]

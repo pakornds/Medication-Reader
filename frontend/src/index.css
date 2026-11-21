@@ -64,3 +64,82 @@
     @apply inline-flex min-h-10 min-w-10 items-center justify-center rounded-lg border border-line px-3 text-sm hover:bg-hover;
   }
 }
+
+@layer components {
+  .intake { padding-bottom: 3rem; overflow-wrap: anywhere; }
+  .intake-title { margin: 0 0 1.5rem; }
+  .intake h1 { font-size: 1.75rem; font-weight: 700; letter-spacing: -.025em; }
+  .intake h2 { font-size: 1.15rem; font-weight: 650; }
+  .intake h3 { font-weight: 650; }
+  .intake-title p, .hint, .intake small { color: var(--text-2); }
+  .intake-title p { margin-top: .25rem; }
+  .intake small, .hint { font-size: .85rem; line-height: 1.55; }
+  .intake-grid { display: grid; gap: 1.25rem; align-items: start; }
+  .intake-grid > *, .field-pair > *, .photo-pair > * { min-width: 0; }
+  .intake-panel { background: var(--bg-2); border: 1px solid var(--line); border-radius: .85rem; padding: clamp(1rem,2vw,1.5rem); }
+  .stack { display: flex; flex-direction: column; gap: .85rem; }
+  .intake .spread, .intake .actions { display: flex; align-items: center; gap: .65rem; flex-wrap: wrap; }
+  .intake .spread { justify-content: space-between; }
+  .input-modes { display: flex; flex-wrap: wrap; gap: .5rem; padding-bottom: 1.2rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--line); }
+  .input-modes button, .btn, .primary-btn, .text-action { display: inline-flex; align-items: center; justify-content: center; gap: .45rem; min-height: 2.6rem; font-size: .88rem; font-weight: 600; line-height: 1.4; }
+  .input-modes button, .btn { border: 1px solid var(--line); border-radius: .5rem; padding: .55rem .8rem; background: var(--bg-2); }
+  .input-modes button[aria-pressed=true] { border-color: var(--accent); background: var(--bg-selected); color: var(--accent); }
+  .btn:hover:enabled, .input-modes button:hover { background: var(--bg-hover); }
+  .primary-btn { border-radius: .5rem; padding: .65rem 1rem; color: white; background: #0c5096; }
+  .primary-btn:hover:enabled { background: #093f77; }
+  .text-action { color: var(--accent); align-self: flex-start; }
+  .text-action:hover { text-decoration: underline; }
+  .btn:disabled, .primary-btn:disabled, .text-action:disabled, .intake button:disabled { opacity: .52; cursor: not-allowed; }
+  :is(.btn, .primary-btn, .text-action) svg, .intake button svg, .intake a svg, .draft-line svg { width: 1.05rem; height: 1.05rem; flex-shrink: 0; }
+  .field-label, .intake label { display: block; font-size: .87rem; font-weight: 600; }
+  .intake label > small { margin-inline-start: .5rem; font-weight: normal; }
+  .field-label > input, .intake textarea, .intake select {
+    display: block; min-width: 0; width: 100%; margin-top: .35rem; padding: .55rem .7rem;
+    min-height: 2.6rem; border: 1px solid var(--line); border-radius: .45rem; background: var(--bg-2); color: var(--text-1);
+    font-size: 1rem; font-weight: normal;
+  }
+  .intake textarea { resize: vertical; }
+  .photo-pair, .field-pair { display: grid; gap: .85rem; }
+  .photo-slot, .suggestion, .region-editor { border: 1px solid var(--line); border-radius: .65rem; padding: .9rem; }
+  .photo-slot { align-self: start; }
+  .drop-area, .empty-case { display: grid; justify-items: center; align-content: center; gap: .4rem; border: 1px dashed var(--line); background: var(--bg-1); border-radius: .5rem; padding: 1.3rem .65rem; text-align: center; }
+  .drop-area { min-height: 8.5rem; }
+  .drop-area svg, .empty-case svg { width: 1.6rem; height: 1.6rem; color: var(--accent); margin-bottom: .3rem; }
+  .empty-case p { color: var(--text-2); font-size: .875rem; }
+  .count, .pending-label { background: var(--bg-selected); color: var(--accent); border-radius: 1rem; padding: .15rem .65rem; font-size: .8rem; font-weight: 600; }
+  .intake summary { color: var(--accent); cursor: pointer; font-size: .875rem; }
+  .intake details[open] > summary { margin-bottom: .5rem; }
+  .draft-list { display: grid; }
+  .draft-line { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .45rem 0; }
+  .draft-line + .draft-line { border-top: 1px solid var(--line); }
+  .draft-line small { display: block; }
+  .draft-line button { flex-shrink: 0; align-self: center; }
+  .agent-question { border-top: 1px solid var(--line); padding-top: .8rem; }
+  .region-image { position: relative; width: fit-content; max-width: 100%; margin-inline: auto; cursor: crosshair; }
+  .region-image img { display: block; max-height: 20rem; max-width: 100%; }
+  .region-box { position: absolute; border: 2px solid #0073cd; box-shadow: inset 0 0 0 1px white; pointer-events: none; }
+  .region-box b { position: absolute; left: 0; top: 0; background: #094f94; color: white; padding: 0 .25rem; font-size: .7rem; }
+  .corner { position: absolute; border-radius: 50%; background: white; outline: 2px solid blue; width: .45rem; height: .45rem; }
+  .region-coordinates { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .55rem; margin-bottom: .75rem; }
+  .section-heading .hint { margin-top: .25rem; }
+  .written-evidence { margin-top: clamp(1rem, 2.5vw, 2rem); padding-top: 1.5rem; border-top: 1px solid var(--line); }
+  .note-block + .note-block { border-top: 1px solid var(--line); padding-top: 1rem; }
+  .search-line { display: flex; flex-wrap: wrap; align-items: end; gap: .5rem; }
+  .search-line label { flex: 1 1 12rem; }
+  .product-list { max-height: 16rem; overflow: auto; }
+  .product-list button { display: grid; width: 100%; text-align: start; padding: .65rem; border-bottom: 1px solid var(--line); }
+  .product-list button:hover { background: var(--bg-hover); }
+  .intake .pick-row { display: flex; gap: .65rem; align-items: center; }
+  .pick-row input { width: 1.15rem; height: 1.15rem; accent-color: var(--accent); }
+  .row-evidence { padding: .8rem 0; font-size: .95rem; }
+  .row-evidence ul { padding-inline-start: 1.25rem; list-style: disc; }
+  .citation { margin-top: .2rem; padding-inline-start: .6rem; border-inline-start: 2px solid var(--line); }
+  .citation blockquote { white-space: pre-wrap; }
+  .intake [role=alert] { border-inline-start: 3px solid #bc7420; padding-inline-start: .65rem; }
+  @media (min-width: 48rem) {
+    .photo-pair, .field-pair { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  }
+  @media (min-width: 64rem) {
+    .intake-grid { grid-template-columns: minmax(0,2.2fr) minmax(17rem,1fr); }
+  }
+}
