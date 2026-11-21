@@ -1,0 +1,121 @@
+import json
+from pathlib import Path
+
+import pytest
+from pydantic import ValidationError
+
+from app.schemas.review_scopes import ScreeningFixture
+
+FIXTURE = Path(__file__).parents[2] / "fixtures" / "checks" / "demo-overlap-v2" / "case.json"
+
+
+@pytest.fixture
+def payload():
+    return json.loads(FIXTURE.read_text(encoding="utf-8"))
+
+
+def test_fixture_preserves_both_encounters_and_exact_coverage():
+    fixture = ScreeningFixture.model_validate_json(FIXTURE.read_bytes())
+    before, confirmed = fixture.snapshots
+    assert [(row.id, row.route, row.schedule) for row in before.rows] == [
+        ("R1", "oral", "scheduled"),
+        ("R2", "oral", "prn"),
+        ("R3", None, None),
+    ]
+    assert [row.id for row in confirmed.rows] == ["R1", "R2", "R3"]
+    assert before.snapshot_id != confirmed.snapshot_id
+    assert before.exposures[0].status == "unknown"
+    assert confirmed.exposures[0].row_ids == ["R1", "R2"]
+    assert confirmed.exposures[0].status == "confirmed"
+    assert confirmed.exposures[0].evidence_ids == ["E4"]
+    assert confirmed.exposures[0].observed_at is not None
+    reports = {(report.snapshot_id, report.kind): report for report in fixture.reports}
+    assert {
+        key: (report.status, *report.coverage.model_dump().values())
+        for key, report in reports.items()
+    } == {
+        (before.snapshot_id, "DDI"): ("unavailable", 3, 0, 0, 3),
+        (before.snapshot_id, "DRP"): ("partial", 3, 1, 1, 2),
+        (confirmed.snapshot_id, "DDI"): ("partial", 3, 1, 1, 2),
+        (confirmed.snapshot_id, "DRP"): ("partial", 3, 1, 1, 2),
+    }
+    ddi = reports[before.snapshot_id, "DDI"]
+    drp = reports[before.snapshot_id, "DRP"]
+    assert {scope.scope_id for scope in ddi.scopes}.isdisjoint(scope.scope_id for scope in drp.scopes)
+    assert [(scope.ingredient_ids, scope.outcome) for scope in ddi.scopes if scope.parent_scope_id] == [
+        (["X", "Y"], "unevaluated"),
+        (["X", "X"], "no_finding"),
+    ]
+    rule = fixture.release.rules[0]
+    assert rule.context_requirements[0].field == "pair_exposure"
+    assert rule.context_requirements[0].required_status == "confirmed"
+    assert rule.reference.permitted_use == "synthetic_demo"
+
+
+@pytest.mark.parametrize("reference", ["absent", "ddi-R1-R3", "ddi-R1-R2-X-X", "drp-R1-R2"])
+def test_child_scope_requires_a_same_pair_parent_in_its_report(payload, reference):
+    payload["reports"][0]["scopes"][1]["parent_scope_id"] = reference
+    with pytest.raises(ValidationError, match="Child scope requires a parent"):
+        ScreeningFixture.model_validate(payload)
+
+
+@pytest.mark.parametrize("field", [
+    "source_url", "source_section", "jurisdiction", "population", "permitted_use",
+    "source_revision_date", "reviewed_on", "expires_on",
+])
+def test_release_and_rule_metadata_are_required(payload, field):
+    del payload["release"]["reference"][field]
+    del payload["release"]["rules"][0]["reference"][field]
+    with pytest.raises(ValidationError) as error:
+        ScreeningFixture.model_validate(payload)
+    missing_fields = {tuple(item["loc"]) for item in error.value.errors()}
+    assert ("release", "reference", field) in missing_fields
+    assert ("release", "rules", 0, "reference", field) in missing_fields
+
+
+def test_expected_coverage_cannot_count_an_ingredient_child_as_a_completed_pair(payload):
+    payload["reports"][0]["coverage"]["evaluated_scopes"] = 1
+    with pytest.raises(ValidationError, match="Coverage must equal"):
+        ScreeningFixture.model_validate(payload)
+
+
+def test_out_of_case_exposure_evidence_is_rejected(payload):
+    payload["snapshots"][1]["exposures"][0]["evidence_ids"] = ["outside"]
+    with pytest.raises(ValidationError, match="Unknown exposure evidence IDs"):
+        ScreeningFixture.model_validate(payload)
+
+
+def test_scope_reference_cannot_point_to_a_rule_from_the_other_report(payload):
+    scope = payload["reports"][0]["scopes"][1]
+    rule = payload["release"]["rules"][2]
+    scope.update(rule_id=rule["id"], rule_version=rule["version"], reference_section=rule["reference"]["source_section"])
+    with pytest.raises(ValidationError, match="Scope rule reference"):
+        ScreeningFixture.model_validate(payload)
+
+
+def test_child_ingredients_must_be_supported_on_opposite_rows(payload):
+    scope = payload["reports"][0]["scopes"][1]
+    scope["ingredient_ids"] = ["Y", "Y"]
+    with pytest.raises(ValidationError, match="compare ingredients across its rows"):
+        ScreeningFixture.model_validate(payload)
+
+
+def test_report_cannot_claim_a_finding_if_an_ingredient_scope_remains_unchecked(payload):
+    report = payload["reports"][0]
+    report.update(status="partial")
+    report["coverage"].update(evaluated_scopes=1, excluded_scopes=2, findings=1)
+    report["scopes"][0].update(outcome="finding", reason_code=None)
+    with pytest.raises(ValidationError, match="Parent outcome"):
+        ScreeningFixture.model_validate(payload)
+
+
+def test_empty_encounter_can_have_a_no_pair_report(payload):
+    snapshot = payload["snapshots"][0]
+    snapshot.update(evidence=[], rows=[], exposures=[])
+    report = payload["reports"][0]
+    report["scopes"] = []
+    report["coverage"] = {field: 0 for field in report["coverage"]}
+    payload.update(snapshots=[snapshot], reports=[report])
+    result = ScreeningFixture.model_validate(payload).reports[0]
+    assert result.status == "unavailable"
+    assert result.coverage.total_scopes == 0

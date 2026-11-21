@@ -1,0 +1,650 @@
+{
+  "release": {
+    "id": "demo-overlap-v2",
+    "mapping_version": "demo-ingredient-map-v2",
+    "reference": {
+      "source_url": "https://github.com/pakornds/Medication-Reader/blob/290c20b/docs/specs/ddi-drp-review.md",
+      "source_section": "One reproducible synthetic case",
+      "jurisdiction": "TH demo context, fictional reference",
+      "population": "Synthetic adult transfer encounter",
+      "permitted_use": "synthetic_demo",
+      "source_revision_date": "2026-11-21",
+      "reviewed_on": "2026-11-21",
+      "expires_on": "2027-11-21"
+    },
+    "rules": [
+      {
+        "id": "demo-ddi-conditional-exposure",
+        "version": "1",
+        "kind": "DDI",
+        "routes": [
+          "oral"
+        ],
+        "ingredient_ids": [
+          "X",
+          "Y"
+        ],
+        "context_requirements": [
+          {
+            "field": "pair_exposure",
+            "required_status": "confirmed",
+            "unit": "status"
+          }
+        ],
+        "fixture_outcome": "finding",
+        "description": "Simulated interaction when overlapping X and Y exposure is confirmed.",
+        "reference": {
+          "source_url": "https://github.com/pakornds/Medication-Reader/blob/290c20b/docs/specs/ddi-drp-review.md",
+          "source_section": "One reproducible synthetic case",
+          "jurisdiction": "TH demo context, fictional reference",
+          "population": "Synthetic adult transfer encounter",
+          "permitted_use": "synthetic_demo",
+          "source_revision_date": "2026-11-21",
+          "reviewed_on": "2026-11-21",
+          "expires_on": "2027-11-21"
+        }
+      },
+      {
+        "id": "demo-ddi-x-x-covered",
+        "version": "1",
+        "kind": "DDI",
+        "routes": [
+          "oral"
+        ],
+        "ingredient_ids": [
+          "X",
+          "X"
+        ],
+        "context_requirements": [],
+        "fixture_outcome": "no_finding",
+        "description": "The X to X comparison is explicitly covered without a DDI finding.",
+        "reference": {
+          "source_url": "https://github.com/pakornds/Medication-Reader/blob/290c20b/docs/specs/ddi-drp-review.md",
+          "source_section": "One reproducible synthetic case",
+          "jurisdiction": "TH demo context, fictional reference",
+          "population": "Synthetic adult transfer encounter",
+          "permitted_use": "synthetic_demo",
+          "source_revision_date": "2026-11-21",
+          "reviewed_on": "2026-11-21",
+          "expires_on": "2027-11-21"
+        }
+      },
+      {
+        "id": "demo-duplicate-ingredient-v1",
+        "version": "1",
+        "kind": "DRP",
+        "routes": [
+          "oral"
+        ],
+        "context_requirements": [],
+        "fixture_outcome": "finding",
+        "description": "Shared active ingredient; verify intended use.",
+        "reference": {
+          "source_url": "https://github.com/pakornds/Medication-Reader/blob/290c20b/docs/specs/ddi-drp-review.md",
+          "source_section": "Proposed DRP rule for overlapping active ingredients",
+          "jurisdiction": "TH demo context, fictional reference",
+          "population": "Synthetic adult transfer encounter",
+          "permitted_use": "synthetic_demo",
+          "source_revision_date": "2026-11-21",
+          "reviewed_on": "2026-11-21",
+          "expires_on": "2027-11-21"
+        }
+      }
+    ],
+    "follow_ups": [
+      {
+        "id": "ask-last-use-and-overlap",
+        "question": "When did you last take Demo Slate, and did you take Demo Amber during the same period?"
+      },
+      {
+        "id": "ask-shared-ingredient-intent",
+        "question": "Is the shared ingredient across Demo Amber and Demo Slate intended?"
+      },
+      {
+        "id": "ask-independent-identity",
+        "question": "Can the reviewer verify the unidentified item from an independent source?"
+      }
+    ]
+  },
+  "snapshots": [
+    {
+      "case_id": "demo-overlap-v2-case",
+      "snapshot_id": "demo-overlap-v2-before",
+      "release_id": "demo-overlap-v2",
+      "evidence": [
+        {
+          "id": "E1",
+          "revision": 1,
+          "description": "Synthetic labeled pack and reviewer-confirmed Demo Amber use."
+        },
+        {
+          "id": "E2",
+          "revision": 1,
+          "description": "Synthetic labeled pack and interview confirming Demo Slate PRN use."
+        },
+        {
+          "id": "E3",
+          "revision": 1,
+          "description": "Synthetic reverse photo of an unidentified loose item."
+        }
+      ],
+      "rows": [
+        {
+          "id": "R1",
+          "revision": 1,
+          "product_id": "demo-amber",
+          "product_name": "Demo Amber",
+          "ingredient_ids": [
+            "X"
+          ],
+          "mapping_status": "complete",
+          "route": "oral",
+          "use_status": "current",
+          "schedule": "scheduled",
+          "evidence_ids": [
+            "E1"
+          ]
+        },
+        {
+          "id": "R2",
+          "revision": 1,
+          "product_id": "demo-slate",
+          "product_name": "Demo Slate",
+          "ingredient_ids": [
+            "Y",
+            "X"
+          ],
+          "mapping_status": "complete",
+          "route": "oral",
+          "use_status": "current",
+          "schedule": "prn",
+          "evidence_ids": [
+            "E2"
+          ]
+        },
+        {
+          "id": "R3",
+          "revision": 1,
+          "mapping_status": "unresolved",
+          "use_status": "pending",
+          "evidence_ids": [
+            "E3"
+          ]
+        }
+      ],
+      "exposures": [
+        {
+          "row_ids": [
+            "R1",
+            "R2"
+          ],
+          "status": "unknown"
+        }
+      ]
+    },
+    {
+      "case_id": "demo-overlap-v2-case",
+      "snapshot_id": "demo-overlap-v2-confirmed",
+      "release_id": "demo-overlap-v2",
+      "evidence": [
+        {
+          "id": "E1",
+          "revision": 1,
+          "description": "Synthetic labeled pack and reviewer-confirmed Demo Amber use."
+        },
+        {
+          "id": "E2",
+          "revision": 1,
+          "description": "Synthetic labeled pack and interview confirming Demo Slate PRN use."
+        },
+        {
+          "id": "E3",
+          "revision": 1,
+          "description": "Synthetic reverse photo of an unidentified loose item."
+        },
+        {
+          "id": "E4",
+          "revision": 1,
+          "description": "Synthetic reviewer record confirming overlapping exposure for Demo Amber and Demo Slate."
+        }
+      ],
+      "rows": [
+        {
+          "id": "R1",
+          "revision": 1,
+          "product_id": "demo-amber",
+          "product_name": "Demo Amber",
+          "ingredient_ids": [
+            "X"
+          ],
+          "mapping_status": "complete",
+          "route": "oral",
+          "use_status": "current",
+          "schedule": "scheduled",
+          "evidence_ids": [
+            "E1"
+          ]
+        },
+        {
+          "id": "R2",
+          "revision": 1,
+          "product_id": "demo-slate",
+          "product_name": "Demo Slate",
+          "ingredient_ids": [
+            "Y",
+            "X"
+          ],
+          "mapping_status": "complete",
+          "route": "oral",
+          "use_status": "current",
+          "schedule": "prn",
+          "evidence_ids": [
+            "E2"
+          ]
+        },
+        {
+          "id": "R3",
+          "revision": 1,
+          "mapping_status": "unresolved",
+          "use_status": "pending",
+          "evidence_ids": [
+            "E3"
+          ]
+        }
+      ],
+      "exposures": [
+        {
+          "row_ids": [
+            "R1",
+            "R2"
+          ],
+          "status": "confirmed",
+          "evidence_ids": [
+            "E4"
+          ],
+          "observed_at": "2026-11-21T04:05:00Z"
+        }
+      ]
+    }
+  ],
+  "reports": [
+    {
+      "case_id": "demo-overlap-v2-case",
+      "snapshot_id": "demo-overlap-v2-before",
+      "release_id": "demo-overlap-v2",
+      "kind": "DDI",
+      "status": "unavailable",
+      "simulated": true,
+      "ran_at": "2026-11-21T04:00:00Z",
+      "coverage": {
+        "total_scopes": 3,
+        "evaluated_scopes": 0,
+        "findings": 0,
+        "excluded_scopes": 3
+      },
+      "scopes": [
+        {
+          "scope_id": "ddi-R1-R2",
+          "row_ids": [
+            "R1",
+            "R2"
+          ],
+          "outcome": "unevaluated",
+          "evidence_ids": [
+            "E1",
+            "E2"
+          ],
+          "rule_id": "demo-ddi-conditional-exposure",
+          "rule_version": "1",
+          "reference_section": "One reproducible synthetic case",
+          "ingredient_ids": [
+            "X",
+            "Y"
+          ],
+          "reason_code": "unconfirmed_overlap",
+          "follow_up_ids": [
+            "ask-last-use-and-overlap"
+          ]
+        },
+        {
+          "scope_id": "ddi-R1-R2-X-Y",
+          "row_ids": [
+            "R1",
+            "R2"
+          ],
+          "outcome": "unevaluated",
+          "evidence_ids": [
+            "E1",
+            "E2"
+          ],
+          "parent_scope_id": "ddi-R1-R2",
+          "rule_id": "demo-ddi-conditional-exposure",
+          "rule_version": "1",
+          "reference_section": "One reproducible synthetic case",
+          "ingredient_ids": [
+            "X",
+            "Y"
+          ],
+          "reason_code": "unconfirmed_overlap",
+          "follow_up_ids": [
+            "ask-last-use-and-overlap"
+          ]
+        },
+        {
+          "scope_id": "ddi-R1-R2-X-X",
+          "row_ids": [
+            "R1",
+            "R2"
+          ],
+          "outcome": "no_finding",
+          "evidence_ids": [
+            "E1",
+            "E2"
+          ],
+          "parent_scope_id": "ddi-R1-R2",
+          "rule_id": "demo-ddi-x-x-covered",
+          "rule_version": "1",
+          "reference_section": "One reproducible synthetic case",
+          "ingredient_ids": [
+            "X",
+            "X"
+          ]
+        },
+        {
+          "scope_id": "ddi-R1-R3",
+          "row_ids": [
+            "R1",
+            "R3"
+          ],
+          "outcome": "unevaluated",
+          "evidence_ids": [
+            "E1",
+            "E3"
+          ],
+          "reason_code": "unresolved_identity",
+          "follow_up_ids": [
+            "ask-independent-identity"
+          ]
+        },
+        {
+          "scope_id": "ddi-R2-R3",
+          "row_ids": [
+            "R2",
+            "R3"
+          ],
+          "outcome": "unevaluated",
+          "evidence_ids": [
+            "E2",
+            "E3"
+          ],
+          "reason_code": "unresolved_identity",
+          "follow_up_ids": [
+            "ask-independent-identity"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "demo-overlap-v2-case",
+      "snapshot_id": "demo-overlap-v2-before",
+      "release_id": "demo-overlap-v2",
+      "kind": "DRP",
+      "status": "partial",
+      "simulated": true,
+      "ran_at": "2026-11-21T04:00:00Z",
+      "coverage": {
+        "total_scopes": 3,
+        "evaluated_scopes": 1,
+        "findings": 1,
+        "excluded_scopes": 2
+      },
+      "scopes": [
+        {
+          "scope_id": "drp-R1-R2",
+          "row_ids": [
+            "R1",
+            "R2"
+          ],
+          "outcome": "finding",
+          "evidence_ids": [
+            "E1",
+            "E2"
+          ],
+          "rule_id": "demo-duplicate-ingredient-v1",
+          "rule_version": "1",
+          "reference_section": "Proposed DRP rule for overlapping active ingredients",
+          "ingredient_ids": [
+            "X"
+          ],
+          "follow_up_ids": [
+            "ask-shared-ingredient-intent"
+          ]
+        },
+        {
+          "scope_id": "drp-R1-R3",
+          "row_ids": [
+            "R1",
+            "R3"
+          ],
+          "outcome": "unevaluated",
+          "evidence_ids": [
+            "E1",
+            "E3"
+          ],
+          "rule_id": "demo-duplicate-ingredient-v1",
+          "rule_version": "1",
+          "reference_section": "Proposed DRP rule for overlapping active ingredients",
+          "reason_code": "unresolved_identity",
+          "follow_up_ids": [
+            "ask-independent-identity"
+          ]
+        },
+        {
+          "scope_id": "drp-R2-R3",
+          "row_ids": [
+            "R2",
+            "R3"
+          ],
+          "outcome": "unevaluated",
+          "evidence_ids": [
+            "E2",
+            "E3"
+          ],
+          "rule_id": "demo-duplicate-ingredient-v1",
+          "rule_version": "1",
+          "reference_section": "Proposed DRP rule for overlapping active ingredients",
+          "reason_code": "unresolved_identity",
+          "follow_up_ids": [
+            "ask-independent-identity"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "demo-overlap-v2-case",
+      "snapshot_id": "demo-overlap-v2-confirmed",
+      "release_id": "demo-overlap-v2",
+      "kind": "DDI",
+      "status": "partial",
+      "simulated": true,
+      "ran_at": "2026-11-21T04:10:00Z",
+      "coverage": {
+        "total_scopes": 3,
+        "evaluated_scopes": 1,
+        "findings": 1,
+        "excluded_scopes": 2
+      },
+      "scopes": [
+        {
+          "scope_id": "ddi-R1-R2",
+          "row_ids": [
+            "R1",
+            "R2"
+          ],
+          "outcome": "finding",
+          "evidence_ids": [
+            "E1",
+            "E2",
+            "E4"
+          ],
+          "rule_id": "demo-ddi-conditional-exposure",
+          "rule_version": "1",
+          "reference_section": "One reproducible synthetic case",
+          "ingredient_ids": [
+            "X",
+            "Y"
+          ]
+        },
+        {
+          "scope_id": "ddi-R1-R2-X-Y",
+          "row_ids": [
+            "R1",
+            "R2"
+          ],
+          "outcome": "finding",
+          "evidence_ids": [
+            "E1",
+            "E2",
+            "E4"
+          ],
+          "parent_scope_id": "ddi-R1-R2",
+          "rule_id": "demo-ddi-conditional-exposure",
+          "rule_version": "1",
+          "reference_section": "One reproducible synthetic case",
+          "ingredient_ids": [
+            "X",
+            "Y"
+          ]
+        },
+        {
+          "scope_id": "ddi-R1-R2-X-X",
+          "row_ids": [
+            "R1",
+            "R2"
+          ],
+          "outcome": "no_finding",
+          "evidence_ids": [
+            "E1",
+            "E2"
+          ],
+          "parent_scope_id": "ddi-R1-R2",
+          "rule_id": "demo-ddi-x-x-covered",
+          "rule_version": "1",
+          "reference_section": "One reproducible synthetic case",
+          "ingredient_ids": [
+            "X",
+            "X"
+          ]
+        },
+        {
+          "scope_id": "ddi-R1-R3",
+          "row_ids": [
+            "R1",
+            "R3"
+          ],
+          "outcome": "unevaluated",
+          "evidence_ids": [
+            "E1",
+            "E3"
+          ],
+          "reason_code": "unresolved_identity",
+          "follow_up_ids": [
+            "ask-independent-identity"
+          ]
+        },
+        {
+          "scope_id": "ddi-R2-R3",
+          "row_ids": [
+            "R2",
+            "R3"
+          ],
+          "outcome": "unevaluated",
+          "evidence_ids": [
+            "E2",
+            "E3"
+          ],
+          "reason_code": "unresolved_identity",
+          "follow_up_ids": [
+            "ask-independent-identity"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "demo-overlap-v2-case",
+      "snapshot_id": "demo-overlap-v2-confirmed",
+      "release_id": "demo-overlap-v2",
+      "kind": "DRP",
+      "status": "partial",
+      "simulated": true,
+      "ran_at": "2026-11-21T04:10:00Z",
+      "coverage": {
+        "total_scopes": 3,
+        "evaluated_scopes": 1,
+        "findings": 1,
+        "excluded_scopes": 2
+      },
+      "scopes": [
+        {
+          "scope_id": "drp-R1-R2",
+          "row_ids": [
+            "R1",
+            "R2"
+          ],
+          "outcome": "finding",
+          "evidence_ids": [
+            "E1",
+            "E2"
+          ],
+          "rule_id": "demo-duplicate-ingredient-v1",
+          "rule_version": "1",
+          "reference_section": "Proposed DRP rule for overlapping active ingredients",
+          "ingredient_ids": [
+            "X"
+          ],
+          "follow_up_ids": [
+            "ask-shared-ingredient-intent"
+          ]
+        },
+        {
+          "scope_id": "drp-R1-R3",
+          "row_ids": [
+            "R1",
+            "R3"
+          ],
+          "outcome": "unevaluated",
+          "evidence_ids": [
+            "E1",
+            "E3"
+          ],
+          "rule_id": "demo-duplicate-ingredient-v1",
+          "rule_version": "1",
+          "reference_section": "Proposed DRP rule for overlapping active ingredients",
+          "reason_code": "unresolved_identity",
+          "follow_up_ids": [
+            "ask-independent-identity"
+          ]
+        },
+        {
+          "scope_id": "drp-R2-R3",
+          "row_ids": [
+            "R2",
+            "R3"
+          ],
+          "outcome": "unevaluated",
+          "evidence_ids": [
+            "E2",
+            "E3"
+          ],
+          "rule_id": "demo-duplicate-ingredient-v1",
+          "rule_version": "1",
+          "reference_section": "Proposed DRP rule for overlapping active ingredients",
+          "reason_code": "unresolved_identity",
+          "follow_up_ids": [
+            "ask-independent-identity"
+          ]
+        }
+      ]
+    }
+  ]
+}
