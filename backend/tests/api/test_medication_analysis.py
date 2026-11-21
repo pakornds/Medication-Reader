@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -19,7 +20,7 @@ def synthetic_case():
     form.update(
         photo_source_ids=["label-photo", "reverse-photo"],
         region_locations={
-            "label-photo": {"label-a": "left label", "label-b": "middle label"},
+            "label-photo": {"label-a": "0%,0%,50%,100%", "label-b": "50%,0%,50%,100%"},
             "reverse-photo": {"pill-c": "single crop in right pouch"},
         },
         patient_report_row_ids={"patient-account": "row-a"},
@@ -53,6 +54,17 @@ def case():
     return synthetic_case()
 
 
+def scoped_ocr(submitted, result):
+    item, = submitted["items"]
+    row = deepcopy(next(row for row in result["rows"] if row["id"] == item["row_id"]))
+    ref = {"source_id": item["source_id"], "item_id": item["id"]}
+    row.update(sources=[ref], reported_use=[], discrepancies=[], follow_ups=[], regimens=[])
+    for observation in [*row["observed_names"], *row["label_fields"].values()]:
+        if "evidence" in observation:
+            observation["evidence"] = ref
+    return {"case_id": submitted["case_id"], "rows": [row]}
+
+
 @pytest.fixture
 async def client(case):
     form, photos, response = case
@@ -65,18 +77,22 @@ async def client(case):
         body = json.loads(request.data)
         content = body["input"][0]["content"]
         submitted = json.loads(content[0]["text"])
-        expected = FormAnalysisInput.model_validate(form).model_dump(mode="json")
-        assert submitted["patient_report"] == expected["patient_report"]
-        assert submitted["other_source_notes"] == expected["other_source_notes"]
-        assert submitted["question"] == form["question"]
-        assert list(submitted["uploaded_photo_sources"]) == form["photo_source_ids"]
-        assert len([item for item in content if item["type"] == "input_image"]) == len(photos)
-        assert "only user request" in body["instructions"]
+        if "items" in submitted:
+            output = scoped_ocr(submitted, response)
+        else:
+            expected = FormAnalysisInput.model_validate(form).model_dump(mode="json")
+            assert submitted["patient_report"] == expected["patient_report"]
+            assert submitted["other_source_notes"] == expected["other_source_notes"]
+            assert submitted["question"] == form["question"]
+            assert list(submitted["uploaded_photo_sources"]) == form["photo_source_ids"]
+            assert len([item for item in content if item["type"] == "input_image"]) == int(bool(photos))
+            assert "only user request" in body["instructions"]
+            output = response
         return json.dumps({
             "status": "completed",
             "output": [{
                 "type": "message",
-                "content": [{"type": "output_text", "text": json.dumps(response)}],
+                "content": [{"type": "output_text", "text": json.dumps(output)}],
             }],
         }).encode()
 
@@ -170,7 +186,7 @@ async def test_logical_sources_can_share_one_uploaded_photo(client, case):
     label_item = next(item for item in form["evidence"]["items"] if item["id"] == "label-b")
     label_item["source_id"] = "other-label-source"
     form["region_locations"]["label-photo"].pop("label-b")
-    form["region_locations"]["other-label-source"] = {"label-b": "middle label"}
+    form["region_locations"]["other-label-source"] = {"label-b": "50%,0%,50%,100%"}
     other = model_output["rows"][1]
     for ref in (
         *other["sources"],

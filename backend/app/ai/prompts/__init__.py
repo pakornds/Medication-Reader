@@ -60,11 +60,12 @@ candidate suggestions, dosing or directions.
 )
 
 FORM_ANALYSIS = Prompt(
-    version="form-analysis-v3",
+    version="form-analysis-v4",
     instructions=_EVIDENCE_POLICY
     + _LABEL_POLICY
     + """
-Handle photo-only, text-only and mixed case evidence. The question field is the
+Handle photo-only, text-only and mixed case evidence. When label_transcripts are
+present, copy their printed observations and citations from the isolated regions. The question field is the
 only user request. It can ask what the evidence says, where it conflicts or
 what to verify. Refer treatment questions to the pharmacist or doctor. Report
 that referral as a follow-up using existing relevant rows, or an empty list
