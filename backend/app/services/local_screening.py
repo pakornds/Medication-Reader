@@ -203,22 +203,38 @@ class Membership:
     sides: dict[str, dict[int, set[str]]] = field(default_factory=dict)
     gaps: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    ingredient_atc: ingredient_reference.IngredientATC | None = None
 
 
-def _members(fest: sqlite3.Connection, product: Product, unassessed: set[str]) -> Membership:
+def _members(
+    fest: sqlite3.Connection, product: Product, unassessed: set[str],
+    routes: ingredient_reference.IngredientRoutes | None = None, release: str = "",
+) -> Membership:
     matches = Membership()
+    atcs = product.atcs
     if product.row.reason or product.row.ddi_status != "mapped" or not product.atcs:
         reason = MAPPING_REASONS.get(product.row.ddi_status)
         if product.row.ddi_status == "composition_unresolved":
             reason = MAPPING_REASONS.get(product.row.composition_status, "The product's ingredient composition is unresolved.")
         matches.gaps.append(product.row.reason or reason or "A complete product-to-FEST ATC mapping is unavailable.")
-        return matches
+        if routes and product.catalogue_form_route and not product.row.reason:
+            matches.ingredient_atc = routes.resolve(
+                release=release,
+                ingredients=product.ingredients,
+                form_route=product.catalogue_form_route,
+                composition_status=product.row.composition_status,
+                ddi_status=product.row.ddi_status,
+            )
+        if matches.ingredient_atc is None:
+            return matches
+        atcs = {matches.ingredient_atc.atc}
+        matches.gaps[0] = "An oral ingredient ATC was checked. Exact product coverage remains incomplete."
     if product.row.route_note:
         if product.route_gap:
             matches.gaps.append(product.row.route_note)
         else:
             matches.notes.append(product.row.route_note)
-    for code in sorted(product.atcs):
+    for code in sorted(atcs):
         if not re.fullmatch(r"[A-Z]\d{2}[A-Z]{2}\d{2}", code):
             matches.gaps.append(f"{code} is not a supported full ATC code.")
             continue
@@ -255,9 +271,11 @@ def _read_rule(fest: sqlite3.Connection, rule_id: str, matched: tuple[list[str],
     )
 
 
-def _ddi(fest: sqlite3.Connection, left: Membership, right: Membership) -> DDILookup:
+def _ddi(fest: sqlite3.Connection, left: Membership, right: Membership, mapping_version: str | None) -> DDILookup:
     reasons = [f"{side}: {reason}" for side, member in (("First row", left), ("Second row", right)) for reason in member.gaps]
     interactions = []
+    ingredient_sources = [ref for member in (left, right) if member.ingredient_atc
+                          for ref in member.ingredient_atc.references]
     for rule_id in sorted(left.sides.keys() & right.sides.keys()):
         matched_left, matched_right = set(), set()
         for side in (1, 2):
@@ -267,7 +285,17 @@ def _ddi(fest: sqlite3.Connection, left: Membership, right: Membership) -> DDILo
                 matched_left.update(left_codes)
                 matched_right.update(right_codes)
         if matched_left:
-            interactions.append(_read_rule(fest, rule_id, (sorted(matched_left), sorted(matched_right))))
+            rule = _read_rule(fest, rule_id, (sorted(matched_left), sorted(matched_right)))
+            if ingredient_sources and mapping_version:
+                if rule.relevance == "Ingen tiltak nødvendig":
+                    continue
+                en, th = ingredient_reference.RULE_SUMMARIES.get(rule_id, ("", ""))
+                rule.ingredient_route_match = IngredientRouteMatch(
+                    route="oral", mapping_version=mapping_version,
+                    summary_en=en, summary_th=th,
+                    references=list({(ref.title, ref.url): ref for ref in ingredient_sources}.values()),
+                )
+            interactions.append(rule)
     if reasons:
         status = "partial" if interactions else "unassessed"
     elif any(r.relevance != "Ingen tiltak nødvendig" for r in interactions):
@@ -284,62 +312,7 @@ def _ddi(fest: sqlite3.Connection, left: Membership, right: Membership) -> DDILo
     return DDILookup(status=status, interactions=interactions, reasons=reasons)
 
 
-def _ingredient_route_rule(
-    fest: sqlite3.Connection, left: Product, right: Product, meta: dict[str, str], fest_sha: str,
-) -> RuleMatch | None:
-    if (meta["tmt_release"], fest_sha) != (ingredient_reference.TMT_RELEASE, ingredient_reference.FEST_SHA256):
-        return None
-    products = (left, right)
-    if not any(product.row.ddi_status == "no_exact_fest_product_form_route" for product in products):
-        return None
-    if any(product.row.reason or product.row.composition_status != "complete"
-           or product.row.ddi_status not in {"mapped", "no_exact_fest_product_form_route"}
-           for product in products):
-        return None
-    if left.catalogue_form_route is None or right.catalogue_form_route is None:
-        return None
-
-    mapping = ingredient_reference.RULES.get(frozenset(left.ingredients.keys() | right.ingredients.keys()))
-    if mapping is None:
-        return None
-    first, second = mapping.ingredients
-    if first.substance_id not in left.ingredients:
-        first, second = second, first
-    if not first.matches(left.ingredients, *left.catalogue_form_route) or not second.matches(
-        right.ingredients, *right.catalogue_form_route
-    ):
-        return None
-    if any(product.row.ddi_status == "mapped" and product.atcs != {entry.atc}
-           for product, entry in zip(products, (first, second), strict=True)):
-        return None
-
-    rule_id = mapping.rule_id
-    opposite_sides = fest.execute(
-        """SELECT 1 FROM atc_member AS a JOIN atc_member AS b
-        ON a.rule_id = b.rule_id AND a.side <> b.side
-        WHERE a.rule_id = ? AND a.atc = ? AND b.atc = ? LIMIT 1""",
-        (rule_id, first.atc, second.atc),
-    ).fetchone()
-    if not opposite_sides:
-        return None
-    rule = _read_rule(fest, rule_id, ([first.atc], [second.atc]))
-    if rule.relevance != "Forholdsregler bør tas":
-        return None
-
-    rule.ingredient_route_match = IngredientRouteMatch(
-        route="oral",
-        mapping_version=mapping.mapping_version,
-        summary_en=mapping.summary_en,
-        summary_th=mapping.summary_th,
-        references=[
-            Reference(title=f"WHO ATC/DDD Index · {entry.ingredient} ({entry.atc})", url=entry.reference_url)
-            for entry in (first, second)
-        ],
-    )
-    return rule
-
-
-def _ddi_report(products: list[Product], meta: dict[str, str]) -> tuple[str, str, list[DDILookup]]:
+def _ddi_report(products: list[Product], meta: dict[str, str]) -> tuple[str, str, list[DDILookup], str | None]:
     with open_reference("LOCAL_FEST_DB") as fest:
         source = fest.execute("SELECT sha256,archive_filename FROM source").fetchone()
         if source is None or not meta.get("fest_sha256") or source["sha256"] != meta["fest_sha256"]:
@@ -350,17 +323,12 @@ def _ddi_report(products: list[Product], meta: dict[str, str]) -> tuple[str, str
             if node is None or not node.get("V"):
                 raise ReferenceUnavailable("The unassessed FEST scope could not be read.")
             unassessed.add(node.get("V"))
-        members = [_members(fest, product, unassessed) for product in products]
-        results = []
-        for i, j in combinations(range(len(products)), 2):
-            result = _ddi(fest, members[i], members[j])
-            fallback = _ingredient_route_rule(fest, products[i], products[j], meta, source["sha256"])
-            if fallback:
-                result.interactions.append(fallback)
-                result.status = "partial"
-                result.reasons.append("The ingredient-and-oral-route rule matched. Exact product coverage remains incomplete.")
-            results.append(result)
-        return source["archive_filename"], source["sha256"], results
+        routes = (ingredient_reference.load_routes(source["sha256"])
+                  if any(product.catalogue_form_route for product in products) else None)
+        members = [_members(fest, product, unassessed, routes, meta["tmt_release"]) for product in products]
+        version = routes.version if routes and any(member.ingredient_atc for member in members) else None
+        results = [_ddi(fest, left, right, version) for left, right in combinations(members, 2)]
+        return source["archive_filename"], source["sha256"], results, version
 
 
 def screen_local(request: LocalScreeningRequest, *, encounter: bool = False) -> LocalScreeningResult:
@@ -394,15 +362,15 @@ def screen_catalogue_list(request: CatalogueScreeningRequest) -> LocalScreeningR
                     result.row.reason = "Choose a product from the current TMT release."
                     continue
                 product = tmt.execute(
-                    """SELECT tpu,label,composition_status,ddi_status,form,fest_route FROM product
+                    """SELECT tpu,label,composition_status,ddi_status,fest_form,fest_route FROM product
                     WHERE tpu = ? AND active_tmt = 1""", (row.tpu,),
                 ).fetchone()
                 if not product:
                     result.row.reason = "The selected product is unavailable."
                     continue
                 result.row.route_note = "Product-only lookup. Actual use and route were not assessed."
-                if product["form"] and product["fest_route"]:
-                    result.catalogue_form_route = (product["form"], product["fest_route"])
+                if product["fest_form"] and product["fest_route"]:
+                    result.catalogue_form_route = (product["fest_form"], product["fest_route"])
                 _attach_product(tmt, result, product)
     except (sqlite3.Error, OSError) as exc:
         raise ReferenceUnavailable("The Thai product reference is missing or unreadable.") from exc
@@ -411,10 +379,10 @@ def screen_catalogue_list(request: CatalogueScreeningRequest) -> LocalScreeningR
 
 def _report(products, meta, snapshot_input, warnings):
     ddi_unavailable_reason = None
-    fest_release = fest_sha = None
+    fest_release = fest_sha = ingredient_mapping_version = None
     pair_products = list(combinations(products, 2))
     try:
-        fest_release, fest_sha, ddi_results = _ddi_report(products, meta)
+        fest_release, fest_sha, ddi_results, ingredient_mapping_version = _ddi_report(products, meta)
     except (ReferenceUnavailable, sqlite3.Error, ET.ParseError, OSError) as exc:
         ddi_unavailable_reason = str(exc) if isinstance(exc, ReferenceUnavailable) else "The local FEST reference is missing or unreadable."
         ddi_results = [DDILookup(status="unassessed", reasons=[ddi_unavailable_reason]) for _ in pair_products]
@@ -424,13 +392,8 @@ def _report(products, meta, snapshot_input, warnings):
         for (left, right), ddi in zip(pair_products, ddi_results, strict=True)
     ]
     snapshot_parts = [snapshot_input, meta["mapping_sha256"], meta["tmt_release"], fest_sha, ddi_unavailable_reason]
-    ingredient_mapping_versions = {
-        rule.ingredient_route_match.mapping_version
-        for pair in pairs for rule in pair.ddi.interactions
-        if rule.ingredient_route_match
-    }
-    if ingredient_mapping_versions:
-        snapshot_parts.append(sorted(ingredient_mapping_versions))
+    if ingredient_mapping_version:
+        snapshot_parts.append(ingredient_mapping_version)
     snapshot = json.dumps(snapshot_parts, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
     return LocalScreeningResult(
         snapshot_id=hashlib.sha256(snapshot.encode()).hexdigest(), tmt_release=meta["tmt_release"],

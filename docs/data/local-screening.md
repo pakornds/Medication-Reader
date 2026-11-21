@@ -56,7 +56,22 @@ uv run --with xlrd==2.0.2 tools/local_screening/install.py --tmt-2026-root /path
 
 From a source checkout, open [the local review workspace](http://127.0.0.1:8000/review/). Search by TPU, trade name, or ingredient. Select each product, record source wording and current-use evidence, and verify the row. A catalogue selection alone stays pending. Add an unidentified medicine when necessary. Choose **Check interactions and shared ingredients**. The report shows each row, pair, coverage gaps, and the references for potential findings. Changing a row clears superseded results. The existing regimen review uses the same panel. Hospital import remains a separate pharmacist action.
 
-The medicine-list Review page's **Check medicines** uses catalogue selections. Its limited fallback can surface two FEST oral rules when exact product coverage is missing. These cover ferrous fumarate with doxycycline and tramadol hydrochloride with gabapentin. The fallback requires single-ingredient products with matching TMT substance IDs, oral catalogue routes, covered forms, and the pinned TMT and FEST releases. The finding shows the FEST rule ID alongside links to its references and the WHO ATC entries. Coverage stays partial, and the check does not infer actual use or timing. Other unmapped pairs remain unassessed.
+The medicine-list Review page's **Check medicines** uses catalogue selections. An exact product-to-ATC mapping takes priority. When an exact formulation is missing, a conventional tablet or hard capsule with one documented TMT ingredient can use the oral ingredient index. The index requires an exact normalized substance term, one supported ATC across same-route FEST records, and a compatible conventional form. Conflicting or incomplete same-route evidence leaves the ingredient unassessed. The two individually reviewed ingredient mappings are supported by the WHO ATC entries and, for tramadol hydrochloride, a published oral tablet label. They apply across FEST rules.
+
+Both mapping paths use the same FEST rule groups and source conditions. An actionable ingredient-level match keeps the original FEST references, adds its mapping evidence, and is marked **Partly assessed**. A fallback without an actionable finding leaves the pair **Unassessed**. The lookup uses the catalogue route. The patient's actual use and timing remain for review. Combination products with no exact mapping, other routes, and modified-release or otherwise unsupported forms are outside this fallback. The verified staff workflow uses its existing exact-product and route checks.
+
+To reproduce the shipped ingredient index and measure its coverage with the local backend environment, run the following from the source checkout:
+
+```sh
+python tools/local_screening/build_ingredient_routes.py \
+  reference-data/fest-20261111/FEST-prescriber-2.5.1-20261111.zip \
+  reference-data/fest-20261111/ingredient-routes.json.gz
+python tools/local_screening/audit_ingredient_coverage.py \
+  reference-data/installed/tmt-fest-mapping.sqlite \
+  reference-data/installed/fest-interactions.sqlite
+```
+
+Pass `--ddinter-dir /path/to/local/csvs` to compare the eight official DDInter exports. The audit identifies major or moderate DDInter pairs with exact ingredient names in single-ingredient TMT products. It reports whether the ingredients have supported ATCs and can reach a shared actionable FEST rule. These counts measure catalogue reach across available presentations. They do not establish rule applicability to a particular patient, frequency of real prescribing, or agreement on severity. The runtime uses FEST and does not load DDInter. [DDInter downloads](https://ddinter2.scbdd.com/download/) · [Data terms](https://ddinter2.scbdd.com/terms/)
 
 The source-checkout review uses a declared reviewer role. Clinical identity management, formal validation of the crosswalk, Thai translations and a hospital-specific alert policy are deployment work. Unidentified, stopped, uncertain, stale, or inadequately sourced selections remain outside the appropriate checks. An overlap means two products list the same TMT substance ID and can represent intentional therapy. Constituents without their own codes, equivalent salts and class duplication are outside this comparison. FEST lookup covers indexed ATC groups. Named-only rule arms, patient-specific dose and timing applicability, and broad DRP assessment require further work.
 

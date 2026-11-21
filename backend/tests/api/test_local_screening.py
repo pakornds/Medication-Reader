@@ -1,5 +1,7 @@
 """Exercise release and clinical coverage logic with fictional SQLite references."""
 
+import gzip
+import json
 import sqlite3
 from contextlib import closing
 
@@ -56,31 +58,37 @@ def refs(tmp_path, monkeypatch):
 @pytest.fixture
 def ingredient_route_refs(refs, monkeypatch):
     tmt, fest = refs
-    monkeypatch.setattr(ingredient_route_reference, "TMT_RELEASE", "tmt-test")
-    monkeypatch.setattr(ingredient_route_reference, "FEST_SHA256", "test-digest")
+    routes = ingredient_route_reference.IngredientRoutes(
+        "fixture-routes", {"doxycycline": {"53": {"atc": "J01AA02", "products_by_form": {"53": "fixture-tablet"}}}}, {},
+    )
+    monkeypatch.setattr(ingredient_route_reference, "REVIEWED_TMT_RELEASES", {"tmt-test"})
+    monkeypatch.setattr(ingredient_route_reference, "load_routes", lambda sha: routes if sha == "test-digest" else None)
     with closing(sqlite3.connect(tmt)) as db:
         db.executescript("""
-            ALTER TABLE product ADD COLUMN form TEXT;
+            ALTER TABLE product ADD COLUMN fest_form TEXT;
             ALTER TABLE product ADD COLUMN active_tmt INTEGER DEFAULT 1;
-            INSERT INTO product(tpu,label,composition_status,ddi_status,fest_route,form) VALUES
-                ('737856','I-RON','complete','no_exact_fest_product_form_route','53','tablet'),
-                ('441548','SIADOCIN','complete','no_exact_fest_product_form_route','53','capsule, hard'),
-                ('461798','TRAMA','complete','no_exact_fest_product_form_route','53','tablet'),
-                ('432331','RONTIN','complete','mapped','53','capsule, hard');
+            INSERT INTO product(tpu,label,composition_status,ddi_status,fest_route,fest_form) VALUES
+                ('737856','I-RON','complete','no_exact_fest_product_form_route','53','53'),
+                ('441548','SIADOCIN','complete','no_exact_fest_product_form_route','53','891'),
+                ('461798','TRAMA','complete','no_exact_fest_product_form_route','53','53'),
+                ('432331','RONTIN','complete','mapped','53','891');
             INSERT INTO ingredient VALUES
                 ('737856','689632','ferrous fumarate'), ('441548','226372','doxycycline'),
                 ('461798','864627','tramadol hydrochloride'), ('432331','322132','gabapentin');
             INSERT INTO product_atc VALUES ('432331','N02BF01');
         """)
     with closing(sqlite3.connect(fest)) as db:
-        for mapping in ingredient_route_reference.RULES.values():
+        for key, left, right in [
+            ("fixture-iron-doxycycline", "B03AA02", "J01AA02"),
+            ("fixture-opioid-class", "N02A", "N02BF01"),
+            ("fixture-doxycycline-third-drug", "J01AA", "A01AA01"),
+        ]:
             db.execute("INSERT INTO rule SELECT ?,updated,relevance_no,clinical_consequence_no,entry_xml "
-                       "FROM rule WHERE id = 'demo-rule'", (mapping.rule_id,))
+                       "FROM rule WHERE id = 'demo-rule'", (key,))
             db.execute("INSERT INTO citation SELECT ?,citation_no,url FROM citation WHERE rule_id = 'demo-rule'",
-                       (mapping.rule_id,))
+                       (key,))
             db.executemany("INSERT INTO atc_member VALUES (?,?,?,?)", [
-                (mapping.rule_id, side, entry.atc, entry.ingredient)
-                for side, entry in enumerate(mapping.ingredients, 1)
+                (key, 1, left, left), (key, 2, right, right),
             ])
         db.commit()
     return tmt, fest
@@ -94,28 +102,30 @@ def catalogue_pair(codes=("737856", "441548")):
 
 
 @pytest.mark.parametrize("reverse", [False, True])
-@pytest.mark.parametrize("ids,expected_atcs,mapping", [
-    (("737856", "441548"), (["B03AA02"], ["J01AA02"]), ingredient_route_reference.ORAL_IRON_DOXYCYCLINE),
-    (("461798", "432331"), (["N02AX02"], ["N02BF01"]), ingredient_route_reference.ORAL_TRAMADOL_GABAPENTIN),
+@pytest.mark.parametrize("ids,expected_atcs,rule_id", [
+    (("737856", "441548"), (["B03AA02"], ["J01AA02"]), "fixture-iron-doxycycline"),
+    (("461798", "432331"), (["N02A"], ["N02BF01"]), "fixture-opioid-class"),
+    (("441548", "101"), (["J01AA"], ["A01AA01"]), "fixture-doxycycline-third-drug"),
 ])
 def test_catalogue_reports_ingredient_rule_with_partial_coverage(
-    ingredient_route_refs, reverse, ids, expected_atcs, mapping,
+    ingredient_route_refs, reverse, ids, expected_atcs, rule_id,
 ):
     pair = catalogue_pair(ids[::-1] if reverse else ids)
     assert pair.ddi.status == "partial"
     assert pair.duplicate.status == "lookup_complete"
     rule, = pair.ddi.interactions
     assert rule.matched_atcs == (expected_atcs[::-1] if reverse else expected_atcs)
-    assert rule.rule_id == mapping.rule_id
+    assert rule.rule_id == rule_id
     assert rule.references[0].title == "Fixture publication"
     assert rule.ingredient_route_match.route == "oral"
-    assert len(rule.ingredient_route_match.references) == 2
+    assert rule.ingredient_route_match.references
+    assert rule.ingredient_route_match.mapping_version == "fixture-routes"
 
 
 @pytest.mark.parametrize("edit", [
     "UPDATE product SET fest_route=NULL WHERE tpu='441548'",
     "UPDATE product SET fest_route='52' WHERE tpu='441548'",
-    "UPDATE product SET form='solution' WHERE tpu='441548'",
+    "UPDATE product SET fest_form='842' WHERE tpu='441548'",
     "INSERT INTO ingredient VALUES ('441548','S1','Unreviewed ingredient')",
     "UPDATE product SET active_tmt=0 WHERE tpu='441548'",
 ])
@@ -129,8 +139,9 @@ def test_catalogue_keeps_uncovered_products_unassessed(ingredient_route_refs, ed
 
 
 def test_catalogue_does_not_extend_fallback_to_other_pairs_or_fest_releases(ingredient_route_refs, monkeypatch):
-    assert catalogue_pair(("461798", "441548")).ddi.status == "unassessed"
-    monkeypatch.setattr(ingredient_route_reference, "FEST_SHA256", "another-release")
+    pair = catalogue_pair(("461798", "441548"))
+    assert pair.ddi.status == "unassessed" and not pair.ddi.interactions
+    monkeypatch.setattr(ingredient_route_reference, "load_routes", lambda sha: None)
     assert catalogue_pair().ddi.status == "unassessed"
 
 
@@ -140,6 +151,30 @@ def test_catalogue_does_not_replace_a_conflicting_exact_atc(ingredient_route_ref
         db.execute("UPDATE product_atc SET atc='N03AX12' WHERE tpu='432331'")
         db.commit()
     assert catalogue_pair(("461798", "432331")).ddi.status == "unassessed"
+
+
+def test_catalogue_fallback_cannot_clear_a_pair_from_a_no_action_rule(ingredient_route_refs):
+    _, fest = ingredient_route_refs
+    with closing(sqlite3.connect(fest)) as db:
+        db.execute("UPDATE rule SET relevance_no='Ingen tiltak nødvendig' WHERE id='fixture-iron-doxycycline'")
+        db.commit()
+    pair = catalogue_pair()
+    assert pair.ddi.status == "unassessed" and not pair.ddi.interactions
+
+
+def test_reference_checks_release_and_blocks_conflicted_ingredient(tmp_path):
+    path = tmp_path / "ingredient-routes.json.gz"
+    source = {
+        "format_version": 1, "fest_sha256": "test-digest", "ingredients": {},
+        "blocked": {"ferrous fumarate": ["53"]},
+    }
+    path.write_bytes(gzip.compress(json.dumps(source).encode()))
+    routes = ingredient_route_reference.load_routes("test-digest", path)
+    assert routes is not None
+    assert ingredient_route_reference.load_routes("other-release", path) is None
+    assert routes.resolve(release="TMTRF20200217", ingredients={"689632": "ferrous fumarate"},
+                          form_route=("53", "53"), composition_status="complete",
+                          ddi_status="no_exact_fest_product_form_route") is None
 
 
 def body(codes=("101", "202", None)):
