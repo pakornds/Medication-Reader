@@ -62,6 +62,11 @@ def shares_origin(entry, other):
 
 
 DOCUMENTED_FIELDS = ("strength", "form", "dose", "directions", "indication")
+LABEL_OVERRIDE_FIELDS = frozenset((*DOCUMENTED_FIELDS, "directions_status"))
+
+
+def label_overrides(entry):
+    return sorted(entry.model_fields_set & LABEL_OVERRIDE_FIELDS)
 
 
 def entry_observations(entry):
@@ -69,7 +74,7 @@ def entry_observations(entry):
         key: (field["status"], field["value"])
         for key, field in entry.get("scan_fields", {}).items()
     }
-    overrides = entry.get("label_overrides", (*DOCUMENTED_FIELDS, "directions_status"))
+    overrides = entry.get("label_overrides", LABEL_OVERRIDE_FIELDS)
     for key in DOCUMENTED_FIELDS:
         if entry[key]:
             observations[key] = ("readable", entry[key])
@@ -167,12 +172,15 @@ class AdmissionStore:
         with self.lock:
             original = self.get(actor, case_id)
             key = (case_id, actor.id, request.request_id)
-            fingerprint = sha256(request.model_dump_json().encode()).hexdigest()
+            cmd = request.command
+            fingerprint = sha256(request.model_dump_json().encode())
+            if isinstance(cmd, (AddRow, AddEvidence)) and cmd.entry.scan_fields:
+                fingerprint.update(b"\0" + ",".join(label_overrides(cmd.entry)).encode())
+            digest = fingerprint.hexdigest()
             if key in self.retries:
-                require(self.retries[key] == fingerprint, "Request ID already used.", 409)
+                require(self.retries[key] == digest, "Request ID already used.", 409)
                 return original
             require(original["revision"] == request.revision, "Encounter changed. Reload before saving.", 409)
-            cmd = request.command
             if isinstance(cmd, (Import, Decision)) or original["status"] == "Awaiting pharmacist review":
                 require(actor.role == "pharmacist", "Pharmacist required.", 403)
             require(original["status"] != "Finished" or isinstance(cmd, Import), "Review is finished.", 409)
@@ -182,7 +190,7 @@ class AdmissionStore:
             case["events"].append(dict(action=cmd.action, actor=actor.model_dump(), at=now(),
                                        revision=case["revision"], **details))
             self.records[case_id] = case
-            self.retries[key] = fingerprint
+            self.retries[key] = digest
             return case
 
     def capture(self, actor, case_id, command, images):
@@ -295,8 +303,7 @@ class AdmissionStore:
             entry = cmd.entry.model_dump(mode="json")
             if cmd.entry.scan_fields:
                 # Keep explicit reviewer overrides separate from omitted defaults and the raw scan.
-                editable = set(DOCUMENTED_FIELDS) | {"directions_status"}
-                entry["label_overrides"] = sorted(cmd.entry.model_fields_set & editable)
+                entry["label_overrides"] = label_overrides(cmd.entry)
             if entry["name"]:
                 parts = [entry["name"]]
                 for field in ("strength", "form"):
@@ -416,11 +423,13 @@ class AdmissionStore:
             named = [e for e in active(row) if e["name"] and reviewable_entry(e)]
             require(row["unknown"] or named, "Review the current identity evidence.")
             variants = {e["product"].casefold() for e in named}
-            require((len(variants) <= 1 and not conflicting_fields(row)) or cmd.resolution,
+            conflicts = conflicting_fields(row)
+            require((len(variants) <= 1 and not conflicts) or cmd.resolution,
                     "Document the resolution of conflicting evidence.")
             identity = row["confirmed"]
             if not row["unknown"]:
-                require(len(variants) <= 1 or cmd.identity_source_id, "Choose the supported identity source.")
+                identity_conflict = len(variants) > 1 or any(key in {"strength", "form"} for key in conflicts)
+                require(not identity_conflict or cmd.identity_source_id, "Choose the supported identity source.")
                 chosen = entry_for(row, cmd.identity_source_id) if cmd.identity_source_id else named[-1]
                 require(chosen in named, "Choose a source that documents this identity.")
                 identity = dict(name=chosen["product"], source_id=chosen["source"]["id"])

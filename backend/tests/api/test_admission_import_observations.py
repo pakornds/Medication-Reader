@@ -1,5 +1,7 @@
 """Scanned observations round-trip through the registered encounter and receipt APIs."""
 
+from copy import deepcopy
+
 import pytest
 
 from test_admissions import Case, client, headers, photo, record
@@ -116,3 +118,45 @@ def test_conflicting_quantities_keep_each_active_source_without_selecting_a_valu
         {"value": "21 tablets", "evidence": {"source_id": "first", "item_id": row}},
         {"value": "14 tablets", "evidence": {"source_id": "second", "item_id": row}},
     ]
+
+
+def test_conflicting_scanned_strength_requires_explicit_source(client):
+    case = Case(client, "nurse")
+    first = scanned_label("first", "21 tablets", strength={
+        "status": "readable", "value": "10 mg", "evidence": {"source_id": "first", "item_id": "selected"},
+    })
+    second = scanned_label("second", "21 tablets", strength={
+        "status": "readable", "value": "20 mg", "evidence": {"source_id": "second", "item_id": "selected"},
+    })
+    row = case.add(first)
+    case.link(row, second)
+    prepare_review(case, row)
+    note = "Compared the conflicting strengths and checked the first package."
+    error = case.send("verify", row_id=row, source_id="interview", resolution=note, status=422)
+    assert error.json()["detail"] == "Choose the supported identity source."
+    case.send("verify", row_id=row, source_id="interview", resolution=note, identity_source_id="first")
+    snapshot = import_snapshot(case, row)
+    saved, = snapshot["rows"]
+    assert saved["label_fields"]["strength"] == {
+        "status": "readable", "value": "10 mg", "evidence": {"source_id": "first", "item_id": row},
+    }
+    conflict, = saved["discrepancies"]
+    assert conflict["field"] == "strength"
+    assert [value["value"] for value in conflict["observed_values"]] == ["10 mg", "20 mg"]
+
+
+def test_retry_rejects_changing_an_omitted_override_to_an_explicit_clear(client):
+    case = Case(client, "nurse")
+    scan = scanned_label("front", "21 tablets")
+    scan.pop("dose")
+    case.add(scan)
+    path = case.path + "/actions"
+    identical = client.post(path, headers=headers("nurse"), json=case.payload)
+    assert identical.status_code == 200
+    assert identical.json() == case.state
+
+    changed = deepcopy(case.payload)
+    changed["command"]["entry"]["dose"] = None
+    conflict = client.post(path, headers=headers("nurse"), json=changed)
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"] == "Request ID already used."
