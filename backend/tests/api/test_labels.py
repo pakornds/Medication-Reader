@@ -200,3 +200,14 @@ async def test_shared_label_requires_bounded_geometry(client, scenario, location
         request["region_locations"]["label-a"] = location
     response = await http.post("/labels/transcribe", json=request)
     assert response.status_code == 422 and mode["calls"] == 0
+
+
+async def test_empty_source_cannot_borrow_other_sources_shared_attachment(client, scenario):
+    http, mode = client
+    request, _ = scenario
+    source = next(s for s in request["evidence"]["sources"] if s["id"] == "label-photo")
+    source["attachment_id"] = "table"
+    request["evidence"]["sources"].append({**source, "id": "empty-source"})
+    request.update(source_id="empty-source", region_locations={})
+    response = await http.post("/labels/transcribe", json=request)
+    assert response.status_code == 422 and mode["calls"] == 0

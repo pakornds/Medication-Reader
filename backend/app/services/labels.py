@@ -132,6 +132,8 @@ def transcribe_label_photo(
         source.attachment_id and s.attachment_id == source.attachment_id
     )}
     shared = sum(i.source_id in shared_sources for i in request.evidence.items) > 1 or len(shared_sources) > 1
+    if shared and not items:
+        raise LabelPhotoError("Select an attributed label region on this shared attachment.")
     rows = []
     provider = get_provider()
     for item in items or [None]:
