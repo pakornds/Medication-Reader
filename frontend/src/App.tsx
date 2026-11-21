@@ -4,7 +4,7 @@ import { HomePage } from './pages/home/HomePage'
 import { NewPatientLayout } from './pages/new-patient/NewPatientLayout'
 import { InputPage } from './pages/new-patient/InputPage'
 import { DraftReview } from './pages/new-patient/AnalysisPreview'
-import { createDraft, hasCaseWork, withDraftValues, type DraftValues } from './pages/new-patient/draft'
+import { createDraft, hasCaseWork, withDraftValues, type CatalogueMatch, type DraftValues } from './pages/new-patient/draft'
 import { stages } from './pages/new-patient/stages'
 import { PageContainer } from './components/layout/PageContainer'
 import { TopBar } from './components/layout/TopBar'
@@ -68,6 +68,18 @@ export default function App() {
     navigate('/new-patient/input', { replace: true })
   }
 
+  function confirmCatalogue(id: string, catalogue: CatalogueMatch) {
+    setDraft(current => ({
+      ...current,
+      medicines: current.medicines.map(medicine => {
+        if (medicine.row.id !== id) return medicine
+        const originalCatalogue = medicine.originalCatalogue
+          ?? (medicine.origin === 'manual' && !medicine.catalogue?.evidence ? medicine.catalogue : undefined)
+        return { ...medicine, catalogue, originalCatalogue }
+      }),
+    }))
+  }
+
   return (
     <>
       <TopBar language={language} onLanguage={changeLanguage} />
@@ -80,7 +92,8 @@ export default function App() {
             }>
               <Route index element={<Navigate to={lastStage} replace />} />
               <Route path="input" element={<InputPage draft={draft} setDraft={setDraft} language={language} />} />
-              <Route path="review" element={<DraftReview draft={draft} language={language} onSave={saveDraftValues} />} />
+              <Route path="review" element={<DraftReview draft={draft} language={language} onSave={saveDraftValues}
+                onConfirmCatalogue={confirmCatalogue} />} />
               <Route path="output" element={<MockPage name={t.output} />} />
             </Route>
             <Route path="/history" element={<MockPage name={t.history} />} />

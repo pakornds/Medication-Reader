@@ -4,6 +4,7 @@
 <pre id="result">Running</pre>
 <iframe title="Synthetic intake case" width="1100" height="720"></iframe>
 <script type="module">
+  import { checkScanCatalogue, checkUnspecifiedPresentation } from './scan-catalogue.js'
   const frame = document.querySelector('iframe')
   const result = document.querySelector('#result')
   const doc = () => frame.contentDocument
@@ -221,11 +222,13 @@
     type(field('Draft strength', correction), '12 mg')
     correction.querySelector('button[type="submit"]').click()
     await expect(() => scannedOrder.textContent.includes('12 mg'), 'staff correction saved to the intended order')
+    const finishOldLookup = await checkScanCatalogue({ frame: win(), manualOrder, scannedOrder, expect, assert, type })
     assert(scannedOrder.querySelector('.staff-corrections').querySelectorAll('dt').length===1
       && scannedOrder.querySelector('.staff-corrections dt').textContent==='Draft strength',
       'only the changed strength is attributed to staff')
 
     input()
+    await finishOldLookup()
     await expect(() => draftRows().some(row => row.textContent.includes('12 mg')), 'correction reflected in the draft')
     await click('Analyze evidence')
     await expect(() => suggestion('9 mg'), 'new reading from the original source is available for inspection')
@@ -490,6 +493,8 @@
     await reloaded
     await expect(() => doc()?.querySelector('.empty-case'),'reload clears the open case')
     await scanPrefillCase()
+    await checkUnspecifiedPresentation({ frame, doc, win, photo, packageLabelPhoto, click, expect, assert, type,
+      live: new URLSearchParams(location.search).has('liveCatalogue') })
     result.textContent='PASS'
   } catch(error) {
     result.textContent='FAIL '+error.message

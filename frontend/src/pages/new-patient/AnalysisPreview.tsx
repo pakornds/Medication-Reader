@@ -8,6 +8,7 @@ import type { RegimenComponent } from '../../api/contracts'
 import { intake, type IntakeText } from '../../i18n/intake'
 import type { Language } from '../../i18n/messages'
 import { EvidenceCrop, EvidenceImage } from './EvidenceImage'
+import { ScanCatalogue } from './ScanCatalogue'
 import {
   draftValues,
   hasEarlierEvidence,
@@ -17,6 +18,7 @@ import {
   rowName,
   scanEvidence,
   type Draft,
+  type CatalogueMatch,
   type DraftValues,
   type Evidence,
   type Fact,
@@ -306,10 +308,11 @@ function DraftEditor({ medicine, t, onSave }: { medicine: Medicine; t: IntakeTex
   )
 }
 
-export function DraftReview({ draft, language, onSave }: {
+export function DraftReview({ draft, language, onSave, onConfirmCatalogue }: {
   draft: Draft
   language: Language
   onSave: (id: string, values: DraftValues) => void
+  onConfirmCatalogue: (id: string, match: CatalogueMatch) => void
 }) {
   const t = intake[language]
   return (
@@ -318,6 +321,10 @@ export function DraftReview({ draft, language, onSave }: {
       {!draft.medicines.length && <p>{t.noMedicines}</p>}
       {draft.medicines.map((medicine) => {
         const { row, catalogue, corrections, linkedScans } = medicine
+        const compare = (scan: MedicineEvidence) => !hasEarlierEvidence(scan, draft.evidence) && (
+          <ScanCatalogue scan={scan} language={language} current={catalogue}
+            onConfirm={match => onConfirmCatalogue(row.id, match)} />
+        )
         return (
           <article className="intake-panel stack" key={row.id}>
             <div className="spread">
@@ -328,9 +335,14 @@ export function DraftReview({ draft, language, onSave }: {
               <p role="status">{t.earlier}</p>
             )}
             {catalogue && (
-              <small>
+              <small className="selected-trade-product">
                 TPU {catalogue.product.tpu} · {catalogue.release}
               </small>
+            )}
+            {medicine.originalCatalogue && medicine.originalCatalogue.product.tpu !== catalogue?.product.tpu && (
+              <small>{language === 'th' ? 'ผลิตภัณฑ์ที่เลือกเมื่อกรอกข้อมูล' : 'Original manual selection'} ·
+                {' '}{medicine.originalCatalogue.product.label} · TPU {medicine.originalCatalogue.product.tpu}
+                {' · '}{medicine.originalCatalogue.release}</small>
             )}
             <DraftEditor medicine={medicine} t={t} onSave={(values) => onSave(row.id, values)} />
             {corrections && (
@@ -347,11 +359,13 @@ export function DraftReview({ draft, language, onSave }: {
               </div>
             )}
             <RowEvidence {...medicine} scan={medicine.origin === 'analysis'} rt={regimenText[language]} t={t} />
+            {medicine.origin === 'analysis' && compare(medicine)}
             {linkedScans?.map((scan, index) => (
               <section className="suggestion" key={index}>
                 <h3>{t.linkedScan}</h3>
                 {hasEarlierEvidence(scan, draft.evidence) && <p role="status">{t.earlier}</p>}
                 <RowEvidence {...scan} rt={regimenText[language]} t={t} />
+                {compare(scan)}
               </section>
             ))}
           </article>

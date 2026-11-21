@@ -41,7 +41,7 @@ export type Product = {
   strength: string
   dose_form: string
 }
-export type CatalogueMatch = { product: Product; release: string }
+export type CatalogueMatch = { product: Product; release: string; evidence?: Ref }
 export type Evidence = { photos: Photo[]; notes: Note[]; question: string }
 export type MedicineEvidence = {
   row: Suggestion
@@ -52,6 +52,7 @@ export type DraftValues = { name: string; strength: string; form: string; direct
 export type Medicine = MedicineEvidence & {
   origin: 'analysis' | 'manual'
   catalogue?: CatalogueMatch
+  originalCatalogue?: CatalogueMatch
   corrections?: Partial<DraftValues>
   linkedScans?: MedicineEvidence[]
 }
@@ -86,7 +87,8 @@ export function rowName(row: Suggestion, language: Language) {
 }
 
 function sourcedValues(medicine: Medicine): DraftValues {
-  const { row, catalogue } = medicine
+  const { row } = medicine
+  const catalogue = medicine.originalCatalogue ?? (medicine.catalogue?.evidence ? undefined : medicine.catalogue)
   return {
     name: row.observed_names.length === 1 ? row.observed_names[0].value : '',
     strength: row.label_fields.strength?.value ?? catalogue?.product.strength ?? '',
