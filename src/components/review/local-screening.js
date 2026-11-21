@@ -133,7 +133,7 @@ function showReport(root, report, names, reviewedRows, caseEvidence) {
   fragment.append(provenance);
   if (!report.pairs.length) fragment.append(element("p", "No pair to assess. Add a second medicine to check interactions and shared ingredients."));
   const sections = [
-    ["ddi", "Potential interactions"], ["duplicate", "Shared active ingredients"],
+    ["ddi", "Potential interactions"], ["duplicate", "Shared ingredients by TMT substance ID"],
   ];
   for (const [key, heading] of sections) {
     const section = element("section", "");

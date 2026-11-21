@@ -172,8 +172,8 @@ def _duplicate(left: Product, right: Product) -> DuplicateLookup:
     shared = sorted(left.ingredients.keys() & right.ingredients.keys())
     return DuplicateLookup(
         status="potential" if shared else "lookup_complete",
-        reasons=["Shared TMT substance. Confirm whether both products are intended."] if shared else
-                ["No shared exact substance ID in the two complete TMT compositions. Salt and therapeutic-class equivalents are outside this check."],
+        reasons=["Both products list the same TMT substance ID. Confirm whether both products are intended."] if shared else
+                ["The recorded TMT substance IDs do not overlap. Constituents without separate codes, salt equivalents and therapeutic-class duplication are outside this check."],
         ingredients=[Ingredient(subs_id=code, name=left.ingredients[code]) for code in shared],
     )
 

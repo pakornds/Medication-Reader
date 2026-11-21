@@ -48,7 +48,17 @@ FORM = {
     "nebuliser solution": ("869", "11"), "nebuliser suspension": ("871", "11"),
 }
 COMPLEX = re.compile(r"\b(vaccin\w*|extracts?|multivitamins?|probiotics?|mixtures?|combinations?|allergens?)\b")
-AGGREGATE_SUBSTANCES = {"vitamin b complex", "factor ix complex", "ossein mineral complex"}
+# These published concepts name a mixture or family without enumerating its constituents.
+AGGREGATE_SUBSTANCES = {
+    "amino acid", "amino acids", "artificial saliva solution", "bacterial lysate",
+    "balanced and isotonic ringer's acetate", "bioflavonoids", "carbohydrates", "carotenoid",
+    "compound cardamom tincture", "compound gentian tincture", "compound rhubarb tincture",
+    "compound tinospora tincture", "deproteinised dialysate of calf blood", "electrolytes",
+    "essential keto acids", "essential phospholipids", "factor ix complex", "haemodialysate",
+    "ethyl esters of iodized fatty acids of poppy seed oil", "lipids", "medium chain triglycerides",
+    "natural mixed carotenoids", "omega-3 acid triglycerides", "ossein mineral complex", "phenolic compound",
+    "phospholipid-ptc", "protein", "protein hydrolysates", "talbot's solution", "trace elements", "vitamin b complex",
+}
 
 
 def norm(text):

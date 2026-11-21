@@ -28,7 +28,8 @@ def test_historical_release_gate_is_independent_of_current_mapping():
 
 def test_aggregate_single_code_does_not_establish_constituent_composition():
     graph = [{"tpu": {"gpu"}}, {"gpu": {"gp"}}, {"gp": {"vtm"}}, {"vtm": {"1"}}]
-    for name in ("vitamin B complex", "factor ix complex", "ossein mineral complex"):
+    for name in ("vitamin B complex", "factor ix complex", "ossein mineral complex", "amino acids",
+                 "electrolytes", "carbohydrates", "lipids", "trace elements", "natural mixed carotenoids"):
         assert tmt_composition("tpu", name, graph, {"1": name}) == (
             "complex_substance_needs_review", [("1", name)],
         )
