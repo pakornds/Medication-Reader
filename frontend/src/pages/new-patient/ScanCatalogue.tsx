@@ -6,7 +6,7 @@ import { Button } from '../../components/ui/Button'
 import { InputField } from '../../components/ui/InputField'
 import type { Language } from '../../i18n/messages'
 import { EvidenceCrop } from './EvidenceImage'
-import { photoCitation, type CatalogueMatch, type Fact, type MedicineEvidence, type Photo, type Region } from './draft'
+import { currentPhotoRegion, type CatalogueMatch, type Evidence, type Fact, type MedicineEvidence, type Photo, type Region } from './draft'
 
 const copy = {
   en: {
@@ -33,6 +33,7 @@ const normalizeName = (value: string) => value.normalize('NFKC').toLowerCase().r
 type LocatedName = { fact: Fact; photo: Photo; region: Region }
 type Props = {
   scan: MedicineEvidence
+  currentEvidence: Evidence
   language: Language
   current?: CatalogueMatch
   onConfirm: (match: CatalogueMatch) => void
@@ -41,7 +42,7 @@ type Props = {
 function Search({ scan, language, current, onConfirm, name }: Props & { name: LocatedName }) {
   const t = copy[language]
   const { fact, photo, region } = name
-  const [query, setQuery] = useState(fact.value)
+  const [query, setQuery] = useState(fact.value.trim().slice(0, 120))
   const [result, setResult] = useState<ProductOptions>()
   const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('idle')
   const debounce = useRef<number | undefined>(undefined)
@@ -154,7 +155,7 @@ export function ScanCatalogue(props: Props) {
   if (props.scan.row.identity_status !== 'named') return null
   const names: LocatedName[] = []
   for (const fact of props.scan.row.observed_names) {
-    const located = photoCitation(props.scan.evidence, fact.evidence)
+    const located = currentPhotoRegion(props.scan.evidence, props.currentEvidence, fact.evidence)
     if (fact.evidence.item_id && located?.region && located.photo.kind !== 'reverse_photo' && located.region.rowId === props.scan.row.id
       && !(props.scan.row.reverse_crop?.source_id === fact.evidence.source_id
         && props.scan.row.reverse_crop.item_id === fact.evidence.item_id)) {

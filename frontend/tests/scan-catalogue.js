@@ -91,6 +91,9 @@ export async function checkUnspecifiedPresentation({ frame, doc, win, photo, pac
   await expect(() => doc().querySelector('section[aria-label="Label side"]'), 'fresh photo intake')
   const originalFetch = win().fetch.bind(win())
   const regionId = crypto.randomUUID()
+  const longName = 'Synthetic multi-ingredient product ' + 'extended ingredient wording '.repeat(5)
+  const otherNote = () => [...doc().querySelectorAll('label')].find(l => l.firstChild.textContent.trim() === 'Other source note')?.control
+  type(otherNote(), 'Synthetic independent transfer record')
   win().fetch = async (url, init) => {
     if (String(url).endsWith('/medication-analysis')) {
       const form = JSON.parse(init.body.get('form'))
@@ -99,10 +102,12 @@ export async function checkUnspecifiedPresentation({ frame, doc, win, photo, pac
         attachment_id: form.scene_photo_ids[0], ...ref, row_id: regionId,
         bounds: { x: 0, y: 0, width: 0.5, height: 1 },
       }] : []
+      const observed_names = [{ value: 'AMLOC', evidence: ref }]
+      if (!live) observed_names.push({ value: longName, evidence: ref })
       return Response.json({ case_id: form.evidence.case_id, located_regions, unassigned_reports: [], rows: [{
-        id: regionId, identity_status: 'named', observed_names: [{ value: 'AMLOC', evidence: ref }],
+        id: regionId, identity_status: 'named', observed_names,
         label_fields: { strength: { status: 'unreadable', evidence: ref }, form: { status: 'missing' } },
-        sources: [ref], reported_use: [], discrepancies: [], follow_ups: [],
+        sources: [ref, ...form.other_source_notes.map(n => n.evidence)], reported_use: [], discrepancies: [], follow_ups: [],
       }] })
     }
     if (!live && String(url).includes('/checks/local/products')) {
@@ -126,6 +131,18 @@ export async function checkUnspecifiedPresentation({ frame, doc, win, photo, pac
   assert(empty(), 'unreadable strength and missing form initially blank in clinical draft')
   const comparison = [...row.querySelectorAll('details')].find(d => d.querySelector('summary')?.textContent === 'Compare label with catalogue')
   comparison.open = true
+  if (!live) {
+    const chooseName = async index => {
+      await expect(() => comparison.querySelector('select'), 'select a distinct observed name')
+      const select = comparison.querySelector('select')
+      select.value = String(index)
+      select.dispatchEvent(new Event('change', {bubbles:true}))
+    }
+    await chooseName(1)
+    await expect(() => comparison.querySelector('input')?.value === longName.slice(0, 120), 'long search seed respects catalogue limit')
+    assert(comparison.querySelector('.scan-comparison').textContent.includes(longName), 'long original stays displayed in full')
+    await chooseName(0)
+  }
   await click('Search catalogue')
   const candidate = code => [...comparison.querySelectorAll('.suggestion')].find(c => c.textContent.includes('TPU ' + code))
   await expect(() => candidate('108455') && candidate('108591'), 'both source strengths available')
@@ -140,6 +157,12 @@ export async function checkUnspecifiedPresentation({ frame, doc, win, photo, pac
   assert(row.textContent.includes('Awaiting clinical review'), 'selection preserves pending status')
   assert(row.querySelector('.row-evidence').textContent.includes('Unreadable'), 'original uncertain observation retained')
   // Staff can attach the same package to a separately documented manual order.
+  doc().querySelector('a[href="/new-patient/input"]').click()
+  await expect(otherNote, 'independent text evidence remains editable')
+  type(otherNote(), 'Updated independent transfer record')
+  doc().querySelector('a[href="/new-patient/review"]').click()
+  await expect(() => doc().querySelector('article .scan-catalogue') && doc().querySelector('.selected-trade-product')?.textContent.includes('108455'),
+    'editing another citation retains the comparison and confirmation tied to the current crop')
   doc().querySelector('a[href="/new-patient/input"]').click()
   await click('Enter medicine manually')
   type(doc().querySelector('.medicine-picker input'), '108591')

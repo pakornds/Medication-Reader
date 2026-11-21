@@ -163,14 +163,19 @@ export function updateDraftEvidence(draft: Draft, next: Evidence): Draft {
   const displaced = draft.medicines.filter(medicine => {
     const ref = medicine.catalogue?.evidence
     if (!ref) return false
-    const before = photoCitation(draft.evidence, ref)
-    const after = photoCitation(next, ref)
-    return !after?.region || before?.photo.file !== after.photo.file || before.region !== after.region
+    return !currentPhotoRegion(draft.evidence, next, ref)
   })
   const medicines = displaced.length
     ? draft.medicines.map(medicine => displaced.includes(medicine) ? { ...medicine, catalogue: undefined } : medicine)
     : draft.medicines
   return { ...draft, evidence: next, preview: null, medicines }
+}
+
+export function currentPhotoRegion(original: Evidence, current: Evidence, ref: Ref) {
+  const source = photoCitation(original, ref)
+  const latest = photoCitation(current, ref)
+  return source?.region && latest?.region === source.region && latest.photo.file === source.photo.file
+    && latest.photo.date === source.photo.date ? { photo: source.photo, region: source.region } : undefined
 }
 
 export function hasCaseWork({ evidence, medicines, preview }: Draft): boolean {

@@ -322,8 +322,8 @@ export function DraftReview({ draft, language, onSave, onCatalogue, embedded = f
       {!draft.medicines.length && <p>{t.noMedicines}</p>}
       {draft.medicines.map((medicine) => {
         const { row, catalogue, corrections, linkedScans } = medicine
-        const compare = (scan: MedicineEvidence) => onCatalogue && !hasEarlierEvidence(scan, draft.evidence) && (
-          <ScanCatalogue scan={scan} language={language} current={catalogue}
+        const compare = (scan: MedicineEvidence) => onCatalogue && (
+          <ScanCatalogue scan={scan} currentEvidence={draft.evidence} language={language} current={catalogue}
             onConfirm={match => onCatalogue(row.id, match)} />
         )
         const catalogueEvidence = catalogue?.evidence
