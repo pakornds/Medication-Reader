@@ -1,0 +1,64 @@
+from datetime import UTC, datetime
+from typing import Annotated, Literal
+
+from pydantic import AwareDatetime, Field, field_validator
+
+from .analysis import MedicationSuggestion
+from .evidence import CaseEvidence, ContractModel, EvidenceRef, SourcedValue, Text
+
+Revision = Annotated[int, Field(ge=1)]
+
+
+class ReviewerIdentity(ContractModel):
+    id: Text
+    name: Text
+    role: Literal["pharmacist", "doctor", "staff"]
+
+
+class CurrentUseVerification(ContractModel):
+    reviewer: ReviewerIdentity
+    verified_at: AwareDatetime
+    status: Literal["current", "no_longer_current", "uncertain"]
+    identity: SourcedValue | None = None
+    normalized_medication_id: Text | None = None
+    dose: SourcedValue | None = None
+    route: SourcedValue | None = None
+    frequency: SourcedValue | None = None
+    evidence: list[EvidenceRef] = Field(min_length=1)
+    resolved_discrepancies: list[Text] = Field(default_factory=list)
+
+
+class PharmacistApproval(ContractModel):
+    pharmacist_id: Text
+    approved_at: AwareDatetime
+    row_revision: Revision
+
+
+class ReviewRow(MedicationSuggestion):
+    revision: Revision
+    verification: CurrentUseVerification | None = None
+    approval: PharmacistApproval | None = None
+
+
+class ImportRequest(ContractModel):
+    evidence: CaseEvidence
+    retry_token: Text
+    selected_row_ids: list[Text] = Field(min_length=1)
+    rows: list[ReviewRow] = Field(min_length=1)
+
+
+class ImportReceipt(ContractModel):
+    imported_at: AwareDatetime
+    imported_row_ids: list[Text] = Field(min_length=1)
+
+    @field_validator("imported_at")
+    @classmethod
+    def normalize_timestamp(cls, value: datetime) -> datetime:
+        return value.astimezone(UTC)
+
+
+class ServiceError(ContractModel):
+    code: Text
+    message: Text
+    recoverable: bool
+    row_ids: list[Text] = Field(default_factory=list)

@@ -1,0 +1,65 @@
+{
+  "candidate_match": {
+    "row_id": "row-c",
+    "status": "unresolved",
+    "candidates": [
+      {
+        "reference_id": "fixture-a",
+        "fictional_medication": "Demo A",
+        "image_reference": "fixture:a",
+        "matches": ["shape: oval"],
+        "differences": ["color"]
+      }
+    ],
+    "follow_up": "Confirm identity from the original labeled package."
+  },
+  "candidate_no_match": {
+    "row_id": "row-c",
+    "status": "unresolved",
+    "candidates": [],
+    "follow_up": "Ask for the original labeled package."
+  },
+  "reviewer": {
+    "id": "pharmacist-1",
+    "name": "Demo pharmacist",
+    "role": "pharmacist"
+  },
+  "import_success": {
+    "imported_at": "2026-11-21T04:00:00Z",
+    "imported_row_ids": ["row-b"]
+  },
+  "import_retry": {
+    "retry_token": "demo-retry-1",
+    "selected_row_ids": ["row-b"]
+  },
+  "retry_conflict": {
+    "code": "retry_conflict",
+    "message": "The retry token belongs to a different snapshot.",
+    "recoverable": true
+  },
+  "provider_timeout": {
+    "code": "provider_timeout",
+    "message": "Analysis timed out. Retry with the same evidence.",
+    "recoverable": true
+  },
+  "ddi_partial": {
+    "kind": "DDI",
+    "status": "partial",
+    "simulated": true,
+    "ran_at": "2026-11-21T04:05:00Z",
+    "source": {"name": "Synthetic references", "version": "demo-v1"},
+    "evaluated": [{"row_ids": ["row-a", "row-b"]}],
+    "excluded": [{"scope": {"row_ids": ["row-a", "row-c"]}, "reason": "Unresolved identity"}]
+  },
+  "drp_unavailable": {
+    "kind": "DRP",
+    "status": "unavailable",
+    "simulated": true,
+    "excluded": [
+      {
+        "scope": {"row_ids": ["row-b"], "rule_id": "demo-rule"},
+        "reason": "Required context is missing"
+      }
+    ]
+  }
+}
