@@ -1,3 +1,10 @@
+import {
+  admissionReview,
+  canAttestCurrentUse,
+  renderAdmissionReview,
+  requiresPharmacyIdentity,
+} from "/regimen-review/admission-review.mjs";
+
 const $ = (id) => document.getElementById(id);
 let token = "",
   actor,
@@ -6,6 +13,7 @@ let token = "",
   pending,
   saveForm;
 const form = $("editform");
+let reviewRead;
 let scanDraft;
 const clean = (value) => value?.trim() || null;
 const human = (value) => (value || "").replaceAll("_", " ");
@@ -151,6 +159,7 @@ $("signin").onsubmit = async (event) => {
   }
 };
 $("signout").onclick = () => {
+  reviewRead?.abort();
   token = "";
   actor = null;
   encounter = null;
@@ -664,6 +673,10 @@ function crop(canvas, photo) {
   img.src = "data:" + photo.media_type + ";base64," + photo.data;
 }
 function render() {
+  reviewRead?.abort();
+  reviewRead = new AbortController();
+  const reviewCase = encounter.id;
+  const { signal } = reviewRead;
   const sourceNames = new Map();
   for (const row of Object.values(encounter.rows)) {
     row.entries.forEach((entry, i) =>
@@ -701,6 +714,7 @@ function render() {
     .map((row) => {
       const answer = row.interview,
         verification = row.verified;
+      const awaitingIdentity = requiresPharmacyIdentity(row);
       const state = row.confirmed
         ? "Identity confirmed by pharmacist"
         : row.proposal
@@ -714,7 +728,7 @@ function render() {
             '<div class="source"><strong>' +
             esc(human(e.source.kind)) +
             "</strong> · " +
-            esc(e.source.reporter || "") +
+            esc(e.source.organization || e.source.reporter || "") +
             " " +
             esc(e.source.source_date || "") +
             (row.superseded.includes(e.source.id)
@@ -794,6 +808,7 @@ function render() {
             )
           : "") +
         "</p>" +
+        '<div class="screen" data-review-item="' + esc(row.id) + '"></div>' +
         sources +
         (anotherStrength
           ? "<p>Suggested follow-up · Clarify how the patient currently uses each strength, including any as-needed use.</p>"
@@ -822,11 +837,19 @@ function render() {
           ? "<p><strong>Verified use</strong> · " +
             esc(human(verification.answer.current_use)) +
             " · " +
-            esc(verification.actor.name) +
+            esc(verification.actor.name + " (" + human(verification.actor.role) + ")") +
             " · " +
             esc(new Date(verification.at).toLocaleString()) +
             " · " +
             esc(sourceName(verification.source_id)) +
+            (verification.answer.current_use === "current"
+              ? "<br>Verified regimen · " +
+                esc(
+                  [verification.answer.dose, verification.answer.route, verification.answer.schedule]
+                    .filter(Boolean)
+                    .join(" · "),
+                )
+              : "") +
             (verification.identity
               ? "<br>Verified identity · " +
                 esc(verification.identity.name) +
@@ -849,7 +872,10 @@ function render() {
             (row.unknown && role()
               ? button("Review identity", "decide", row.id)
               : "") +
-            (answer ? button("Verify current use", "verify", row.id) : "")
+            (answer && !awaitingIdentity ? button("Verify current use", "verify", row.id) : "") +
+            (canAttestCurrentUse(row, actor)
+              ? button("Attest current use for screening", "attest_current_use", row.id)
+              : "")
           : "") +
         "</div>" +
         (!finished
@@ -859,7 +885,25 @@ function render() {
       );
     })
     .join("");
-  for (const canvas of document.querySelectorAll(".crop"))
+  for (const root of $("rows").querySelectorAll("[data-review-item]")) {
+    const row = encounter.rows[root.dataset.reviewItem];
+    renderAdmissionReview(root, admissionReview(encounter, row), {
+      loadRegimens: body => api("/regimens/parse", body),
+      sourceName,
+      async loadCrop(link) {
+        const response = await fetch("/admissions/" + reviewCase + "/capture/region", {
+          method: "POST",
+          cache: "no-store",
+          signal,
+          headers: { "Content-Type": "application/json", "X-Demo-Reviewer-Token": token },
+          body: JSON.stringify(link),
+        });
+        if (!response.ok) throw new Error("Region unavailable.");
+        return response.blob();
+      },
+    });
+  }
+  for (const canvas of $("rows").querySelectorAll("canvas.crop"))
     crop(
       canvas,
       encounter.rows[canvas.dataset.item].entries[Number(canvas.dataset.index)]
@@ -942,6 +986,15 @@ document.addEventListener("click", async (ev) => {
     if (op === "add" || op === "link" || op === "retake")
       return evidenceForm(row, op === "retake");
     if (op === "interview") return interview(row);
+    if (op === "attest_current_use") {
+      const source = active(row).find(entry => entry.source.id === row.interview.source_id);
+      return edit(
+        "Attest current use for screening · " + title(row),
+        "<p>" + esc(source.wording) + "</p>" +
+          "<p>Verify the complete regimen separately before approving this row for import.</p>",
+        () => action({ action: op, row_id: row.id, source_id: source.source.id }),
+      );
+    }
     if (op === "verify")
       return edit(
         "Verify current use · " + title(row),
