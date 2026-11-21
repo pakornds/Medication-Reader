@@ -56,6 +56,14 @@ class Reference(ContractModel):
     url: str | None
 
 
+class IngredientRouteMatch(ContractModel):
+    route: Literal["oral"]
+    mapping_version: str
+    summary_en: str
+    summary_th: str
+    references: list[Reference]
+
+
 class RuleMatch(ContractModel):
     rule_id: str
     relevance: str
@@ -67,6 +75,7 @@ class RuleMatch(ContractModel):
     references: list[Reference]
     # Left/right follow the pair's row order, even if the FEST rule lists them in reverse.
     matched_atcs: tuple[list[str], list[str]]
+    ingredient_route_match: IngredientRouteMatch | None = None
 
 
 class DDILookup(ContractModel):

@@ -12,12 +12,13 @@ from itertools import combinations
 from app.schemas.analysis import AnalysisResult, validate_analysis_result
 from app.schemas.evidence import CaseEvidence, EvidenceRef, EvidenceValidationError
 from app.schemas.local_screening import (
-    CatalogueScreeningRequest, DDILookup, DuplicateLookup, Ingredient, LocalScreeningRequest, LocalScreeningResult,
+    CatalogueScreeningRequest, DDILookup, DuplicateLookup, Ingredient, IngredientRouteMatch, LocalScreeningRequest, LocalScreeningResult,
     Reference, RuleMatch, ScreenedPair, ScreenedRow,
 )
 from app.schemas.regimen import validate_regimen_evidence
 from app.schemas.review import ReviewRow
 from app.services.checks import STOPPED_WARNING, _traceable, use_exclusion
+from app.services import ingredient_route_reference as ingredient_reference
 from app.services.local_reference_db import open_reference
 
 
@@ -53,6 +54,7 @@ class Product:
     ingredients: dict[str, str] = field(default_factory=dict)
     atcs: set[str] = field(default_factory=set)
     route_gap: bool = False
+    catalogue_form_route: tuple[str, str] | None = None
 
 
 def _independent_identity(row: ReviewRow, evidence: CaseEvidence, identity: EvidenceRef) -> bool:
@@ -282,6 +284,56 @@ def _ddi(fest: sqlite3.Connection, left: Membership, right: Membership) -> DDILo
     return DDILookup(status=status, interactions=interactions, reasons=reasons)
 
 
+def _ingredient_route_rule(
+    fest: sqlite3.Connection, left: Product, right: Product, meta: dict[str, str], fest_sha: str,
+) -> RuleMatch | None:
+    if (meta["tmt_release"], fest_sha) != (ingredient_reference.TMT_RELEASE, ingredient_reference.FEST_SHA256):
+        return None
+    products = (left, right)
+    if not any(product.row.ddi_status == "no_exact_fest_product_form_route" for product in products):
+        return None
+    if any(product.row.reason or product.row.composition_status != "complete"
+           or product.row.ddi_status not in {"mapped", "no_exact_fest_product_form_route"}
+           for product in products):
+        return None
+    if left.catalogue_form_route is None or right.catalogue_form_route is None:
+        return None
+
+    doxy, iron = ingredient_reference.DOXYCYCLINE, ingredient_reference.FERROUS_FUMARATE
+    for first, second in ((doxy, iron), (iron, doxy)):
+        if first.matches(left.ingredients, *left.catalogue_form_route) and second.matches(
+            right.ingredients, *right.catalogue_form_route
+        ):
+            break
+    else:
+        return None
+
+    rule_id = ingredient_reference.RULE_ID
+    opposite_sides = fest.execute(
+        """SELECT 1 FROM atc_member AS a JOIN atc_member AS b
+        ON a.rule_id = b.rule_id AND a.side <> b.side
+        WHERE a.rule_id = ? AND a.atc = ? AND b.atc = ? LIMIT 1""",
+        (rule_id, first.atc, second.atc),
+    ).fetchone()
+    if not opposite_sides:
+        return None
+    rule = _read_rule(fest, rule_id, ([first.atc], [second.atc]))
+    if rule.relevance != "Forholdsregler bør tas":
+        return None
+
+    rule.ingredient_route_match = IngredientRouteMatch(
+        route="oral",
+        mapping_version=ingredient_reference.MAPPING_VERSION,
+        summary_en="Iron can reduce doxycycline absorption when taken together.",
+        summary_th="ธาตุเหล็กอาจลดการดูดซึมด็อกซีไซคลินเมื่อรับประทานพร้อมกัน",
+        references=[
+            Reference(title=f"WHO ATC/DDD Index · {entry.ingredient} ({entry.atc})", url=entry.reference_url)
+            for entry in (first, second)
+        ],
+    )
+    return rule
+
+
 def _ddi_report(products: list[Product], meta: dict[str, str]) -> tuple[str, str, list[DDILookup]]:
     with open_reference("LOCAL_FEST_DB") as fest:
         source = fest.execute("SELECT sha256,archive_filename FROM source").fetchone()
@@ -294,7 +346,15 @@ def _ddi_report(products: list[Product], meta: dict[str, str]) -> tuple[str, str
                 raise ReferenceUnavailable("The unassessed FEST scope could not be read.")
             unassessed.add(node.get("V"))
         members = [_members(fest, product, unassessed) for product in products]
-        results = [_ddi(fest, left, right) for left, right in combinations(members, 2)]
+        results = []
+        for i, j in combinations(range(len(products)), 2):
+            result = _ddi(fest, members[i], members[j])
+            fallback = _ingredient_route_rule(fest, products[i], products[j], meta, source["sha256"])
+            if fallback:
+                result.interactions.append(fallback)
+                result.status = "partial"
+                result.reasons.append("The ingredient-and-oral-route rule matched. Exact product coverage remains incomplete.")
+            results.append(result)
         return source["archive_filename"], source["sha256"], results
 
 
@@ -329,13 +389,15 @@ def screen_catalogue_list(request: CatalogueScreeningRequest) -> LocalScreeningR
                     result.row.reason = "Choose a product from the current TMT release."
                     continue
                 product = tmt.execute(
-                    """SELECT tpu,label,composition_status,ddi_status FROM product
+                    """SELECT tpu,label,composition_status,ddi_status,form,fest_route FROM product
                     WHERE tpu = ? AND active_tmt = 1""", (row.tpu,),
                 ).fetchone()
                 if not product:
                     result.row.reason = "The selected product is unavailable."
                     continue
                 result.row.route_note = "Product-only lookup. Actual use and route were not assessed."
+                if product["form"] and product["fest_route"]:
+                    result.catalogue_form_route = (product["form"], product["fest_route"])
                 _attach_product(tmt, result, product)
     except (sqlite3.Error, OSError) as exc:
         raise ReferenceUnavailable("The Thai product reference is missing or unreadable.") from exc
@@ -356,10 +418,15 @@ def _report(products, meta, snapshot_input, warnings):
         ScreenedPair(row_ids=(left.row.row_id, right.row.row_id), ddi=ddi, duplicate=_duplicate(left, right))
         for (left, right), ddi in zip(pair_products, ddi_results, strict=True)
     ]
-    snapshot = json.dumps(
-        [snapshot_input, meta["mapping_sha256"], meta["tmt_release"], fest_sha, ddi_unavailable_reason],
-        ensure_ascii=False, separators=(",", ":"), sort_keys=True,
-    )
+    snapshot_parts = [snapshot_input, meta["mapping_sha256"], meta["tmt_release"], fest_sha, ddi_unavailable_reason]
+    ingredient_mapping_versions = {
+        rule.ingredient_route_match.mapping_version
+        for pair in pairs for rule in pair.ddi.interactions
+        if rule.ingredient_route_match
+    }
+    if ingredient_mapping_versions:
+        snapshot_parts.append(sorted(ingredient_mapping_versions))
+    snapshot = json.dumps(snapshot_parts, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
     return LocalScreeningResult(
         snapshot_id=hashlib.sha256(snapshot.encode()).hexdigest(), tmt_release=meta["tmt_release"],
         fest_release=fest_release, mapping_version=meta["mapping_version"],

@@ -26,17 +26,23 @@ function referenceUrl(value: string | null) {
 
 function SourceRule({ rule, language }: { rule: RuleMatch; language: Language }) {
   const t = (en: string, th: string) => say(language, en, th)
+  const ingredientMatch = rule.ingredient_route_match
+  const references = [...rule.references, ...(ingredientMatch?.references ?? [])]
   const label = rule.relevance === 'Bør unngås' ? t('FEST flags this combination to avoid', 'FEST ระบุว่าควรหลีกเลี่ยงคู่นี้')
     : rule.relevance === 'Forholdsregler bør tas' ? t('FEST flags this combination for precautions', 'FEST ระบุว่าควรระวังเมื่อใช้คู่นี้')
       : t('Interaction flagged by FEST', 'พบอันตรกิริยาตามข้อมูล FEST')
   return <div className="stack">
     <strong>{label}</strong>
+    {ingredientMatch && <div>
+      <p>{t(ingredientMatch.summary_en, ingredientMatch.summary_th)}</p>
+      <small className="hint">{t('Ingredient-level check · oral forms', 'ตรวจจากตัวยา · รูปแบบรับประทาน')}</small>
+    </div>}
     <details>
       <summary>{t('Source conditions and references', 'เงื่อนไขและเอกสารอ้างอิง')}</summary>
       {rule.condition && <p>{t('Applies when', 'เงื่อนไขที่เกี่ยวข้อง')} · {rule.condition}</p>}
       {rule.consequence && <p>{t('Possible effect', 'ผลที่อาจเกิดขึ้น')} · {rule.consequence}</p>}
       <p className="hint">FEST · {rule.rule_id}</p>
-      {rule.references.map((ref, index) => {
+      {references.map((ref, index) => {
         const url = referenceUrl(ref.url)
         return url ? <a className="text-action" key={index} href={url} target="_blank" rel="noreferrer">
           {ref.title || t('Open reference', 'เปิดเอกสารอ้างอิง')}

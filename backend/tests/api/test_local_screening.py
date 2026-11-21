@@ -6,8 +6,9 @@ from contextlib import closing
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.local_screening import LocalScreeningRequest
-from app.services.local_screening import ReferenceUnavailable, screen_local
+from app.schemas.local_screening import CatalogueScreeningRequest, LocalScreeningRequest
+from app.services import ingredient_route_reference
+from app.services.local_screening import ReferenceUnavailable, screen_catalogue_list, screen_local
 
 
 @pytest.fixture
@@ -50,6 +51,78 @@ def refs(tmp_path, monkeypatch):
     monkeypatch.setenv("LOCAL_TMT_DB", str(tmt))
     monkeypatch.setenv("LOCAL_FEST_DB", str(fest))
     return tmt, fest
+
+
+@pytest.fixture
+def iron_doxy_refs(refs, monkeypatch):
+    tmt, fest = refs
+    monkeypatch.setattr(ingredient_route_reference, "TMT_RELEASE", "tmt-test")
+    monkeypatch.setattr(ingredient_route_reference, "FEST_SHA256", "test-digest")
+    with closing(sqlite3.connect(tmt)) as db:
+        db.executescript("""
+            ALTER TABLE product ADD COLUMN form TEXT;
+            ALTER TABLE product ADD COLUMN active_tmt INTEGER DEFAULT 1;
+            INSERT INTO product(tpu,label,composition_status,ddi_status,fest_route,form) VALUES
+                ('737856','I-RON','complete','no_exact_fest_product_form_route','53','tablet'),
+                ('441548','SIADOCIN','complete','no_exact_fest_product_form_route','53','capsule, hard');
+            INSERT INTO ingredient VALUES
+                ('737856','689632','ferrous fumarate'), ('441548','226372','doxycycline');
+        """)
+    with closing(sqlite3.connect(fest)) as db:
+        rule_id = ingredient_route_reference.RULE_ID
+        db.execute("INSERT INTO rule SELECT ?,updated,relevance_no,clinical_consequence_no,entry_xml "
+                   "FROM rule WHERE id = 'demo-rule'", (rule_id,))
+        db.execute("INSERT INTO citation SELECT ?,citation_no,url FROM citation WHERE rule_id = 'demo-rule'", (rule_id,))
+        db.executemany("INSERT INTO atc_member VALUES (?,?,?,?)", [
+            (rule_id, 1, "B03AA02", "ferrous fumarate"),
+            (rule_id, 2, "J01AA02", "doxycycline"),
+        ])
+        db.commit()
+    return tmt, fest
+
+
+def catalogue_pair(codes=("737856", "441548")):
+    request = CatalogueScreeningRequest.model_validate({"rows": [
+        {"row_id": str(i), "tpu": code, "release": "tmt-test"} for i, code in enumerate(codes)
+    ]})
+    return screen_catalogue_list(request).pairs[0]
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_catalogue_reports_ingredient_rule_with_partial_coverage(iron_doxy_refs, reverse):
+    ids = ("737856", "441548")
+    pair = catalogue_pair(ids[::-1] if reverse else ids)
+    assert pair.ddi.status == "partial"
+    assert pair.duplicate.status == "lookup_complete"
+    rule, = pair.ddi.interactions
+    expected_atcs = (["B03AA02"], ["J01AA02"])
+    assert rule.matched_atcs == (expected_atcs[::-1] if reverse else expected_atcs)
+    assert rule.rule_id == ingredient_route_reference.RULE_ID
+    assert rule.references[0].title == "Fixture publication"
+    assert rule.ingredient_route_match.route == "oral"
+    assert len(rule.ingredient_route_match.references) == 2
+
+
+@pytest.mark.parametrize("edit", [
+    "UPDATE product SET fest_route=NULL WHERE tpu='441548'",
+    "UPDATE product SET fest_route='52' WHERE tpu='441548'",
+    "UPDATE product SET form='solution' WHERE tpu='441548'",
+    "INSERT INTO ingredient VALUES ('441548','S1','Unreviewed ingredient')",
+    "UPDATE product SET active_tmt=0 WHERE tpu='441548'",
+])
+def test_catalogue_keeps_uncovered_products_unassessed(iron_doxy_refs, edit):
+    tmt, _ = iron_doxy_refs
+    with closing(sqlite3.connect(tmt)) as db:
+        db.execute(edit)
+        db.commit()
+    assert catalogue_pair().ddi.status == "unassessed"
+    assert catalogue_pair().ddi.interactions == []
+
+
+def test_catalogue_does_not_extend_fallback_to_other_pairs_or_fest_releases(iron_doxy_refs, monkeypatch):
+    assert catalogue_pair(("737856", "101")).ddi.status == "unassessed"
+    monkeypatch.setattr(ingredient_route_reference, "FEST_SHA256", "another-release")
+    assert catalogue_pair().ddi.status == "unassessed"
 
 
 def body(codes=("101", "202", None)):
