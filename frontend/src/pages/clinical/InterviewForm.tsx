@@ -45,7 +45,9 @@ export function InterviewForm({
   async function submit(event: React.FormEvent) {
     event.preventDefault()
     let caseState = encounter
-    let sourceId = source
+    const previousLink = sources.find((entry) => entry.source.id === newId)
+    const sameAccount = previousLink?.source.kind === kind && previousLink.wording.trim() === wording.trim()
+    let sourceId = source || (sameAccount ? previousLink.source.id : '')
     let submitted = draft
     function replaceSubmitted(next?: InterviewDraft) {
       const expected = submitted
@@ -53,8 +55,8 @@ export function InterviewForm({
       submitted = next
     }
     if (!sourceId) {
-      sourceId = newId ?? crypto.randomUUID()
-      if (!newId) replaceSubmitted({ ...current, newId: sourceId })
+      sourceId = !previousLink && newId ? newId : crypto.randomUUID()
+      if (sourceId !== newId) replaceSubmitted({ ...current, newId: sourceId })
       const linked = await save(
         {
           action: 'link',
