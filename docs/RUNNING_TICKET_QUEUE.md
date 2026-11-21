@@ -6,6 +6,8 @@ On any computer, open a checkout and say **“Work on the project”**. Each ses
 
 Read [AGENTS.md](../AGENTS.md), the [task-writing guide](WRITING_TASKS.md), and the [current spec](specs/medication-reader-v1.md). Verify authenticated access and fetch current main. Inspect open issues, owners, comments, branches and PRs, including work started under earlier instructions. Leave existing claims with their owners. Select an open, unassigned issue with both agent-ready and status:todo whose Depends on issues are done and merged. Prefer related tickets when several qualify. Merge after controls merge order only.
 
+Compare the assigned ticket with the latest spec, code, tests and PRs before editing. If you discover a separate requirement, record the gap and any related issue on the ticket for a planning pass. Reading a requirement during a queue run does not itself trigger issue creation.
+
 ## Claim one issue atomically
 
 Each worker competes only for its chosen ticket. Before editing or changing its status, create one remote claim ref keyed by issue number. Use a fresh run ID even when sessions share a GitHub account. In PowerShell, set the issue number to your selected ticket and run:
