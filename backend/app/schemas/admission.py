@@ -62,7 +62,7 @@ class SourceEntry(ContractModel):
             if any((self.name, self.label_owner, self.directions, self.indication, self.strength, self.form, self.dose, self.scan_fields)):
                 raise ValueError("Unmatched views and appearance crops cannot supply label fields")
         if self.source.kind in {"patient_report", "caregiver_report"} and any(
-            (self.label_owner, self.directions, self.indication)
+            (self.label_owner, self.directions, self.indication, self.strength, self.form, self.dose)
         ):
             raise ValueError("Enter reported use and indication in the interview")
         if self.record_basis:

@@ -487,16 +487,15 @@ async function scan() {
   ].join("\n");
   if (values.name && !values.wording.includes(values.name))
     values.wording += "\n" + values.name;
+  values.directions_status = row.label_fields.directions?.status === "unreadable" ? "unreadable" : "missing";
   for (const [key, value] of Object.entries(values)) {
     const input = form.elements.namedItem(key);
-    if (value && (!input.value || input.value === draft.filled[key])) {
-      input.value = value;
-      draft.filled[key] = value;
+    const owned = Object.hasOwn(draft.filled, key) && input.value === draft.filled[key];
+    const defaultStatus = key === "directions_status" && !Object.hasOwn(draft.filled,key) && input.value === "missing";
+    if (owned || !input.value || defaultStatus) {
+      input.value = value || "";
+      draft.filled[key] = input.value;
     }
-  }
-  if (row.label_fields.directions?.status === "unreadable") {
-    form.elements.directions_status.value = "unreadable";
-    draft.filled.directions_status = "unreadable";
   }
 }
 function sourceOptions(row) {

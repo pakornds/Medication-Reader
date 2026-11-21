@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 
+from app.schemas.analysis import Discrepancy
 from app.schemas.admission import (
     Action, AddEvidence, AddRow, Decision, Finish, Import, Interview, NewEncounter, Proposal, Refer, Verify,
 )
@@ -51,6 +52,15 @@ def shares_origin(entry, other):
     if entry["photo"] and other["photo"]:
         return entry["photo"]["data"] == other["photo"]["data"]
     return False
+
+
+DOCUMENTED_FIELDS = ("strength", "form", "dose", "directions", "indication")
+
+
+def conflicting_fields(row):
+    entries = active(row)
+    return [key for key in DOCUMENTED_FIELDS
+            if len({e[key].casefold() for e in entries if e[key]}) > 1]
 
 
 def reviewable_entry(entry):
@@ -251,8 +261,7 @@ class AdmissionStore:
             named = [e for e in active(row) if e["name"] and reviewable_entry(e)]
             require(row["unknown"] or named, "Review the current identity evidence.")
             variants = {e["product"].casefold() for e in named}
-            directions = {e["directions"].casefold() for e in active(row) if e["directions"]}
-            require((len(variants) <= 1 and len(directions) <= 1) or cmd.resolution,
+            require((len(variants) <= 1 and not conflicting_fields(row)) or cmd.resolution,
                     "Document the resolution of conflicting evidence.")
             identity = row["confirmed"]
             if not row["unknown"]:
@@ -302,6 +311,7 @@ class AdmissionStore:
                 dose=sourced("dose"), route=sourced("route"), frequency=sourced("schedule"))
             label_fields = {}
             reports = []
+            conflicts = conflicting_fields(row)
             regimens = []
             manifest = CaseEvidence(case_id=case["id"], sources=sources, items=items)
             for entry in active(row):
@@ -310,7 +320,11 @@ class AdmissionStore:
                 reported = entry["source"]["kind"] in REPORT_KINDS
                 if reported:
                     reports.append(SourcedValue(value=entry["wording"], evidence=citation))
-                for key in ("directions", "indication", "strength", "form", "dose"):
+                for key in DOCUMENTED_FIELDS:
+                    if key in {"strength", "form"} and source_id != identity["source_id"]:
+                        continue
+                    if key in conflicts and key not in {"strength", "form"}:
+                        continue
                     if entry[key]:
                         label_fields[key] = Observation(status="readable", value=entry[key], evidence=citation)
                 wording = entry["wording"] if reported else entry["directions"]
@@ -319,11 +333,16 @@ class AdmissionStore:
                         evidence=manifest, row_id=row["id"], component_id=source_id,
                         basis="reported" if reported else "documented", directions_text=wording,
                         source=citation)).regimens)
+            discrepancies = [Discrepancy(
+                id=key, field=key, question="Which documented value applies to this item?",
+                observed_values=[SourcedValue(value=e[key], evidence=refs[e["source"]["id"]])
+                                 for e in active(row) if e[key]]) for key in conflicts]
+            verification.resolved_discrepancies = conflicts
             importable.append(ReviewRow(
                 id=row["id"], identity_status="unlabeled" if row["unknown"] else "named",
                 unknown_label=row["id"] if row["unknown"] else None,
                 observed_names=[] if row["unknown"] else [name], reported_use=reports,
-                label_fields=label_fields, regimens=regimens, sources=list(refs.values()),
+                label_fields=label_fields, regimens=regimens, discrepancies=discrepancies, sources=list(refs.values()),
                 revision=case["revision"], verification=verification))
         evidence = CaseEvidence(case_id=case["id"], sources=sources, items=items)
         ledger = ApprovalLedger()

@@ -115,7 +115,7 @@ async function scannedLabels(page) {
       item_id: "selected",
     };
     const obs = (value) => ({ value, evidence, status: "readable" });
-    const strength = ++scans === 1 ? "25 mg" : "50 mg";
+    const strength = ++scans <= 3 ? "25 mg" : "50 mg";
     await route.fulfill({
       json: {
         rows: [
@@ -123,10 +123,10 @@ async function scannedLabels(page) {
             id: "preview",
             observed_names: [obs("Demo tablet")],
             label_fields: {
-              strength: obs(strength),
+              strength: scans === 2 ? {status:"unreadable", evidence} : obs(strength),
               form: obs("blister"),
               dose: obs("one tablet"),
-              directions: { status: "unreadable", evidence },
+              directions: { status: scans === 2 ? "missing" : "unreadable", evidence },
             },
           },
         ],
@@ -145,6 +145,11 @@ async function scannedLabels(page) {
   await page.waitForFunction(
     () => document.querySelector("[name=strength]").value === "25 mg",
   );
+  await click(d,"Read selected label region");
+  await page.waitForFunction(()=>document.querySelector('[name=strength]').value==="");
+  assert.equal(await d.getByLabel("If directions are blank").inputValue(),"missing");
+  await click(d,"Read selected label region");
+  await page.waitForFunction(()=>document.querySelector('[name=strength]').value==="25 mg");
   await d.getByLabel("x (%)", { exact: true }).fill("50");
   assert.equal(await d.getByLabel("Documented strength").inputValue(), "");
   assert.equal(

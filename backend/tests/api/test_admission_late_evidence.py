@@ -92,3 +92,27 @@ def test_two_views_of_challenged_photo_are_not_independent(client):
     case.send("decide", row_id=row, outcome="confirm", source_id="different-crop", name="Demo tablet",
               finding="Same original attachment", status=422)
     assert not case.state["rows"][row]["confirmed"]
+
+def test_import_uses_selected_strength_and_preserves_other_source(client):
+    case = Case(client, "doctor")
+    row = case.add(record("first", "prescription", "Demo 25 mg tablet", name="Demo", strength="25 mg", form="tablet"))
+    case.link(row, record("other", "transfer_record", "Demo 50 mg", name="Demo", strength="50 mg"))
+    case.link(row, record("report", "patient_report", "Reports using the first tablet"))
+    case.interview(row, "report")
+    case.send("verify", row_id=row, source_id="report", identity_source_id="first", resolution="Checked first package")
+    case.send("import", role="pharmacist", row_ids=[row])
+    receipt = case.state["receipts"][0]
+    record_in_hospital = client.get("/imports", headers=headers("pharmacist"),
+                                    params={"imported_at": receipt["imported_at"]}).json()[0]
+    imported = record_in_hospital["snapshot"]["rows"][0]
+    assert imported["verification"]["identity"]["value"] == "Demo 25 mg tablet"
+    assert imported["label_fields"]["strength"]["value"] == "25 mg"
+    assert imported["label_fields"]["strength"]["evidence"]["source_id"] == "first"
+    assert {v["value"] for v in imported["discrepancies"][0]["observed_values"]} == {"25 mg", "50 mg"}
+
+
+def test_reported_fields_cannot_be_saved_as_printed_observations(client):
+    case = Case(client, "nurse")
+    for key in ("strength", "dose", "form"):
+        case.send("add", entry=record("account", "caregiver_report", "Original account", **{key:"account"}), status=422)
+    assert not case.state["rows"]
