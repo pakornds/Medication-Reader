@@ -38,6 +38,10 @@ def test_exact_retry_mixed_selection_and_changed_review(client):
     assert replay.status_code == 200
     assert replay.json()["receipts"] == [receipt]
 
+    case.link(a, record("follow-up", "reviewer_record", "The source contact line was busy."))
+    case.send("verify", row_id=a, source_id="report-A")
+    assert case.state["rows"][a]["imported_at"] == receipt["imported_at"]
+
     for selection in ([a], [a, b]):
         duplicate = case.send("import", role="pharmacist", row_ids=selection, status=409)
         assert duplicate.json()["detail"] == f"Already imported: {a}. Select only eligible rows."
@@ -54,6 +58,12 @@ def test_exact_retry_mixed_selection_and_changed_review(client):
     changed, = readback(case, case.state["receipts"][-1])
     assert changed["id"] == a
     assert changed["verification"]["dose"]["value"] == "2 fixture tablets"
+
+    case.interview(a, "report-A")
+    case.send("verify", row_id=a, source_id="report-A")
+    assert case.state["rows"][a]["imported_at"] == receipt["imported_at"]
+    case.send("import", role="pharmacist", row_ids=[a], status=409)
+    assert len(case.state["receipts"]) == 3
 
 
 def test_concurrent_requests_and_exact_retry_write_once(client):
