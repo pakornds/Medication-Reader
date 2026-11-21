@@ -9,6 +9,6 @@ npm run build
 npm run dev
 ```
 
-The build type-checks the app and writes the production bundle to `frontend/dist/`. Open the local URL printed by Vite to see the starter. To exercise navigation, open `/tests/navigation.html` on the development server and wait for **PASS**.
+The build type-checks the app and writes the production bundle to `frontend/dist/`. Open `/new-patient/input` to enter medicines, attach photos and record notes, then open Review to inspect the draft. The development server proxies catalogue search and medication analysis to FastAPI at `http://127.0.0.1:8000`.
 
-The starter provides English and Thai navigation, light and dark themes, and placeholder routes for Home, New patient (Input, Review, Output), and History. It stores the chosen theme and language in the browser. The clinical workflow and API client are tracked separately.
+Run the browser checks at `/tests/navigation.html` and `/tests/intake.html` on the development server. Each displays **PASS** on success. Home, Output and History are placeholders. The open draft is held in memory.
