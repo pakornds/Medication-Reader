@@ -68,7 +68,7 @@ class FormAnalysisError(ValueError):
     pass
 
 
-def contains_quote(statement: str, value: str, *, ignore_case: bool = False) -> bool:
+def quote_pattern(value: str) -> str:
     # Keep a strength such as 5 mg distinct from 15 mg or 0.5 mg.
     start = r"(?<!\w)"
     if value[0].isdigit():
@@ -76,7 +76,7 @@ def contains_quote(statement: str, value: str, *, ignore_case: bool = False) -> 
     end = r"(?!\w)"
     if value[-1].isdigit():
         end += r"(?![.,]\d)"
-    return re.search(start + re.escape(value) + end, statement, re.I if ignore_case else 0) is not None
+    return start + re.escape(value) + end
 
 
 def note_statements(text: str) -> list[str]:
@@ -165,18 +165,29 @@ class FormGrounding:
             return any(fact.value in text for text in texts)
         if rows is None:
             # First pass grounds candidate names before using them to assign statements.
-            return any(contains_quote(text, fact.value) for text in texts)
+            return any(re.search(quote_pattern(fact.value), text) for text in texts)
         statements = self.statements.get(source.id, [])
         for statement in statements:
-            if not contains_quote(statement, fact.value):
+            quoted_value = quote_pattern(fact.value)
+            if not re.search(quoted_value, statement):
                 continue
             mentioned = {
                 candidate.id for candidate in rows
-                if any(contains_quote(statement, name.value, ignore_case=True)
+                if any(re.search(quote_pattern(name.value), statement, re.I)
                        for name in candidate.observed_names)
             }
             if mentioned == {row.id}:
-                return True
+                # An unreturned medicine may also occur in this sentence.
+                # Require a direct name/value phrase; seeing only one proposed
+                # row is insufficient evidence for the entire sentence.
+                for name in row.observed_names:
+                    if field == "identity" and fact.value == name.value:
+                        return True
+                    field_label = re.escape(field.replace("_", " "))
+                    separator = rf"\s*[:=–—-]?\s*(?:(?i:{field_label})\b\s*[:=]?\s*)?"
+                    phrase = rf"(?i:{quote_pattern(name.value)}){separator}{quoted_value}"
+                    if re.search(phrase, statement):
+                        return True
             # A single located excerpt may document a different identity from
             # the label. Keep that discrepancy with its original physical row.
             if not mentioned and field == "identity" and len(statements) == 1 and ref.item_id:

@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from app.main import create_app
 
 
-def submit_note(note, strengths, *, discrepancy=None, names=("Demo A", "Demo B")):
+def submit_note(note, strengths, *, discrepancy=None, names=("Demo A", "Demo B"), field="strength"):
     reference = {"source_id": "ward"}
     form = {
         "evidence": {"case_id": "transfer", "sources": [{"id": "ward", "kind": "transfer_record"}]},
@@ -18,7 +18,7 @@ def submit_note(note, strengths, *, discrepancy=None, names=("Demo A", "Demo B")
         {
             "id": f"row-{index}", "identity_status": "named", "sources": [reference],
             "observed_names": [{"value": name, "evidence": reference}],
-            "label_fields": {"strength": {"status": "readable", "value": strength, "evidence": reference}},
+            "label_fields": {field: {"status": "readable", "value": strength, "evidence": reference}},
         }
         for index, (name, strength) in enumerate(zip(names, strengths, strict=True))
     ]
@@ -76,3 +76,22 @@ def test_discrepancies_require_both_values_on_the_same_medicine():
     assert [item["value"] for item in good[0]["discrepancies"][0]["observed_values"]] == ["5 mg", "7 mg"]
     assert crossed[0]["discrepancies"] == []
     assert any(item["field"] == "strength" for item in crossed[0]["follow_ups"])
+
+
+@pytest.mark.parametrize("separator", [", ", " and ", " "])
+def test_unreturned_medicine_cannot_supply_fields_or_discrepancy_values(separator):
+    note = f"Demo A 5 mg{separator}Demo B 10 mg."
+    row, = submit_note(note, ["10 mg"], names=["Demo A"], discrepancy=["5 mg", "10 mg"])
+    assert row["label_fields"]["strength"]["status"] == "missing"
+    assert row["discrepancies"] == []
+    row, = submit_note(note, ["5 mg"], names=["Demo A"])
+    assert row["label_fields"]["strength"]["value"] == "5 mg"
+
+
+def test_directions_belong_to_the_named_medicine_even_when_one_row_is_returned():
+    note = "Demo A directions: once daily and Demo B directions: every evening."
+    good, = submit_note(note, ["once daily"], field="directions", names=["Demo A"])
+    crossed, = submit_note(note, ["every evening"], field="directions", names=["Demo A"])
+    assert good["label_fields"]["directions"]["value"] == "once daily"
+    assert crossed["label_fields"]["directions"]["status"] == "missing"
+    assert not crossed["regimens"]
