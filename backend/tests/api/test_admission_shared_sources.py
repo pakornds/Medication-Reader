@@ -1,6 +1,7 @@
 """One transfer document can supply distinct row-linked evidence through the admission API."""
 
 from test_admissions import Case, client, headers, record
+from test_local_screening import refs
 
 
 WARD = {"id": "W1", "kind": "transfer_record", "organization": "Demo Hospital",
@@ -83,3 +84,16 @@ def test_existing_inline_entries_can_share_document_metadata(client):
     case.send("add", entry={"source": WARD | {"organization": "Another hospital"}, "wording": LINES[0]}, status=422)
     case.add(record("R", "patient_report", "Synthetic interview"))
     case.send("add", entry=record("R", "patient_report", "Another report"), status=422)
+
+
+def test_optional_screening_accepts_both_rows_of_one_document(client, refs):
+    case = Case(client, "doctor")
+    register(case)
+    for index in range(2):
+        row = case.add(excerpt(case, index))
+        case.interview(row, "W1")
+        case.send("verify", row_id=row, source_id="W1")
+    target = {"case_id": case.state["id"], "admission_revision": case.state["revision"]}
+    for path, payload in (("/checks", target | {"kind": "DDI"}), ("/checks/local", target)):
+        response = client.post(path, headers=headers(case.role), json=payload)
+        assert response.status_code == 200, response.text

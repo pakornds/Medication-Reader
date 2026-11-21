@@ -2,9 +2,9 @@
 
 from pydantic import Field
 
-from app.schemas.evidence import CaseEvidence, EvidenceItem, EvidenceRef, SourcedValue
+from app.schemas.evidence import CaseEvidence, EvidenceRef, SourcedValue
 from app.schemas.review import CurrentUseVerification, ReviewRow
-from app.services.admissions import active, needs_identity, reviewable_entry, screening_verification
+from app.services.admissions import active, entry_evidence, needs_identity, screening_verification
 from app.services.checks import DEMO_IDS
 
 
@@ -14,20 +14,14 @@ class EncounterScreeningRow(ReviewRow):
 
 
 def encounter_rows(case: dict) -> tuple[CaseEvidence, list[ReviewRow]]:
-    sources, items, rows = [], [], []
+    sources, items, rows = {}, [], []
     for row in case["rows"].values():
         refs = {}
         for entry in active(row):
-            source = entry["source"]
-            sources.append(source)
-            kind = "record_excerpt"
-            if entry["photo"]:
-                kind = "pill_crop"
-                if reviewable_entry(entry):
-                    kind = "matched_reverse_label" if source["kind"] == "reverse_photo" else "label_region"
-            ref = EvidenceRef(source_id=source["id"], item_id=row["id"])
-            refs[source["id"]] = ref
-            items.append(EvidenceItem(id=row["id"], source_id=ref.source_id, row_id=row["id"], kind=kind))
+            source, item = entry_evidence(row["id"], entry)
+            sources[source.id] = source
+            refs[source.id] = EvidenceRef(source_id=source.id, item_id=item.id)
+            items.append(item)
         verification = screening_verification(row)
         decision = verification.get("identity") or {}
         identity = None
@@ -61,4 +55,4 @@ def encounter_rows(case: dict) -> tuple[CaseEvidence, list[ReviewRow]]:
             unknown_label=None if identity else "Unresolved medication",
             observed_names=[identity] if identity else [],
         ))
-    return CaseEvidence(case_id=case["id"], sources=sources, items=items), rows
+    return CaseEvidence(case_id=case["id"], sources=list(sources.values()), items=items), rows

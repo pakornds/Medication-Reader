@@ -253,6 +253,21 @@ def reviewable_entry(entry):
     return not photo or ((front or photo["pairing"] == "matched") and not photo["appearance"])
 
 
+def entry_evidence(row_id, entry):
+    source = EvidenceSource.model_validate(entry["source"])
+    if source.kind in DOCUMENT_KINDS:
+        item = QuotedEvidenceItem(id=row_id, source_id=source.id, row_id=row_id,
+                                  kind="record_excerpt", excerpt=entry["wording"])
+    else:
+        kind = "record_excerpt"
+        if entry["photo"]:
+            kind = "label_region" if reviewable_entry(entry) else "pill_crop"
+            if kind == "label_region" and source.kind == "reverse_photo":
+                kind = "matched_reverse_label"
+        item = EvidenceItem(id=row_id, source_id=source.id, row_id=row_id, kind=kind)
+    return source, item
+
+
 def unresolved_photo(entry):
     return bool(entry["photo"] and (not entry["name"] or not reviewable_entry(entry)))
 
@@ -780,18 +795,8 @@ class AdmissionStore:
                     "Only medicines verified as belonging to this patient can be imported.")
             refs = {}
             for entry in active(row):
-                source = EvidenceSource.model_validate(entry["source"])
+                source, item = entry_evidence(row["id"], entry)
                 sources[source.id] = source
-                kind = "record_excerpt"
-                if entry["photo"]:
-                    kind = "label_region" if reviewable_entry(entry) else "pill_crop"
-                if kind == "label_region" and source.kind == "reverse_photo":
-                    kind = "matched_reverse_label"
-                if source.kind in DOCUMENT_KINDS:
-                    item = QuotedEvidenceItem(id=row["id"], source_id=source.id, row_id=row["id"],
-                                              kind="record_excerpt", excerpt=entry["wording"])
-                else:
-                    item = EvidenceItem(id=row["id"], source_id=source.id, row_id=row["id"], kind=kind)
                 items.append(item)
                 refs[source.id] = EvidenceRef(source_id=source.id, item_id=item.id)
             ref = refs[verified["source_id"]]
