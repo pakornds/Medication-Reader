@@ -5,7 +5,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from test_admission_package_capture import picture, submit
-from test_admissions import Case, client, headers, record
+from test_admissions import Case, client, headers, photo, record
 
 
 def missing_record():
@@ -104,7 +104,9 @@ def test_capture_and_unavailable_sources_cannot_reuse_each_others_ids(client):
 
     outstanding = Case(client, "nurse")
     outstanding.send("record_unavailable_source", source=unavailable)
-    assert capture(outstanding).json()["detail"] == "Use a new logical source ID."
+    result = capture(outstanding)
+    assert result.status_code == 422
+    assert result.json()["detail"] == "Use a new logical source ID."
 
     photographed = Case(client, "nurse")
     result = capture(photographed)
@@ -112,3 +114,35 @@ def test_capture_and_unavailable_sources_cannot_reuse_each_others_ids(client):
     photographed.state = result.json()
     failure = photographed.send("record_unavailable_source", source=unavailable, status=422)
     assert failure.json()["detail"] == "Use a new logical source ID."
+
+    manifest = deepcopy(photographed.state["capture"])
+    manifest["sources"] = [source for source in manifest["sources"] if source["id"] != capture_source]
+    for package in manifest["packages"]:
+        for item in package["items"]:
+            item["evidence"] = [item_source for item_source in item["evidence"]
+                                if item_source["source_id"] != capture_source]
+    command = {"revision": photographed.state["revision"], "request_id": str(uuid4()), "manifest": manifest}
+    updated = submit(client, photographed.path, command)
+    assert updated.status_code == 200, updated.text
+    photographed.state = updated.json()
+    failure = photographed.send("record_unavailable_source", source=unavailable, status=422)
+    assert failure.json()["detail"] == "Use a new logical source ID."
+
+
+def test_unavailable_reference_is_rejected_on_originally_unknown_item(client):
+    case = Case(client, "pharmacist")
+    case.send("record_unavailable_source", source=missing_record())
+    row = case.add(photo("unmarked", "Demo bag", "unmarked tablet"))
+    failed = case.send("propose", row_id=row, name="Demo A", reference="ward-list", status=422)
+    assert failed.json()["detail"] == "An unavailable source cannot support identity."
+    assert case.state["rows"][row]["proposal"] is None
+    case.link(row, record("confirmed", "reviewer_record", "Dispensing staff matched the number on Demo bag to Demo A.",
+                          name="Demo A", identity_basis="dispensing_confirmation"))
+    case.send("decide", row_id=row, source_id="confirmed", name="Demo A", outcome="confirm",
+              finding="Checked the documented dispensing number for Demo A.")
+    case.link(row, record("account", "patient_report", "Patient reports taking Demo A."))
+    case.interview(row, "account")
+    failed = case.send("verify", row_id=row, source_id="account", identity_source_id="ward-list", status=422)
+    assert failed.json()["detail"] == "An unavailable source cannot support identity."
+    case.send("verify", row_id=row, source_id="account")
+    assert case.state["rows"][row]["verified"]["identity"]["source_id"] == "confirmed"

@@ -325,9 +325,13 @@ class AdmissionStore:
             if isinstance(cmd, (Import, Decision)) or original["status"] == "Awaiting pharmacist review":
                 require(actor.role == "pharmacist", "Pharmacist required.", 403)
             require(original["status"] != "Finished" or isinstance(cmd, Import), "Review is finished.", 409)
+            unavailable = original.get("unavailable_sources", {})
             if isinstance(cmd, (AddRow, AddEvidence)):
-                require(cmd.entry.source.id not in original.get("unavailable_sources", {}),
-                        "Use a new logical source ID.")
+                require(cmd.entry.source.id not in unavailable, "Use a new logical source ID.")
+            if isinstance(cmd, Proposal):
+                require(cmd.reference not in unavailable, "An unavailable source cannot support identity.")
+            if isinstance(cmd, Verify):
+                require(cmd.identity_source_id not in unavailable, "An unavailable source cannot support identity.")
             case = deepcopy(original)
             details = self.transition(case, actor, cmd, request.request_id)
             for row_id in details["rows"]:
@@ -519,8 +523,7 @@ class AdmissionStore:
             source_id = cmd.source.id
             unavailable = case.setdefault("unavailable_sources", {})
             used_ids = {entry["source"]["id"] for row in rows.values() for entry in row["entries"]}
-            used_ids.update(source["id"] for source in case.get("capture", {}).get("sources", ()))
-            used_ids.update(case.get("retired_capture_sources", ()))
+            used_ids.update(source_id for event in case["events"] for source_id in event.get("sources", ()))
             require(source_id not in unavailable and source_id not in used_ids, "Use a new logical source ID.")
             unavailable[source_id] = {"source": cmd.source.model_dump(mode="json"), "follow_up": cmd.follow_up}
             return dict(rows=[], sources=[source_id])
