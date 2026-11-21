@@ -1,3 +1,5 @@
+import { regimenText, type RegimenText } from '../../i18n/regimen'
+import { RegimenReadback } from './RegimenReadback'
 import { RegionOutline } from '../../components/ui/RegionOutline'
 import { Button } from '../../components/ui/Button'
 import { useState } from 'react'
@@ -54,10 +56,12 @@ function QuotedFact({ fact, evidence, t }: { fact: Fact; evidence: Evidence; t: 
   )
 }
 export function RowEvidence({
+  rt,
   row,
   evidence,
   t,
 }: {
+  rt: RegimenText
   row: Suggestion
   evidence: Evidence
   t: IntakeText
@@ -74,6 +78,10 @@ export function RowEvidence({
           {field.evidence && <Citation reference={field.evidence} evidence={evidence} t={t} />}
         </div>
       ))}
+      {(row.regimens ?? []).map(component => <div key={component.component_id}>
+        <RegimenReadback component={component} t={rt}/>
+        {component.evidence.directions_text && <Citation reference={component.evidence.directions_text} evidence={evidence} t={t} />}
+      </div>)}
       {row.reported_use.length > 0 && (
         <div>
           <strong>{t.reported}</strong>
@@ -145,7 +153,7 @@ export function AnalysisPreview({
               <strong>{rowName(row, language)}</strong>
             </label>
             {existing && <small>{existing.origin === 'manual' ? t.confirmed : t.update}</small>}
-            <RowEvidence row={row} evidence={draft.evidence} t={t} />
+            <RowEvidence rt={regimenText[language]} row={row} evidence={draft.evidence} t={t} />
           </div>
         )
       })}
@@ -193,7 +201,7 @@ export function DraftReview({ draft, language }: { draft: Draft; language: Langu
                 TPU {catalogue.product.tpu} · {catalogue.release}
               </small>
             )}
-            <RowEvidence row={row} evidence={evidence} t={t} />
+            <RowEvidence rt={regimenText[language]} row={row} evidence={evidence} t={t} />
           </article>
         )
       })}
