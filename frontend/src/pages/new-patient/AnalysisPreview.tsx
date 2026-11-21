@@ -1,15 +1,14 @@
 import { ScanCatalogue } from './ScanCatalogue'
-import { regimenText, type RegimenText } from '../../i18n/regimen'
-import { RegimenReadback } from './RegimenReadback'
+import { MedicineDetails } from './MedicineEvidence'
 import { Button } from '../../components/ui/Button'
 import { InputField } from '../../components/ui/InputField'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { RegimenComponent } from '../../api/contracts'
 import { intake, type IntakeText } from '../../i18n/intake'
 import type { Language } from '../../i18n/messages'
 import { EvidenceCrop, EvidenceImage } from './EvidenceImage'
 import {
+  currentCatalogueIdentity,
   draftValues,
   hasEarlierEvidence,
   knownOrder,
@@ -23,10 +22,8 @@ import {
   type Evidence,
   type Fact,
   type Medicine,
-  type MedicineEvidence,
   type Preview,
   type Ref,
-  type RegimenField,
 } from './draft'
 
 function Citation({ reference, evidence, t }: { reference: Ref; evidence: Evidence; t: IntakeText }) {
@@ -68,123 +65,6 @@ function QuotedFact({ fact, evidence, t }: { fact: Fact; evidence: Evidence; t: 
   )
 }
 
-const regimenFields: RegimenField[] = [
-  'dose_amount', 'dose_unit', 'schedule_type', 'frequency_count', 'period_value',
-  'period_unit', 'time_of_day', 'route', 'meal_relation', 'as_needed',
-]
-
-function StructuredDirections({ component, evidence, t }: { component: RegimenComponent; evidence: Evidence; t: IntakeText }) {
-  return (
-    <details className="citation regimen-sources">
-      <summary>{component.basis === 'reported' ? t.reportedDirections : t.structuredDirections}</summary>
-      {component.evidence.directions_text && (
-        <Citation reference={component.evidence.directions_text} evidence={evidence} t={t} />
-      )}
-      <dl>
-        {regimenFields.map((field) => {
-          const reference = component.evidence[field]
-          const value = component[field]
-          if (!reference || value == null || (Array.isArray(value) && !value.length)) return null
-          return (
-            <div key={field}>
-              <dt><strong>{t[field]}</strong></dt>
-              <dd>
-                {typeof value === 'boolean' ? (value ? t.yes : t.no) : String(value)}
-                <Citation reference={reference} evidence={evidence} t={t} />
-              </dd>
-            </div>
-          )
-        })}
-      </dl>
-    </details>
-  )
-}
-export function RowEvidence({
-  rt,
-  row,
-  evidence,
-  facility,
-  scan = true,
-  t,
-}: MedicineEvidence & {
-  rt: RegimenText
-  t: IntakeText
-  scan?: boolean
-}) {
-  return (
-    <div className="row-evidence stack">
-      {row.observed_names.map((fact, i) => (
-        <QuotedFact key={i} fact={fact} evidence={evidence} t={t} />
-      ))}
-      {Object.entries(row.label_fields).map(([key, field]) => (
-        <div key={key}>
-          <strong>{t[key as keyof IntakeText] || key}</strong> ·{' '}
-          {field.value || (field.status === 'unreadable' ? t.unreadable : t.missing)}
-          {field.evidence && <Citation reference={field.evidence} evidence={evidence} t={t} />}
-        </div>
-      ))}
-      {(row.regimens ?? []).map(component => <div key={component.component_id}>
-        <RegimenReadback component={component} t={rt}/>
-        <StructuredDirections component={component} evidence={evidence} t={t} />
-      </div>)}
-      {row.reported_use.length > 0 && (
-        <div>
-          <strong>{t.reported}</strong>
-          {row.reported_use.map((fact, i) => (
-            <QuotedFact key={i} fact={fact} evidence={evidence} t={t} />
-          ))}
-        </div>
-      )}
-      {scan && (
-        <div>
-          <strong>{t.dispensingSource}</strong>
-          {facility ? (
-            <>
-              <p>{[facility.organization, facility.department_or_ward, facility.organization_address].filter(Boolean).join(' · ')}</p>
-              {facility.organization_phone && (
-                <p>{[facility.organization_phone, facility.organization_phone_extension].filter(Boolean).join(' · ')}</p>
-              )}
-              {facility.organization_email && <p>{facility.organization_email}</p>}
-              <Citation reference={facility.evidence} evidence={evidence} t={t} />
-            </>
-          ) : <p>{t.missing}</p>}
-        </div>
-      )}
-      {row.reverse_crop && (
-        <div>
-          <strong>{t.matchedReverse}</strong>
-          <Citation reference={row.reverse_crop} evidence={evidence} t={t} />
-        </div>
-      )}
-      {row.discrepancies.map((d) => (
-        <div key={d.id}>
-          <strong>{t.discrepancies}</strong>
-          {d.observed_values.map((fact, i) => (
-            <QuotedFact key={i} fact={fact} evidence={evidence} t={t} />
-          ))}
-          <p>{d.question}</p>
-        </div>
-      ))}
-      {row.follow_ups.length > 0 && (
-        <div>
-          <strong>{t.followup}</strong>
-          <ul>
-            {row.follow_ups.map((f, i) => (
-              <li key={i}>{f.question}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-      <div>
-        <strong>{t.sources}</strong>
-        {row.sources.map((ref, i) => (
-          <Citation key={i} reference={ref} evidence={evidence} t={t} />
-        ))}
-      </div>
-    </div>
-  )
-}
-
 export function AnalysisPreview({
   draft,
   language,
@@ -196,6 +76,7 @@ export function AnalysisPreview({
   onConfirm: (preview: Preview, placements: ReadonlyMap<string, string | null>) => void
   onDismiss: (preview: Preview, id: string) => void
 }) {
+  const groupId = useId()
   const [selected, setSelected] = useState<string[]>([])
   const [targets, setTargets] = useState<Map<string, string>>(new Map())
   const t = intake[language]
@@ -217,27 +98,29 @@ export function AnalysisPreview({
     <section className="intake-panel stack">
       <h2>{t.preview} · {preview.rows.length}</h2>
       {!preview.rows.length && <p>{t.noRows}</p>}
-      {preview.rows.map((row) => {
+      {preview.rows.map((row, index) => {
         const existing = knownOrder(draft.medicines, row.id)
         const checked = selected.includes(row.id)
-        const heading = rowName(row, language)
+        const scan = scanEvidence(preview, row, draft.evidence)
+        const heading = rowName(row, language, scan.catalogueIdentity)
+        const titleId = groupId + '-medicine-' + index
         return (
           <div className="suggestion stack" key={row.id}>
             <div className="spread">
-              <label className="pick-row">
+              <h3><label className="pick-row">
                 <input
                   type="checkbox"
                   checked={checked}
                   onChange={() => setSelected((current) => checked
                     ? current.filter((id) => id !== row.id) : [...current, row.id])}
                 />
-                <strong>{heading}</strong>
-              </label>
+                <strong id={titleId}>{heading}</strong>
+              </label></h3>
               <Button variant="text" onClick={() => onDismiss(preview, row.id)}>{t.dismissSuggestion}</Button>
             </div>
-            <label>
-              {t.draftOrderFor} {heading}
-              <select
+            {draft.medicines.length > 0 && <label>
+              <span id={titleId + '-target'}>{language === 'th' ? 'เพิ่มเข้ารายการ' : 'Add to'}</span>
+              <select aria-labelledby={titleId + '-target ' + titleId}
                 value={targets.get(row.id) ?? ''}
                 onChange={(event) => {
                   const target = event.target.value
@@ -251,8 +134,8 @@ export function AnalysisPreview({
                   return <option key={medicine.row.id} value={medicine.row.id}>{label}</option>
                 })}
               </select>
-            </label>
-            <RowEvidence {...scanEvidence(preview, row, draft.evidence)} rt={regimenText[language]} t={t} />
+            </label>}
+            <MedicineDetails {...scan} language={language} />
           </div>
         )
       })}
@@ -338,8 +221,8 @@ export function DraftReview({ draft, language, onSave, onCatalogue, embedded = f
             )}
             <DraftEditor medicine={medicine} t={t} onSave={(values) => onSave(row.id, values)} />
             {corrections && (
-              <div className="staff-corrections">
-                <strong>{t.draftChanges}</strong>
+              <details className="staff-corrections">
+                <summary>{t.draftChanges}</summary>
                 <dl>
                   {([['name', t.draftName], ['strength', t.draftStrength], ['form', t.draftForm],
                     ['directions', t.draftDirections]] as const).map(([field, label]) => (
@@ -348,23 +231,23 @@ export function DraftReview({ draft, language, onSave, onCatalogue, embedded = f
                     )
                   ))}
                 </dl>
-              </div>
+              </details>
             )}
-            <RowEvidence {...medicine} scan={medicine.origin === 'analysis'} rt={regimenText[language]} t={t} />
+            <MedicineDetails {...medicine} catalogueIdentity={currentCatalogueIdentity(medicine)} language={language} edits={corrections} />
             {linkedScans?.map((scan, index) => (
               <section className="suggestion" key={index}>
                 <h3>{t.linkedScan}</h3>
                 {hasEarlierEvidence(scan, draft.evidence) && <p role="status">{t.earlier}</p>}
-                <RowEvidence {...scan} rt={regimenText[language]} t={t} />
+                <MedicineDetails {...scan} language={language} />
               </section>
             ))}
             {medicine.origin==='analysis' && row.identity_status==='named' && onCatalogue && <ScanCatalogue medicine={medicine} language={language} onChange={match=>onCatalogue(medicine,match)}/> }
           </article>
         )
       })}
-      <Link className="text-action" to="/new-patient/input">
+      {!embedded && <Link className="text-action" to="/new-patient/input">
         {t.back}
-      </Link>
+      </Link>}
     </div>
   )
 }

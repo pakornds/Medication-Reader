@@ -148,6 +148,7 @@ async function workflow(browser) {
   await addUnreadablePhoto(page)
   await stage(page, 'review')
   const documented = page.locator('article').filter({ hasText: /ZOCOR/i })
+  await documented.locator('.medicine-source > summary').click()
   const schedules = documented.locator('.regimen-readback')
   await schedules.nth(1).waitFor()
   assert.match(await schedules.nth(0).innerText(), /Documented[\s\S]*Morning/)

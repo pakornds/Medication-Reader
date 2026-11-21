@@ -3,7 +3,9 @@ import { Link, Navigate, Route, Routes, useMatch, useNavigate } from 'react-rout
 import { HomePage } from './pages/home/HomePage'
 import { NewPatientLayout } from './pages/new-patient/NewPatientLayout'
 import { InputPage } from './pages/new-patient/InputPage'
-import { DraftReview } from './pages/new-patient/AnalysisPreview'
+import { scanActions } from './pages/new-patient/scanActions'
+import { createClient } from './api/client'
+import { AnalysisPreview, DraftReview } from './pages/new-patient/AnalysisPreview'
 import { createDraft, hasCaseWork, withDraftValues, type Draft, type DraftValues } from './pages/new-patient/draft'
 import { stages } from './pages/new-patient/stages'
 import { PageContainer } from './components/layout/PageContainer'
@@ -19,12 +21,26 @@ import type { Photo } from './pages/new-patient/draft'
 import { caseText } from './workflow/caseText'
 import type { Encounter } from './api/admission'
 
+const localDemo = Boolean(import.meta.env.MEDREC_LOCAL_DEMO)
+
 export default function App() {
   const [language, setLanguage] = useState<Language>(() => {
     try { return localStorage.getItem('medrec.language') === 'th' ? 'th' : 'en' } catch { return 'en' }
   })
   const [draft,setDraft] = useState(createDraft)
   const [session,setSession] = useState<StaffSession | null>(null)
+  const [demoFailed, setDemoFailed] = useState(false)
+  const [demoAttempt, setDemoAttempt] = useState(0)
+  useEffect(() => {
+    if (!localDemo) return
+    let active = true
+    const client = createClient()
+    client.session().then(({ actor }) => {
+      if (actor.role !== 'pharmacist') throw new Error('Demo pharmacist unavailable')
+      if (active) setSession({ client, actor })
+    }).catch(() => { if (active) setDemoFailed(true) })
+    return () => { active = false }
+  }, [demoAttempt])
   const [record,setRecord] = useState<CaseState | null>(null)
   const [requestError,setRequestError] = useState(false)
   const generation = useRef(0)
@@ -106,7 +122,10 @@ export default function App() {
         : { encounter, synced:null, captureOnly:true })
     })
   }
-  const access=<StaffAccess language={language} session={session} onSession={changeSession}/>
+  const access = localDemo ? (demoFailed && <div role="alert">
+    <p>{language === 'th' ? 'เชื่อมต่อระบบสาธิตไม่ได้' : 'Could not connect to the demo.'}</p>
+    <button className="btn" onClick={() => {setDemoFailed(false); setDemoAttempt(value => value + 1)}}>{language === 'th' ? 'ลองอีกครั้ง' : 'Retry'}</button>
+  </div>) : <StaffAccess language={language} session={session} onSession={changeSession}/>
   const error=requestError && <p role="alert">{w.queueError}</p>
   const placeholderOutput=<section className="intake stack"><h1>{t.output}</h1><p>{w.needsReview}</p><Link className="text-action" to="/new-patient/review">{w.goReview}</Link></section>
   return <>
@@ -119,11 +138,16 @@ export default function App() {
         <Route index element={<Navigate to={lastStage} replace/>}/>
         <Route path="input" element={(record?.synced===null && !record.captureOnly) ?
           <div className="intake stack"><h1>{t.input}</h1><p>{w.syncedInput}</p><Link className="text-action" to="/new-patient/review">{w.goReview}</Link></div> :
-          <><details className="input-access"><summary>{session ? session.actor.name : language==='th'?'สิทธิ์เจ้าหน้าที่':'Staff access'}</summary>{access}</details><InputPage key={draft.caseId} draft={draft} setDraft={setDraft} language={language} proposePhoto={session?proposePhoto:undefined}/></>}/>
+          <>{localDemo ? access : <details className="input-access"><summary>{session ? session.actor.name : language==='th'?'สิทธิ์เจ้าหน้าที่':'Staff access'}</summary>{access}</details>}<InputPage key={draft.caseId} draft={draft} setDraft={setDraft} language={language} proposePhoto={session?proposePhoto:undefined}/></>}/>
         <Route path="review" element={<div className="connected-workspace stack">
-          {current || (record?.synced===null && !record.captureOnly) ? <h1 className="page-heading">{t.review}</h1> : <DraftReview onSave={saveDraftValues} draft={draft} language={language} onCatalogue={(medicine,match)=>setDraft(d=>({...d,medicines:d.medicines.map(m=>m===medicine?{...m,catalogue:match}:m)}))}/>}
-          {access}{error}
-          {(!current || draft.preview?.rows.length) ? <CaseHandoff key={draft.caseId} draft={draft} language={language} session={session} record={record} onSaved={onSaved} onRefresh={id => openEncounter(id, true)}/> : null}
+          <h1 className="page-heading">{t.review}</h1>
+          {draft.preview?.rows.length ? <AnalysisPreview draft={draft} language={language} {...scanActions(setDraft)}/> : null}
+          {!current && draft.medicines.length > 0 && <DraftReview embedded onSave={saveDraftValues} draft={draft} language={language} onCatalogue={(medicine,match)=>setDraft(d=>({...d,medicines:d.medicines.map(m=>m===medicine?{...m,catalogue:match}:m)}))}/>}
+          {!current && !draft.medicines.length && !draft.preview?.rows.length && <Link className="text-action" to="/new-patient/input">
+            {draft.preview ? (language === 'th' ? 'ดูผลการอ่านภาพและบันทึก' : 'View results for your photos and notes') : (language === 'th' ? 'เพิ่มรายการยา' : 'Add medicines')}
+          </Link>}
+          {(draft.medicines.length > 0 || record || demoFailed) && access}{error}
+          {!current && (!localDemo || session) && (draft.medicines.length > 0 || record?.synced) && <CaseHandoff key={draft.caseId} draft={draft} language={language} session={session} record={record} onSaved={onSaved} onRefresh={id => openEncounter(id, true)}/>}
           {session && record && current && <ClinicalReview key={record.encounter.id+session.actor.id} language={language} client={session.client} actor={session.actor} encounter={record.encounter} onEncounter={onEncounter}/>}
           {current && record?.synced && <details className="intake intake-panel"><summary>{language==='th'?'ดูฉบับร่างและหลักฐานต้นทาง':'Intake draft and source evidence'}</summary><DraftReview onSave={saveDraftValues} embedded draft={draft} language={language} onCatalogue={(medicine,match)=>setDraft(d=>({...d,medicines:d.medicines.map(m=>m===medicine?{...m,catalogue:match}:m)}))}/></details>}
         </div>}/>
