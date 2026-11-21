@@ -2,7 +2,29 @@
 
 from uuid import uuid4
 
+from app.schemas.evidence import REPORT_KINDS
 from app.schemas.review import ReviewerIdentity
+
+
+def remember_identity_dispute(row: dict, named: list[dict]) -> None:
+    if row.get("disputed_identity_source_ids"):
+        return
+    documented = [entry for entry in named if entry["source"]["kind"] not in REPORT_KINDS]
+    if not documented:
+        return
+    first = documented[0]
+    original_name = first["name"].strip().casefold()
+    incompatible = next(
+        (entry for entry in documented if entry["name"].strip().casefold() != original_name),
+        None,
+    )
+    if incompatible is None:
+        incompatible = next(
+            (entry for entry in named if entry["name"].strip().casefold() != original_name),
+            None,
+        )
+    if incompatible is not None:
+        row["disputed_identity_source_ids"] = [first["source"]["id"], incompatible["source"]["id"]]
 
 
 def record_identity_incident(

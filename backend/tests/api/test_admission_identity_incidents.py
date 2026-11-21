@@ -170,3 +170,52 @@ def test_reported_name_cannot_resolve_a_named_package_dispute(client):
     verify(case, row_id, "account", 422)
     verify(case, row_id, "bag-label", 422)
     assert case.state["rows"][row_id]["verified"] is None
+
+
+@pytest.mark.parametrize("selected", ["bag-label", "transfer"])
+def test_a_disputing_source_cannot_corroborate_itself_even_if_tagged_item_specific(client, selected):
+    case = Case(client, "nurse")
+    bag = photo("bag-label", "Bag A", name="Demo Amber")
+    bag["source"].update(kind="label_photo", attachment_id="bag-image")
+    bag.update(wording="Demo Amber on the original package A-001.", identity_basis="matched_original_package")
+    row_id = case.add(bag)
+    case.link(row_id, record(
+        "transfer", "transfer_record", "Transfer lists package A-001 as Demo Slate.",
+        name="Demo Slate", identity_basis="item_specific_record",
+    ))
+    case.link(row_id, record("account", "patient_report", "Patient reports use from Bag A"))
+    case.interview(row_id, "account")
+    verify(case, row_id, selected, 422)
+    assert case.state["identity_incidents"] == {}
+    confirm_from_dispensing_record(case, row_id)
+    incident, = case.state["identity_incidents"].values()
+    assert {entry["source_id"] for entry in incident["conflicting_sources"]} == {"bag-label", "transfer"}
+    assert incident["corroborating_source_id"] == "dispensing"
+
+
+def test_replacing_a_disputed_label_cannot_remove_the_independence_requirement(client):
+    case, row_id, original = disputed_case(client, "doctor")
+    replacement = deepcopy(original)
+    replacement["source"]["id"] = "retaken-crop"
+    replacement["photo"]["region"] = [0.5, 0.1, 0.5, 0.5]
+    replacement.update(
+        name="Demo Slate", wording="Demo Slate read in another crop of the original Bag A photo.",
+        identity_basis="matched_original_package",
+    )
+    case.link(row_id, replacement, replaces="bag-label")
+    assert "bag-label" in case.state["rows"][row_id]["superseded"]
+    assert verify(case, row_id, "retaken-crop", 422).json()["detail"] == (
+        "A second crop of the same challenged source cannot confirm identity."
+    )
+    verify(case, row_id, "transfer", 422)
+    assert case.send("attest_current_use", row_id=row_id, source_id="account", status=422).json()["detail"] == (
+        "Resolve the documented identity conflict before attesting current use."
+    )
+    assert case.state["identity_incidents"] == {}
+
+    confirm_from_dispensing_record(case, row_id)
+    incident, = case.state["identity_incidents"].values()
+    assert {entry["source_id"] for entry in incident["conflicting_sources"]} == {
+        "bag-label", "transfer", "retaken-crop",
+    }
+    assert incident["decision"] == "corrected"

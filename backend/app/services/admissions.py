@@ -25,7 +25,7 @@ from app.schemas.evidence import REPORT_KINDS, Observation, CaseEvidence, Eviden
 from app.schemas.review import CurrentUseVerification, ImportRequest, ReviewRow
 from app.schemas.regimen import RegimenParseRequest
 from app.services.regimens import parse_directions
-from app.services.admission_incidents import record_identity_incident
+from app.services.admission_incidents import record_identity_incident, remember_identity_dispute
 from app.services.hospital import HospitalError
 from app.services.import_eligibility import ApprovalLedger, EligibilityError, selected_evidence
 
@@ -392,6 +392,8 @@ class AdmissionStore:
                     row["proposal"] = dict(name=entry["product"], reference=sid, proposer=actor.id,
                                            independent_entry=bool(entry["identity_basis"]))
             row["entries"].append(entry)
+            if not row["unknown"]:
+                remember_identity_dispute(row, [e for e in active(row) if e["name"] and reviewable_entry(e)])
             row["verified"] = None
             return dict(rows=[row["id"]], sources=[sid], replaces=getattr(cmd, "replaces", None))
 
@@ -513,11 +515,17 @@ class AdmissionStore:
                 require(not identity_conflict or cmd.identity_source_id, "Choose the supported identity source.")
                 chosen = entry_for(row, cmd.identity_source_id) if cmd.identity_source_id else named[-1]
                 require(chosen in named, "Choose a source that documents this identity.")
-                documented = [entry for entry in named if entry["source"]["kind"] not in REPORT_KINDS]
-                if documented and len({entry["name"].strip().casefold() for entry in named}) > 1:
-                    conflicting = [entry for entry in named if entry is not chosen]
-                    require(chosen in documented and chosen["identity_basis"],
+                remember_identity_dispute(row, named)
+                disputed_ids = row.get("disputed_identity_source_ids", [])
+                if disputed_ids:
+                    history = {entry["source"]["id"]: entry for entry in row["entries"]}
+                    require(all(source_id in history for source_id in disputed_ids),
+                            "The original conflicting evidence is unavailable for review.")
+                    originals = [history[source_id] for source_id in disputed_ids]
+                    require(cmd.resolution and cmd.identity_source_id and chosen["source"]["id"] not in disputed_ids
+                            and chosen["source"]["kind"] not in REPORT_KINDS and chosen["identity_basis"],
                             "Cite separate item-specific documentation to resolve the disputed identity.")
+                    conflicting = originals + [entry for entry in named if entry is not chosen and entry not in originals]
                     require(not any(shares_origin(chosen, entry) for entry in conflicting),
                             "A second crop of the same challenged source cannot confirm identity.")
                     details["identity_incident_id"] = record_identity_incident(
@@ -664,6 +672,8 @@ def _attested_identity(identity):
 
 def attest_current_use(row, actor, cmd):
     require(actor.role in _SCREENING_ROLES, "A doctor or pharmacist is required to attest current use.", 403)
+    require(not row.get("disputed_identity_source_ids") or row.get("verified"),
+            "Resolve the documented identity conflict before attesting current use.")
     answer = row["interview"]
     require(answer and cmd.source_id == answer["source_id"], "Review the sourced interview first.")
     source = entry_for(row, cmd.source_id)
