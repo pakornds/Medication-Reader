@@ -4,7 +4,7 @@ import { InputField } from '../../components/ui/InputField'
 import { Button } from '../../components/ui/Button'
 import { useEffect, useRef, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useOutletContext } from 'react-router-dom'
 import {
   LuArrowRight,
   LuClipboardList,
@@ -42,6 +42,7 @@ export function InputPage({
   language: Language
 }) {
   const t = intake[language]
+  const setHasManualWork = useOutletContext<(hasWork: boolean) => void>()
   const [mode, setMode] = useState<'evidence' | 'manual'>('evidence')
   const [addSlot, setAddSlot] = useState(false)
   const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('idle')
@@ -103,7 +104,7 @@ export function InputPage({
     try {
       const preview = await analyze(draft, controller.signal)
       if (controller.signal.aborted) return
-      setDraft((d) => (d.evidence === evidence ? { ...d, preview } : d))
+      setDraft((d) => (d.caseId === draft.caseId && d.evidence === evidence ? { ...d, preview } : d))
       setStatus('idle')
       requestAnimationFrame(() => previewArea.current?.scrollIntoView({ block: 'start' }))
     } catch {
@@ -302,6 +303,7 @@ export function InputPage({
             <div hidden={mode !== 'manual'}>
               <ManualMedicineEntry caseId={draft.caseId} rt={regimenText[language]}
                 t={t}
+                onWorkChange={setHasManualWork}
                 onAdd={(medicine) => setDraft((d) => ({ ...d, medicines: [...d.medicines, medicine] }))}
               />
             </div>
