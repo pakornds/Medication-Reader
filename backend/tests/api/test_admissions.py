@@ -137,11 +137,17 @@ def test_import_rejects_other_ownership_atomically_and_keeps_patient_history(cli
 
 def test_mixed_bags_referral_separate_sessions_and_decisions(client):
     case = Case(client, "nurse")
-    r1 = case.add(photo("left", "bag A", "round", "uncertain"))
-    r2 = case.add(photo("right", "bag B", "oblong", "uncertain"))
-    r3 = case.add(photo("mixed", "bag A", "speckled", "uncertain"))
-    for row, bag, sid in [(r1,"bag A","left"), (r2,"bag B","right"), (r3,"bag A","mixed")]:
-        case.link(row, photo(sid+"2", bag, "separate appearance"), replaces=sid)
+    appearances = [("left", "bag A", "round"), ("right", "bag B", "oblong"), ("mixed", "bag A", "speckled")]
+    rows = []
+    for n, (sid, bag, appearance) in enumerate(appearances):
+        original = photo(sid, bag, appearance, "uncertain")
+        original["photo"]["region"] = [n * .3, .1, .2, .2]
+        rows.append(case.add(original))
+    r1, r2, r3 = rows
+    for row, (sid, bag, _), n in zip(rows, appearances, range(len(rows)), strict=True):
+        retake = photo(sid + "2", bag, "separate appearance")
+        retake["photo"]["region"] = [n * .3, .1, .25, .2]
+        case.link(row, retake, replaces=sid)
         case.link(row, record(row, "patient_report", "Synthetic interview"))
         case.interview(row,row, **({"ownership":"other","current_use":"not_owned"} if row==r3 else {}))
     case.send("propose", row_id=r1, name="Demo candidate", reference="demo-a-blue")
