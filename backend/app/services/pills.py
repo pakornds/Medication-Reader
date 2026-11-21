@@ -96,11 +96,11 @@ def observe_pill_crops(
             raise ProviderError(
                 "unsupported_pill_evidence", "A pill observation did not match its selected crop."
             )
-        if result.follow_up is None and (
-            result.overlapping or any(field.status == "unreadable" for field in fields)
-        ):
+        if result.overlapping or any(field.status == "unreadable" for field in fields):
             result.follow_up = "Take a clearer photo with the items separated and the imprint visible."
-        elif result.follow_up is None and result.imprint.status == "missing":
+        elif result.imprint.status == "missing":
             result.follow_up = "If the other side has an imprint, capture it in a separate photo."
+        else:
+            result.follow_up = None
         results.append(result)
     return results

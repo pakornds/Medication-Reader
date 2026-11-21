@@ -72,7 +72,7 @@ def payload():
 
 @pytest.fixture
 async def client(payload):
-    state = {"calls": 0, "wrong": None, "overlap": False, "timeout": False}
+    state = {"calls": 0, "wrong": None, "overlap": False, "timeout": False, "follow_up": None}
 
     def transport(request, _timeout):
         index = state["calls"]
@@ -95,6 +95,7 @@ async def client(payload):
             "form": {"status": "readable", "value": "tablet", "evidence": crop.copy()},
             "color": {"status": "readable", "value": "white" if index else "blue", "evidence": crop.copy()},
             "overlapping": state["overlap"],
+            "follow_up": state["follow_up"],
         }
         wrong = state["wrong"]
         if wrong == "row":
@@ -146,9 +147,11 @@ async def test_two_different_crops_are_described_separately(client, payload):
 async def test_overlap_gets_clearer_view_request(client, payload):
     http, state = client
     state["overlap"] = True
+    state["follow_up"] = "The tablet is Demo A."
     rows = (await http.post("/pills/observe", json=payload)).json()
     assert rows[0]["overlapping"] is True
     assert "items separated" in rows[0]["follow_up"]
+    assert "Demo A" not in rows[0]["follow_up"]
 
 
 @pytest.mark.parametrize("wrong", ["row", "crop", "field", "identity"])
