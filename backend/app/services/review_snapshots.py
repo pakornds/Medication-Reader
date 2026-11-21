@@ -299,7 +299,11 @@ def _regimen_gaps(case: dict, snapshot: ScreeningSnapshot) -> list[RegimenAnalys
     for row in snapshot.rows:
         if row.use_status != "current" or row.mapping_status != "complete":
             continue
-        answer = screening_verification(case["rows"][row.id])["answer"]
+        verification = screening_verification(case["rows"][row.id])
+        if verification.get("regimens"):
+            # Current-use verification requires a complete dose, route and schedule for every component.
+            continue
+        answer = verification["answer"]
         missing = [field for field in fields if not answer.get(field)]
         if missing:
             if len(missing) == 1:
@@ -322,13 +326,22 @@ def _project_row(row: dict, entries: list[dict], reference: FixtureReference, re
 
     entry_ids = [entry["source"]["id"] for entry in entries]
     verified_ids = {identity.get("source_id"), verification.get("source_id")}
+    components = verification.get("regimens") or []
+    route = (answer.get("route") or "").strip().casefold() or None
+    schedule = (answer.get("schedule") or "").strip().casefold()
+    if components:
+        for component in components:
+            verified_ids.update(ref["source_id"] for ref in component["evidence"].values())
+        routes = {(component.get("route") or "").strip().casefold() or None for component in components}
+        route = routes.pop() if len(routes) == 1 else None
+        prn = {component.get("as_needed") for component in components}
+        schedule = "prn" if prn == {True} else "scheduled" if prn == {False} else None
     if product and not (verified_ids - set(entry_ids)):
         links = sorted(verified_ids)
         mapping_status = "complete"
     else:
         links = entry_ids
         mapping_status = "incomplete" if identity else "unresolved"
-    schedule = (answer.get("schedule") or "").strip().casefold()
     return ScreeningRow(
         id=row["id"],
         revision=revision,
@@ -336,7 +349,7 @@ def _project_row(row: dict, entries: list[dict], reference: FixtureReference, re
         product_name=product.product_name if product else None,
         ingredient_ids=product.ingredient_ids if mapping_status == "complete" else [],
         mapping_status=mapping_status,
-        route=(answer.get("route") or "").strip().casefold() or None,
+        route=route,
         use_status="pending" if use_status == "nurse_only" else use_status,
         schedule=schedule if schedule in {"scheduled", "prn"} else None,
         evidence_ids=links,

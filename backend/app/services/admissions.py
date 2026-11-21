@@ -243,7 +243,11 @@ def import_snapshot_key(row):
     answer = verified["answer"]
     review = [verified["identity"], verified["source_id"], answer["ownership"], answer["current_use"]]
     if verified.get("regimens"):
-        review.append(sorted(verified["regimens"], key=lambda component: component["component_id"]))
+        clinical_components = [
+            {key: value for key, value in component.items() if key != "component_id"}
+            for component in verified["regimens"]
+        ]
+        review.append(sorted(dumps(component, sort_keys=True) for component in clinical_components))
     else:
         review.extend([answer["dose"], answer["route"], answer["schedule"]])
     return sha256(dumps(review, sort_keys=True).encode()).hexdigest()

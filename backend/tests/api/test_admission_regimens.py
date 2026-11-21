@@ -43,13 +43,39 @@ def test_components_survive_handoff_and_selected_import(client):
         ("documented", "1 tablet each morning"), ("reported", "2 tablets by mouth each evening")}
 
     # Reordering unchanged components leaves the already imported clinical snapshot intact.
-    case.send("verify", row_id=row, source_id="patient", regimens=list(reversed(components)))
+    reordered = list(reversed(deepcopy(components)))
+    reordered[0]["component_id"] = "new-editor-id"
+    case.send("verify", row_id=row, source_id="patient", regimens=reordered)
     case.send("import", role="pharmacist", row_ids=[row], status=409)
     changed = deepcopy(components)
     changed[1]["evidence"]["route"] = {"source_id": "patient", "item_id": row}
     case.send("verify", row_id=row, source_id="patient", regimens=changed)
     case.send("import", role="pharmacist", row_ids=[row])
     assert len(case.state["receipts"]) == 2
+
+
+def test_verified_components_supply_the_screening_snapshot(client):
+    from test_review_reports import Encounter, _source
+
+    encounter = Encounter(client)
+    for name, source in [("Demo Amber", "amber"), ("Demo Slate", "slate")]:
+        encounter.apply("add", entry=_source(source, f"{name}: synthetic interview", name))
+        row = list(encounter.case["rows"])[-1]
+        encounter.apply("interview", row_id=row, source_id=source, ownership="patient", current_use="current",
+                        route="different reported route")
+        encounter.apply("verify", row_id=row, source_id=source, regimens=[component(row, source, 1, "morning")])
+    encounter.update_snapshot()
+    report = encounter.run("DRP").json()
+    assert report["regimen_analysis"] == []
+    assert report["coverage"]["findings"] == 1
+
+    mixed = component(row, source, 2, "evening")
+    mixed["route"] = "topical"
+    encounter.apply("verify", row_id=row, source_id=source, regimens=[component(row, source, 1, "morning"), mixed])
+    encounter.update_snapshot()
+    report = encounter.run("DRP").json()
+    assert report["regimen_analysis"] == []
+    assert report["coverage"]["evaluated_scopes"] == 0
 
 
 @pytest.mark.parametrize("invalid", ["foreign_row", "foreign_source", "superseded", "incomplete",
