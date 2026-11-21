@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from io import BytesIO
 from json import dumps
+import sqlite3
 from threading import RLock
 from uuid import uuid4
 
@@ -25,6 +26,7 @@ from app.schemas.review import CurrentUseVerification, ImportRequest, ReviewRow
 from app.schemas.regimen import RegimenParseRequest
 from app.services.regimens import parse_directions
 from app.services.hospital import HospitalError
+from app.services.local_reference_db import open_reference
 from app.services.import_eligibility import ApprovalLedger, EligibilityError, selected_evidence
 
 
@@ -39,6 +41,27 @@ def require(condition, message, status=422):
 
 def active(row):
     return [entry for entry in row["entries"] if entry["source"]["id"] not in row["superseded"]]
+
+
+def confirm_catalogue_product(identity, product):
+    require(identity is not None, "Resolve the medication identity before confirming a catalogue product.")
+    try:
+        with open_reference("LOCAL_TMT_DB") as db:
+            release = db.execute("SELECT value FROM metadata WHERE key='tmt_release'").fetchone()
+            require(release is not None and release[0], "Local Thai product catalogue is unavailable.", 503)
+            require(product.tmt_release == release[0], "Re-select the product from the installed TMT release.")
+            selected = db.execute("SELECT label FROM product WHERE tpu = ? AND active_tmt = 1", (product.tpu,)).fetchone()
+            require(selected is not None, "The selected TPU is absent from this catalogue.")
+            # Preserve abbreviations reviewed by staff, but never pair an exact catalogue
+            # identity with a different product's code (for example another strength).
+            if selected["label"].casefold() != identity["name"].casefold():
+                other = db.execute(
+                    "SELECT 1 FROM product WHERE label = ? COLLATE NOCASE LIMIT 1", (identity["name"],),
+                ).fetchone()
+                require(other is None, "The selected TPU conflicts with the verified product label.")
+    except sqlite3.Error:
+        raise HTTPException(503, "Local Thai product catalogue is unavailable.") from None
+    return {**identity, "normalized_medication_id": product.tpu, "tmt_release": product.tmt_release}
 
 
 def entry_for(row, source_id):
@@ -663,6 +686,8 @@ class AdmissionStore:
                 chosen = entry_for(row, cmd.identity_source_id) if cmd.identity_source_id else named[-1]
                 require(chosen in named, "Choose a source that documents this identity.")
                 identity = dict(name=chosen["product"], source_id=chosen["source"]["id"])
+            if cmd.confirmed_product is not None:
+                identity = confirm_catalogue_product(identity, cmd.confirmed_product)
             row["verified"] = dict(actor=actor.model_dump(), at=now(), source_id=cmd.source_id,
                                    identity=identity, resolution=cmd.resolution, answer=deepcopy(answer))
             return dict(**details, verification=row["verified"], sources=[cmd.source_id] +
@@ -709,6 +734,7 @@ class AdmissionStore:
                 return SourcedValue(value=answer[key], evidence=ref) if answer[key] else None
             verification = CurrentUseVerification(
                 reviewer=verified["actor"], verified_at=verified["at"], identity=name, evidence=[ref],
+                normalized_medication_id=identity.get("normalized_medication_id"), tmt_release=identity.get("tmt_release"),
                 status="current" if answer["current_use"] == "current" else "no_longer_current",
                 dose=sourced("dose"), route=sourced("route"), frequency=sourced("schedule"))
             label_fields = {}

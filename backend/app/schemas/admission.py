@@ -125,12 +125,20 @@ class AttestCurrentUse(ContractModel):
     source_id: Text
 
 
+class ConfirmedProduct(ContractModel):
+    """The trade product explicitly selected during clinical verification."""
+
+    tpu: Text
+    tmt_release: Text
+
+
 class Verify(ContractModel):
     action: Literal["verify"]
     row_id: Text
     source_id: Text
     identity_source_id: Text | None = None
     resolution: Text | None = None
+    confirmed_product: ConfirmedProduct | None = None
 
 
 class Proposal(ContractModel):
