@@ -160,3 +160,25 @@ def test_scope_evidence_must_belong_to_its_rows_or_exposure_pair(payload):
     payload["reports"][2]["scopes"][0]["evidence_ids"].append("E3")
     with pytest.raises(ValidationError, match="Unknown scope evidence IDs"):
         ScreeningFixture.model_validate(payload)
+
+
+@pytest.mark.parametrize(("report", "scope"), [(2, 1), (3, 0)])
+@pytest.mark.parametrize("missing", ["rule", "section", "evidence"])
+def test_evaluated_leaf_requires_provenance_and_evidence(payload, report, scope, missing):
+    selected = payload["reports"][report]["scopes"][scope]
+    if missing == "rule":
+        selected.update(rule_id=None, rule_version=None)
+    elif missing == "section":
+        selected["reference_section"] = None
+    else:
+        selected["evidence_ids"] = []
+    with pytest.raises(ValidationError, match="Evaluated leaf scope requires rule provenance and evidence"):
+        ScreeningFixture.model_validate(payload)
+
+
+def test_aggregate_parent_does_not_need_its_own_rule(payload):
+    payload["reports"][2]["scopes"][0].update(
+        rule_id=None, rule_version=None, reference_section=None, evidence_ids=[]
+    )
+    result = ScreeningFixture.model_validate(payload).reports[2]
+    assert result.coverage.evaluated_scopes == 1

@@ -242,6 +242,10 @@ class ScreeningReport(ContractModel):
             )
             if parent_scopes[parent_id].outcome != expected:
                 raise ValueError("Parent outcome does not reflect its child scopes")
+        for scope in self.scopes:
+            if scope.outcome != "unevaluated" and scope.scope_id not in scopes_by_parent:
+                if not all((scope.rule_id, scope.rule_version, scope.reference_section, scope.evidence_ids)):
+                    raise ValueError("Evaluated leaf scope requires rule provenance and evidence")
 
         if self.status == "not_run":
             if self.ran_at is not None or self.scopes:
