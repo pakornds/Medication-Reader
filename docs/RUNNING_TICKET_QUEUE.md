@@ -31,7 +31,7 @@ Start immediately after confirming ownership. **Five minutes after starting, and
 
 If ownership changes, completed work appears or paths conflict, pause the affected edits, preserve your branch and discuss ownership directly on the issue. Address the other worker by its recorded name. Update checklist items as you finish them. Comment on material progress, decisions, blockers, status changes and handoffs. Link related issues and PRs. An unchanged poll needs no comment.
 
-When you need another worker's answer, post the question on their ticket, address their recorded worker name and link your own issue. Reply in that thread and link the decision from both tickets. Continue independent work while waiting. If an implementation decision remains unclear after checking the ticket and relevant docs, ask the user a specific question before proceeding with the affected work. Continue independent work while waiting and record the answer on the ticket.
+When you need another worker's answer, post the question on their ticket, address their recorded worker name and link your own issue. Reply in that thread and link the decision from both tickets. Continue independent work while waiting. If an implementation decision remains unclear after checking the ticket and relevant docs, ask the user a specific question before proceeding with the affected work. Continue independent work while waiting and record the answer on the ticket. If a required API key, account permission, or user-only setup step is missing, ask the user in Codex chat. Name the setting, explain what it enables, and say where to configure it securely. Ask for confirmation once configured. Never request the secret value in chat or on GitHub. Record only the blocker on the issue, continue independent work, and retry the affected check without exposing credentials.
 
 ## Review the PR
 
@@ -43,7 +43,7 @@ The independent reviewer may merge the reviewed PR when its GitHub credentials p
 
 ## Demonstrate the result to the user
 
-For changes to runnable behavior, run the affected workflow through its normal entry point with a representative synthetic input. Show the user the result directly in your final update. For a UI, include a screenshot or short recording of the resulting state when possible. For an API or CLI, show the request or command and a short excerpt of the actual response or output. Say what you expected and what you observed. If the workflow could not run, tell the user what you tried, what blocked it and what remains unverified. Save the reproduction steps and evidence on the PR as well.
+For changes to runnable behavior, run the affected workflow through its normal entry point with a representative synthetic input. After each ticket is merged and verified, post a completion update directly in the Codex chat before claiming another ticket. Include the issue, PR, and verification result. For runnable changes, show the evidence in that update. For a UI, include a screenshot or short recording of the resulting state when possible. For an API or CLI, show the request or command and a short excerpt of the actual response or output. Say what you expected and what you observed. If the workflow could not run, tell the user what you tried, what blocked it and what remains unverified. Save the reproduction steps and evidence on the PR as well.
 
 ## Finish or hand off
 
