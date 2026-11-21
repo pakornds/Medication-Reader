@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -133,3 +134,88 @@ async def test_failed_import_is_recoverable_and_retries_return_one_receipt(trans
     assert first.status_code == second.status_code == 200
     assert first.json() == second.json()
     assert len(hospital.lookup(STAMP)) == 1
+
+
+@pytest.fixture
+def disputed_identity_body(request_body):
+    row = request_body["rows"][0]
+    original = row["observed_names"][0]
+    row["sources"].append({"source_id": "ward-record"})
+    row["discrepancies"] = [{
+        "id": "possible-wrong-label",
+        "field": "identity",
+        "observed_values": [original, {"value": "Demo C", "evidence": {"source_id": "ward-record"}}],
+        "question": "Which item did the pharmacy dispense?",
+    }]
+    request_body["evidence"]["sources"].append({"id": "dispensing-log", "kind": "reviewer_record"})
+    request_body["evidence"]["items"].append({
+        "id": "confirmation", "source_id": "dispensing-log", "row_id": row["id"], "kind": "record_excerpt",
+    })
+    confirmation = {"source_id": "dispensing-log", "item_id": "confirmation"}
+    row["verification"].update({
+        "identity": {"value": "Demo B", "evidence": confirmation},
+        "resolved_discrepancies": ["possible-wrong-label"],
+        "identity_resolutions": [{
+            "discrepancy_id": "possible-wrong-label",
+            "evidence": confirmation,
+            "identity_basis": "dispensing_confirmation",
+            "finding": "The pharmacist matched synthetic bag B-021 to Demo B in the dispensing log.",
+        }],
+    })
+    return request_body
+
+
+def use_second_crop(body):
+    source = body["evidence"]["sources"][-1]
+    item = body["evidence"]["items"][-1]
+    source.update({"kind": "additional_photo", "attachment_id": "demo-photo-1"})
+    item["kind"] = "label_region"
+    resolution = body["rows"][0]["verification"]["identity_resolutions"][0]
+    resolution.update({
+        "identity_basis": "matched_original_package",
+        "finding": "Read Demo B from a second crop of the original photo.",
+    })
+
+
+@pytest.mark.parametrize("problem, code", [
+    ("shared_attachment", "independent_identity_evidence_required"),
+    ("other_row", "invalid_evidence"),
+    ("unavailable", "invalid_evidence"),
+])
+async def test_disputed_identity_requires_an_available_independent_item(transport, disputed_identity_body, problem, code):
+    client, hospital, _ = transport
+    body = disputed_identity_body
+    if problem == "shared_attachment":
+        use_second_crop(body)
+    elif problem == "other_row":
+        body["evidence"]["items"][-1]["row_id"] = "row-a"
+    else:
+        body["evidence"]["sources"][-1].update({"availability": "unavailable", "unavailable_reason": "Pending"})
+        body["evidence"]["items"].pop()
+    approval = await client.post("/imports/approvals", json={"evidence": body["evidence"], "row": body["rows"][0]})
+    assert approval.status_code == 422
+    assert approval.json()["detail"]["code"] == code
+    response = await client.post("/imports", json=body)
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "approval_required"
+    assert hospital.lookup(STAMP) == []
+
+
+async def test_independent_dispensing_confirmation_imports_only_the_approved_snapshot(transport, disputed_identity_body):
+    client, hospital, _ = transport
+    await approve_reviewed_row(client, disputed_identity_body)
+
+    edited = deepcopy(disputed_identity_body)
+    use_second_crop(edited)
+    rejected = await client.post("/imports", json=edited)
+    assert rejected.status_code == 422
+    assert rejected.json()["detail"]["code"] == "approval_required"
+    assert hospital.lookup(STAMP) == []
+
+    imported = await client.post("/imports", json=disputed_identity_body)
+    assert imported.status_code == 200
+    assert imported.json() == {"imported_at": "2026-11-21T04:00:00Z", "imported_row_ids": ["row-b"]}
+    [record] = hospital.lookup(STAMP)
+    [row] = record.snapshot.rows
+    assert row.verification.identity_resolutions[0].evidence.source_id == "dispensing-log"
+    assert any(item.id == "confirmation" for item in record.snapshot.evidence.items)
