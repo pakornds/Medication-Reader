@@ -1,8 +1,16 @@
 # Run the GitHub ticket queue
 
-Start in this repository with “Run the GitHub ticket queue until drained. Use multiple workers if available.” For a separate worker session, use “Work only on GitHub issue #N. Read and follow the worker instructions in `docs/RUNNING_TICKET_QUEUE.md`.”
+To start a run, open Codex in this checkout and send **“Work on the project”**. A human first reviews and labels the issues that are ready for implementation. If none qualify, the coordinator reports what is blocking the queue.
+
+For a separate worker session, use “Work only on GitHub issue #N. Read and follow the worker instructions in `docs/RUNNING_TICKET_QUEUE.md`.”
 
 This playbook applies to an active run. A later run can pick up from GitHub once it starts.
+
+## Setup prompt for another repository
+
+> Set up a GitHub Issues workflow for Codex in this repository. Inspect the existing contributor instructions, issue templates and labels first. Update the root AGENTS.md so that when I say “Work on the project” in a Codex session, it runs the ticket queue. Link to a queue playbook and a task-writing guide. Include an issue template with the goal, owned paths, exclusions, acceptance checks, Depends on and Merge after. Reserve agent-ready for human-reviewed tickets.
+>
+> Have the coordinator check authenticated access, current issues, comments and PRs, then claim an eligible open ticket labeled agent-ready and status:todo. Start only after its dependencies have merged. Assign one worker, branch and PR per issue. Run its acceptance checks and the repository checks, respect merge order and required reviews, and record verification and blockers on GitHub. Refresh the queue after each handoff or merge. When no work can advance, report what finished and what is waiting. Finish setup by showing me the changed files and how to start the first run. Leave implementation for that run.
 
 ## Coordinator
 
