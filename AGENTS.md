@@ -23,8 +23,8 @@ See [docs/WRITING_TASKS.md](docs/WRITING_TASKS.md) for how to write specs and sp
 
 ## Running the ticket queue
 
-When the user says **“Work on this project”** or asks to run or drain the GitHub
-ticket queue, start the [queue runner playbook](docs/RUNNING_TICKET_QUEUE.md).
+When the user says **“Work on the project”**, **“Work on this project”**, or asks
+to run or drain the GitHub ticket queue, start the [queue runner playbook](docs/RUNNING_TICKET_QUEUE.md).
 Pick up eligible tickets and continue until the queue is drained or blocked.
 Use one coordinator to dispatch work when multiple Codex sessions or subagents
 are involved. A session given a specific issue follows the worker instructions
