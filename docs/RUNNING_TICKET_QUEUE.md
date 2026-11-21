@@ -51,6 +51,8 @@ After opening the PR and before merging, spawn a separate review agent. Use the 
 
 Give the reviewer the ticket, acceptance criteria, PR diff and verification results. Ask it to check correctness, regressions and missing tests. Record its findings on the PR, address actionable findings, and have it review any resulting changes. Follow the repository's required GitHub reviews and checks as well.
 
+Review each acceptance criterion against the ticket's agreed scope. Record passed, failed, or unverified with the observed result or blocker. Fix and rerun failed checks. Obtain evidence for unverified criteria before merge. Keep unmet requirements on the ticket and record genuinely separate work on its own linked issue. When all ticket criteria pass, report that explicitly even if the broader feature has other open tickets.
+
 The independent reviewer may merge the reviewed PR when its GitHub credentials permit it, all actionable findings are resolved, acceptance checks pass, merge order is satisfied, and GitHub allows the merge under branch protection and required reviews. Verify that the PR head still matches the reviewed commit when merging. If the reviewer lacks merge access, hand the reviewed commit SHA back to the ticket owner to merge under the same conditions. In either case, the ticket owner verifies the merge, completes the issue and releases the claim.
 
 ## Demonstrate the result to the user
