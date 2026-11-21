@@ -14,6 +14,7 @@ from app.services.local_reference_db import INSTALL_DIR
 
 REFERENCE_PATH = INSTALL_DIR.parent / "fest-20261111" / "ingredient-routes.json.gz"
 FEST_URL = "https://www.dmp.no/en/about-us/distribution-of-data-on-medicinal-products/electronic-prescription-support-system-fest/downloading-fest-and-safest"
+FDA_UNII_URL = "https://precision.fda.gov/uniisearch"
 WHO_ATC = "https://atcddd.fhi.no/atc_ddd_index/?code="
 ORAL = "53"
 # FEST 7448 conventional tablet (including film-coated) and hard capsule. Keep
@@ -22,40 +23,7 @@ ORAL_SOLID_FORMS = frozenset({"53", "891"})
 EXACT_FORM_GAP = "no_exact_fest_product_form_route"
 SUBSTANCE_GAP = "no_exact_fest_substance"
 ATC = re.compile(r"[A-Z][0-9]{2}[A-Z]{2}[0-9]{2}")
-POLICY_VERSION = "ingredient-route-2"
-REVIEWED_TMT_RELEASES = frozenset({"TMTRF20200217", "TMTRF20261116"})
-
-
-@dataclass(frozen=True)
-class ReviewedMapping:
-    atcs: tuple[str, ...]
-    form: str
-    references: tuple[tuple[str, str], ...]
-
-
-# These mappings have a route and formulation source beyond the active FEST
-# formulation catalogue. They belong to ingredients, so every FEST rule can use them.
-REVIEWED = {
-    ("689632", "ferrous fumarate"): ReviewedMapping(("B03AA02",), "53", (
-        ("WHO ATC/DDD Index · oral ferrous fumarate (B03AA02)", WHO_ATC + "B03AA02"),
-    )),
-    ("864627", "tramadol hydrochloride"): ReviewedMapping(("N02AX02",), "53", (
-        ("WHO ATC/DDD Index · oral tramadol (N02AX02)", WHO_ATC + "N02AX02"),
-        ("DailyMed · tramadol hydrochloride tablets for oral use",
-         "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=ccb3e0f9-57db-40bc-84d2-b66a827a5b96"),
-    )),
-    ("225929", "warfarin sodium"): ReviewedMapping(("B01AA03",), "53", (
-        ("WHO ATC/DDD Index · oral warfarin (B01AA03)", WHO_ATC + "B01AA03"),
-        ("DailyMed · warfarin sodium tablets for oral use",
-         "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=bd6ea120-5d1c-4815-94f2-81e28dc6b7a9"),
-    )),
-    # The national product indication selects the aspirin ATC. The catalogue
-    # supplies its identity and route, so keep both documented oral possibilities.
-    ("223308", "aspirin"): ReviewedMapping(("B01AC06", "N02BA01"), "53", (
-        ("WHO ATC/DDD Index · acetylsalicylic acid for antiplatelet use (B01AC06)", WHO_ATC + "B01AC06"),
-        ("WHO ATC/DDD Index · acetylsalicylic acid for pain relief (N02BA01)", WHO_ATC + "N02BA01"),
-    )),
-}
+POLICY_VERSION = "ingredient-route-3"
 
 
 @dataclass(frozen=True)
@@ -69,34 +37,63 @@ class IngredientRoutes:
     version: str
     ingredients: dict
     blocked: dict
+    parents: dict
+    aliases: dict
+    explicitly_oral: dict
 
-    def resolve(self, *, release: str, ingredients: dict[str, str], form_route: tuple[str, str],
+    def is_blocked(self, name: str, route: str) -> bool:
+        routes = self.blocked.get(name, ())
+        return route in routes or "*" in routes
+
+    def resolve(self, *, ingredients: dict[str, str], form_route: tuple[str, str],
                 composition_status: str | None, ddi_status: str | None) -> IngredientATC | None:
         form, route = form_route
         if (composition_status != "complete" or ddi_status not in {EXACT_FORM_GAP, SUBSTANCE_GAP} or len(ingredients) != 1
                 or route != ORAL or form not in ORAL_SOLID_FORMS):
             return None
-        (substance_id, raw_name), = ingredients.items()
+        raw_name, = ingredients.values()
         name = " ".join(unicodedata.normalize("NFC", raw_name).casefold().split())
-        blocked_routes = self.blocked.get(name, ())
-        if route in blocked_routes or "*" in blocked_routes:
+        references = []
+        if ddi_status == SUBSTANCE_GAP:
+            alias = self.aliases.get(name)
+            if not alias:
+                return None
+            name = alias["target"]
+            references.append(Reference(
+                title=f"FDA UNII · {raw_name} = {name} ({alias['unii']})", url=FDA_UNII_URL,
+            ))
+
+        if self.is_blocked(name, route):
             return None
         source = self.ingredients.get(name, {}).get(route)
-        if ddi_status == EXACT_FORM_GAP and source is not None:
-            forms = source["products_by_form"]
-            compatible = sorted(forms.keys() & ORAL_SOLID_FORMS)
-            if not compatible:
+        if source is None and (oral := self.explicitly_oral.get(name)):
+            atc = oral["atc"]
+            references.append(Reference(
+                title=f"ATC · {name} ({atc}), under {oral['group']} (oral preparations)",
+                url=WHO_ATC + atc,
+            ))
+            return IngredientATC((atc,), references)
+
+        if source is None and (parent := self.parents.get(name)):
+            target = parent["target"]
+            if self.is_blocked(target, route):
                 return None
-            product_id = forms[compatible[0]]
-            atc = source["atc"]
-            return IngredientATC((atc,), [
-                Reference(title=f"FEST · {name} ({atc}), product {product_id}", url=FEST_URL),
-            ])
-        reviewed = REVIEWED.get((substance_id, name))
-        if reviewed and release in REVIEWED_TMT_RELEASES and form == reviewed.form:
-            return IngredientATC(reviewed.atcs, [
-                Reference(title=title, url=url) for title, url in reviewed.references
-            ])
+            references.append(Reference(
+                title=f"FEST · {name} ({parent['precise_id']}), main ingredient {target} ({parent['parent_id']})",
+                url=FEST_URL,
+            ))
+            name = target
+            source = self.ingredients.get(name, {}).get(route)
+
+        if source is not None:
+            for atc, forms in sorted(source.items()):
+                compatible = sorted(forms.keys() & ORAL_SOLID_FORMS)
+                if not compatible:
+                    return None
+                product_id = forms.get(form) or forms[compatible[0]]
+                references.append(Reference(title=f"FEST · {name} ({atc}), product {product_id}", url=FEST_URL))
+            return IngredientATC(tuple(sorted(source)), references)
+
         return None
 
 
@@ -105,23 +102,34 @@ def load_routes(fest_sha: str, path: Path = REFERENCE_PATH) -> IngredientRoutes 
     try:
         raw = gzip.decompress(path.read_bytes())
         payload = json.loads(raw)
-        if payload["format_version"] != 1 or payload["fest_sha256"] != fest_sha:
+        if payload["format_version"] != 2 or payload["fest_sha256"] != fest_sha:
             return None
         ingredients, blocked = payload["ingredients"], payload["blocked"]
+        parents, aliases, explicitly_oral = payload["parents"], payload["aliases"], payload["explicitly_oral"]
         for routes in ingredients.values():
             for value in routes.values():
-                forms = value["products_by_form"]
-                if not ATC.fullmatch(value["atc"]) or not isinstance(forms, dict) or not forms:
+                if not isinstance(value, dict) or not value:
                     return None
-                if not all(isinstance(product, str) and product for product in forms.values()):
-                    return None
+                for atc, forms in value.items():
+                    if not ATC.fullmatch(atc) or not isinstance(forms, dict) or not forms:
+                        return None
+                    if not all(isinstance(product, str) and product for product in forms.values()):
+                        return None
         if any(not isinstance(routes, list) or not all(isinstance(route, str) for route in routes)
                for routes in blocked.values()):
             return None
+        for links, keys in ((parents, ("target", "precise_id", "parent_id")), (aliases, ("target", "unii"))):
+            if any(not all(isinstance(link[key], str) and link[key] for key in keys)
+                   for link in links.values()):
+                return None
+        for value in explicitly_oral.values():
+            atc, group = value["atc"], value["group"]
+            if not ATC.fullmatch(atc) or len(group) not in {3, 4, 5} or not atc.startswith(group):
+                return None
     except (OSError, EOFError, KeyError, TypeError, ValueError, AttributeError):
         return None
     version = f"{POLICY_VERSION}-{hashlib.sha256(raw).hexdigest()[:12]}"
-    return IngredientRoutes(version, ingredients, blocked)
+    return IngredientRoutes(version, ingredients, blocked, parents, aliases, explicitly_oral)
 
 
 # These summaries describe the whole FEST rule group, including drug-class members.

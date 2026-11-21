@@ -12,7 +12,7 @@ from audit_rule_reach import reference
 from build_catalog_mapping import norm
 
 
-def catalogue(tmt, routes, release):
+def catalogue(tmt, routes):
     products = tmt.execute("""
         SELECT tpu,composition_status,ddi_status,fest_form,fest_route FROM product WHERE active_tmt=1
     """).fetchall()
@@ -32,7 +32,7 @@ def catalogue(tmt, routes, release):
         if composition == "complete" and len(parts) == 1:
             singles[tpu] = norm(next(iter(parts.values())))
         if form and route:
-            candidate = routes.resolve(release=release, ingredients=parts, form_route=(form, route),
+            candidate = routes.resolve(ingredients=parts, form_route=(form, route),
                                        composition_status=composition, ddi_status=status)
             if candidate and len(candidate.atcs) == 1:
                 fallback[tpu] = set(candidate.atcs)
@@ -115,7 +115,7 @@ def audit(tmt, fest, ddinter=None):
     if routes is None:
         raise ValueError("No ingredient-route index for the selected FEST release")
     release = metadata["tmt_release"]
-    count, exact, fallback, single_names = catalogue(tmt, routes, release)
+    count, exact, fallback, single_names = catalogue(tmt, routes)
     products = exact | fallback
     matches = actionable_membership(fest, {code for atcs in products.values() for code in atcs})
     baseline, expanded = rule_sides(exact, matches), rule_sides(products, matches)

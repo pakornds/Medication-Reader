@@ -212,7 +212,7 @@ class Membership:
 
 def _members(
     fest: sqlite3.Connection, product: Product, unassessed: set[str],
-    routes: ingredient_reference.IngredientRoutes | None = None, release: str = "",
+    routes: ingredient_reference.IngredientRoutes | None = None,
 ) -> Membership:
     matches = Membership()
     atcs = product.atcs
@@ -223,7 +223,6 @@ def _members(
         matches.gaps.append(product.row.reason or reason or "A complete product-to-FEST ATC mapping is unavailable.")
         if routes and product.catalogue_form_route and not product.row.reason:
             matches.ingredient_atc = routes.resolve(
-                release=release,
                 ingredients=product.ingredients,
                 form_route=product.catalogue_form_route,
                 composition_status=product.row.composition_status,
@@ -346,7 +345,7 @@ def _ddi_report(products: list[Product], meta: dict[str, str]) -> tuple[str, str
             unassessed.add(node.get("V"))
         routes = (ingredient_reference.load_routes(source["sha256"])
                   if any(product.catalogue_form_route for product in products) else None)
-        members = [_members(fest, product, unassessed, routes, meta["tmt_release"]) for product in products]
+        members = [_members(fest, product, unassessed, routes) for product in products]
         version = routes.version if routes and any(member.ingredient_atc for member in members) else None
         results = [_ddi(fest, left, right, version) for left, right in combinations(members, 2)]
         return source["archive_filename"], source["sha256"], results, version

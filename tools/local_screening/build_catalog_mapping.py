@@ -103,13 +103,18 @@ def entries(archive):
                     stack[-1].remove(node)
 
 
-def load_fest(archive):
+def load_fest(archive, *, therapeutic_parents=None, english_atc=None):
     strength, substances, codebook, products = {}, {}, defaultdict(set), []
     release_stats = Counter()
     for entry in entries(archive):
         node = entry.find("Virkestoff")
         if node is not None:
-            substances[node.findtext("Id")] = norm(node.findtext("NavnEngelsk") or "")
+            substance_id = node.findtext("Id")
+            substances[substance_id] = norm(node.findtext("NavnEngelsk") or "")
+            if therapeutic_parents is not None:
+                # Here RefVirkestoff points from the therapeutic part to the full substance.
+                for child in node.findall("RefVirkestoff"):
+                    therapeutic_parents.setdefault(child.text, set()).add(substance_id)
         node = entry.find("VirkestoffMedStyrke")
         if node is not None:
             combo_atc = node.find("AtcKombipreparat")
@@ -163,6 +168,8 @@ def load_fest(archive):
         else:
             resolution = ()
         index[(ids, form, route)].add((product, resolution))
+    if english_atc is not None:
+        english_atc.update(codebook)
     return names, index, release_stats
 
 
