@@ -161,13 +161,15 @@ export function replacePhoto(draft, { sourceId, replacement }) {
   const items = draft.evidence.items ?? [];
   const removedItems = items.filter(item => removedIds.has(item.source_id));
   const affectedRows = new Set(removedItems.map(item => item.row_id));
+  const replacedLabelRows = new Set(removedItems.filter(item => labelSourceIds.has(item.source_id) &&
+    item.kind === "label_region").map(item => item.row_id));
   const discardedCrops = [];
   const rows = draft.rows.map(row => {
     if (!affectedRows.has(row.id) && !row.sources.some(isReplaced) && !isReplaced(row.reverse_crop)) {
       if (!(row.follow_ups ?? []).some(item => removedIds.has(item.potential_source_id))) return row;
       return { ...withoutEvidence(row, isReplaced), revision: row.revision + 1, approval: null };
     }
-    const replacedLabel = row.sources.some(ref => labelSourceIds.has(ref.source_id));
+    const replacedLabel = replacedLabelRows.has(row.id) || row.sources.some(ref => labelSourceIds.has(ref.source_id));
     if (row.reverse_crop && !replacedLabel && !isReplaced(row.reverse_crop)) {
       return { ...withoutEvidence(row, isReplaced), revision: row.revision + 1, approval: null };
     }

@@ -144,3 +144,16 @@ test("a label retake invalidates old row revisions and crops across the same upl
     sourceId: replacement.id, replacement: { ...replacement, id: "label-photo" },
   }), /fresh source/);
 });
+
+test("retaking a front photo invalidates crops paired to its unlabeled items", () => {
+  const original = makeDraft();
+  original.evidence.items.push({
+    source_id: "label-photo", id: "unlabeled-front", row_id: "row-c", kind: "label_region",
+  });
+  const updated = replacePhoto(original, {
+    sourceId: "label-photo", replacement: { id: "label-retake", kind: "label_photo" },
+  });
+
+  assert.equal(getRow(updated, "row-c").reverse_crop, null);
+  assert.ok(updated.reverseCropCandidates.some(ref => ref.item_id === priorCrop.item_id));
+});
