@@ -51,6 +51,8 @@ async def test_main_factory_publishes_feature_operations(client):
         "/pill-candidates/references/{reference_id}": {"get"},
         "/medication-analysis": {"post"},
         "/checks": {"post"},
+        "/checks/local": {"post"},
+        "/checks/local/products": {"get"},
         "/regimens/parse": {"post"},
         "/imports": {"get", "post"},
         "/imports/approvals": {"post"},

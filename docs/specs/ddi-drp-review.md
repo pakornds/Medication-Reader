@@ -1,5 +1,7 @@
 # Pharmacist review of potential interactions and drug-related problems
 
+The local TMT/FEST review is implemented alongside the synthetic fixture API. It retrieves potential DDI records and checks exact active-ingredient overlap. The LLM explanation in this document remains a proposal. [Measured coverage, setup and limits](../data/local-screening.md)
+
 ## Purpose and existing behavior
 
 After a pharmacist or doctor verifies medication use for this encounter, staff may request two independent reports. A drug–drug interaction (DDI) report screens eligible medication pairs against a specified reference. A drug-related problem (DRP) report evaluates selected review rules with explicit prerequisites. Each report presents possible issues and its coverage. A pharmacist determines relevance and records their assessment. Medication verification, handoff, and mock import can proceed when the checks are off or unavailable.

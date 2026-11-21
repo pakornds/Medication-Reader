@@ -3,22 +3,29 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Regimen review | Medication Reader</title>
+    <title>Medication review | Medication Reader</title>
     <link rel="stylesheet" href="/regimen-review/regimen-editor.css">
+    <link rel="stylesheet" href="/regimen-review/local-screening.css">
   </head>
   <body>
     <header class="demo-header">
       <span>Medication Reader</span>
-      <span>Synthetic transfer case</span>
+      <span>Local review workspace</span>
     </header>
 
     <main class="demo-workspace">
       <header class="demo-intro">
-        <h1>Verify a medication regimen</h1>
-        <p>Compare the label and patient report, then record the regimen confirmed during review.</p>
-        <button class="regimen-button" id="load-case" type="button">Load demo case</button>
+        <h1>Review medications</h1>
+        <p>Verify medicines from their sources, then screen the reviewed list. Use de-identified evidence in this local workspace.</p>
       </header>
 
+      <div id="screening-workspace"></div>
+
+      <section class="fixture-case" aria-labelledby="fixture-heading">
+        <h2 id="fixture-heading">Synthetic transfer case</h2>
+        <p>Try a sourced regimen correction and mock import for Demo A.</p>
+        <button class="local-secondary" id="load-case" type="button">Load demo case</button>
+      </section>
       <p id="demo-status" class="demo-status" role="status"></p>
       <p id="demo-error" class="demo-error" role="alert" hidden></p>
 
@@ -37,7 +44,7 @@
           <div id="regimen-editor"></div>
 
           <section class="demo-import" id="import-panel" aria-labelledby="import-heading" hidden>
-            <h2 id="import-heading">Mock hospital import</h2>
+            <h2 id="import-heading">Mock hospital import for Demo A</h2>
             <p id="verified-summary"></p>
             <button class="regimen-button" id="approve-import" type="button">Approve and import selected row</button>
             <div id="receipt" role="status"></div>
