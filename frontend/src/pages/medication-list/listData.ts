@@ -98,14 +98,25 @@ export function listName(row: ListRow, language: Language) {
   const identity = row.catalogueIdentity
   if (product && (!identity || ![...identity.candidate_tpus, ...(identity.compatible_tpus ?? [])].includes(product.tpu)))
     return product.label
-  return row.manualName || rowName(row.row, language, row.catalogueIdentity)
+  return (!product && nameWithoutProduct(row)) || rowName(row.row, language, row.catalogueIdentity)
+}
+
+export function writtenNames(row: ListRow): string[] {
+  if (row.row.identity_status !== 'named') return []
+  return [...new Set(row.row.observed_names.map(name => name.value.trim()).filter(Boolean))]
+}
+
+export function nameWithoutProduct(row: ListRow): string | undefined {
+  if (row.manualName !== undefined) return row.manualName.trim() || undefined
+  const names = writtenNames(row)
+  return names.length === 1 && !row.row.discrepancies.length ? names[0] : undefined
 }
 
 export function canShare(row: ListRow) {
-  return Boolean(row.match || row.manualName?.trim())
+  return Boolean(row.match || nameWithoutProduct(row))
 }
 
-export function scheduleSummary(schedule: Schedule, language: Language) {
+export function scheduleSummary(schedule: Omit<Schedule, 'id' | 'complete' | 'remainder'>, language: Language) {
   const t = regimenText[language]
   const unit = periods.find(period => period === schedule.periodUnit)
   const period = unit && schedule.period ? t.formatPeriod(Number(schedule.period), t[unit]) : ''
@@ -124,7 +135,7 @@ export function exportRows(rows: ListRow[]) {
     const facility = edit.facility ?? row.facility
     const record = row.evidence.notes.find(note => note.kind === 'other_record')
     return {
-      product_name: product?.label ?? row.manualName ?? '',
+      product_name: product?.label ?? nameWithoutProduct(row) ?? '',
       ingredient: product?.source_generic ?? '',
       tpu: product?.tpu ?? null,
       tmt_release: row.match?.release ?? null,

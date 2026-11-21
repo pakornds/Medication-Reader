@@ -25,7 +25,7 @@ flowchart TD
 ```
 
 1. **Input.** Select a catalogue product to add a row immediately, or enter the name shown on a source. For photo intake, upload the labels together. Paste a medication list or record in the text input, alone or alongside photos. The scanner keeps each crop and its printed facts together. OpenAI compares printed names against the installed Thai TMT shortlist. A single compatible product can prefill the picker. When several presentations are compatible, choose an option or search the catalogue.
-2. **Review.** Edit the same rows. Change the product, source, directions, structured dose, schedule or quantity in place. If the patient reports different use, attribute the edit to that report and retain the printed wording. Select individual rows or every row with a product or staff-entered name. Unresolved items stay visible for review. The optional local lookup shows potential interactions, duplicate ingredients and unassessed pairs at product level.
+2. **Review.** Edit the same rows. Change the product, source, directions, structured dose, schedule or quantity in place. If the patient reports different use, attribute the edit to that report and retain the printed wording. Select individual rows or every row with a product, a single readable name, or a staff-entered name. A readable medicine can advance without a TMT code. Keep unidentified items visible for review. The optional local lookup shows potential interactions, duplicate ingredients and unassessed pairs at product level.
 3. **Output.** Prepare a read-only preview of the selected rows. Copy a tab-separated list or download JSON with the source and structured fields. The pharmacist enters the reviewed information in the hospital system. The open list and photos live in browser memory and clear on refresh, tab close or starting a fresh list.
 
 The separate [staff reconciliation fixture](reconciliation-contract.md#admission-encounters) covers encounter custody, formal clinical verification and mock hospital writes. The fixture-specific rules and ticket history later in this document describe that test workspace.
@@ -139,7 +139,7 @@ Only an assigned doctor or pharmacist may run either a drug–drug interaction (
 
 | Component | Responsibility |
 | --- | --- |
-| Browser | Holds the working photos, draft, edits and selected list in memory. Writes a handoff file only when the pharmacist downloads it. The browser retains language and theme preferences and successful analysis timestamps. |
+| Browser | Holds the working photos, draft, edits and selected list in memory. Writes a handoff file only when the pharmacist downloads it. The browser keeps language and theme preferences, analysis timestamps and reviewed medicine fields from prepared handoffs. Source photos, original pasted text and facility contacts stay in memory. |
 | FastAPI | Validates analysis requests and reads the local Thai TMT and FEST databases. The default workspace uses request-scoped evidence and product checks. |
 | FastAPI OpenAI adapter | Sends synthetic fixture photos and case evidence for label transcription, appearance description, and medication form analysis. Validates model responses against the shared contract. Keep credentials server-side and use stateless requests with response storage disabled where supported. Review provider data controls before any real-data integration. [OpenAI API data controls](https://developers.openai.com/api/docs/guides/your-data) |
 | Hospital entry | The pharmacist copies or downloads the list and enters it in the hospital system. |

@@ -19,6 +19,7 @@ import { canShare, exportRows, listName, manualRow, say, scannedRows, scheduleSu
 import { ListMedicine } from './ListMedicine'
 import { ListChecks } from './ListChecks'
 import { ScanHistory } from './ScanHistory'
+import { saveHandoff } from './handoffHistory'
 import { recordAnalysis } from '../../../../src/lib/history/import-history'
 import './medication-list.css'
 
@@ -30,6 +31,7 @@ export default function MedicationListApp() {
   const [rows, setRows] = useState<ListRow[]>([])
   const [selection, setSelection] = useState<string[]>([])
   const [exported, setExported] = useState<ListRow[] | null>(null)
+  const [historyUnavailable, setHistoryUnavailable] = useState(false)
   const [hasManualWork, setHasManualWork] = useState(false)
   const [inputMode, setInputMode] = useState<'photo' | 'manual' | 'text'>('photo')
   const [extraPhotos, setExtraPhotos] = useState(false)
@@ -102,12 +104,16 @@ export default function MedicationListApp() {
           const next = byId.get(row.row.id)
           byId.delete(row.row.id)
           if (!next) return row
+          const keepAsWritten = !row.match && row.manualName !== undefined
+          const chosenMatch = row.suggested ? undefined : row.match
           return {
             ...next,
             edit: row.edit,
             manualName: row.manualName,
-            match: row.match && !row.suggested ? row.match : next.match,
-            suggested: row.match && !row.suggested ? false : next.suggested,
+            manualStrength: row.manualStrength,
+            manualForm: row.manualForm,
+            match: keepAsWritten ? undefined : chosenMatch ?? next.match,
+            suggested: !keepAsWritten && !chosenMatch && next.suggested,
           }
         })
         return [...retained, ...byId.values()]
@@ -140,6 +146,7 @@ export default function MedicationListApp() {
 
   function approve() {
     if (!picked.length || status === 'scanning') return
+    setHistoryUnavailable(!saveHandoff(picked, language))
     setExported(picked)
     nav('/new-patient/output')
   }
@@ -253,7 +260,7 @@ export default function MedicationListApp() {
                 <Button disabled={!rows.some(canShare)} onClick={() => select(rows.filter(canShare).map(row => row.row.id))}>{t('Select all ready', 'เลือกทุกรายการที่พร้อม')}</Button>
                 <Button variant="text" disabled={!picked.length} onClick={() => select([])}>{t('Clear selection', 'ล้างรายการที่เลือก')}</Button>
               </div>
-              <p role="status">{picked.length} {t('selected', 'รายการที่เลือก')}{pending.length > 0 && (' · ' + pending.length + ' ' + t('need a match', 'รายการยังไม่ได้จับคู่'))}</p>
+              <p role="status">{picked.length} {t('selected', 'รายการที่เลือก')}{pending.length > 0 && (' · ' + pending.length + ' ' + t('need a medicine name', 'รายการที่ต้องระบุชื่อยา'))}</p>
             </div>
             <section className="med-list-rows">
               {rows.map(row => <ListMedicine key={row.row.id} row={row} language={language} onChange={changeRow}
@@ -268,7 +275,7 @@ export default function MedicationListApp() {
             </div>
           </>}
         </div>}/>
-        <Route path="output" element={exported ? <Handoff rows={exported} remaining={rows.length - exported.length}
+        <Route path="output" element={exported ? <Handoff rows={exported} remaining={rows.length - exported.length} historyUnavailable={historyUnavailable}
           language={language} onReset={() => {
             if (rows.length === exported.length || window.confirm(t('Clear this list, including rows still in Review?', 'ล้างรายการทั้งหมด รวมถึงรายการที่ยังอยู่ในหน้าทบทวนหรือไม่'))) reset()
           }}/> : <div className="med-list intake stack">
@@ -287,8 +294,8 @@ function spreadsheetCell(value: string) {
   return /^[=+@-]/.test(clean.trimStart()) ? "'" + clean : clean
 }
 
-function Handoff({ rows, remaining, language, onReset }: {
-  rows: ListRow[]; remaining: number; language: Language; onReset: () => void
+function Handoff({ rows, remaining, language, onReset, historyUnavailable }: {
+  rows: ListRow[]; remaining: number; language: Language; onReset: () => void; historyUnavailable: boolean
 }) {
   const t = (en: string, th: string) => say(language, en, th)
   const [copy, setCopy] = useState<'idle' | 'done' | 'error'>('idle')
@@ -328,6 +335,7 @@ function Handoff({ rows, remaining, language, onReset }: {
       <Button variant="primary" onClick={() => void copyList()}><LuClipboard aria-hidden="true"/>{t('Copy medicine list', 'คัดลอกรายการยา')}</Button>
       <Button onClick={download}><LuDownload aria-hidden="true"/>{t('Download JSON', 'ดาวน์โหลด JSON')}</Button>
     </div>
+    {historyUnavailable && <p role="status">{t('This browser could not save a history entry.', 'เบราว์เซอร์บันทึกประวัติไม่ได้')}</p>}
     {copy === 'done' && <p role="status">{t('Copied', 'คัดลอกแล้ว')}</p>}
     {copy === 'error' && <label>{t('Select and copy the list', 'เลือกและคัดลอกรายการ')}
       <textarea rows={6} readOnly value={clipboard} onFocus={e => e.target.select()}/></label>}
@@ -336,7 +344,7 @@ function Handoff({ rows, remaining, language, onReset }: {
         <h3>{name}</h3>
         <p>{[schedule, quantity].filter(Boolean).join(' · ')}</p>
         {wording && <p className="hint">{wording}</p>}
-        <small>{[code && 'TPU ' + code, source, organization].filter(Boolean).join(' · ')}</small>
+        <small>{[code ? 'TPU ' + code : t('Without TMT code', 'ไม่มีรหัส TMT'), source, organization].filter(Boolean).join(' · ')}</small>
       </article>)}
     </section>
     {remaining > 0 && <p>{remaining} {t('rows remain in Review', 'รายการยังอยู่ในหน้าทบทวน')}</p>}

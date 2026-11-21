@@ -22,10 +22,10 @@ The development server proxies requests to FastAPI at `http://127.0.0.1:8000`. S
 | Page | What staff can do |
 | --- | --- |
 | Input | Upload labels, paste a written list or open **Enter medicine manually**. The manual form fills strength and form from the selected product. **Fill fields from wording** fills the editable dose and schedule fields. All three paths feed the same list. |
-| Review | Edit the same rows, check interactions and duplicate ingredients, and select the rows for handoff. |
+| Review | Edit the same rows, check interactions and duplicate ingredients, and select the rows for handoff. A row with a readable name can proceed without a TMT code. |
 | Output | Copy a tab-separated list or download structured JSON for entry in the hospital system. |
 
-History shows only the times of successful analyses on this device. The list, pasted text and photos live in tab memory. Use the handoff before closing or refreshing the tab. The analysis and screening services process the submitted evidence and product IDs without creating encounters or hospital records.
+History shows successful analysis times and lets you open completed handoff lists on this device. It keeps medication names, presentation, dose, schedule and quantity. Original photos, pasted text and facility contacts remain in tab memory. The list, pasted text and photos live in tab memory. Use the handoff before closing or refreshing the tab. The analysis and screening services process the submitted evidence and product IDs without creating encounters or hospital records.
 
 Run the browser workflow with Playwright, Chromium and a running backend with the local TMT catalogue:
 

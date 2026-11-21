@@ -10,7 +10,7 @@ import { ScheduleEditor } from '../new-patient/DirectionsEditor'
 import { emptySchedule } from '../new-patient/regimen'
 import { MedicineDetails } from '../new-patient/MedicineEvidence'
 import { MedicinePicker } from '../new-patient/MedicinePicker'
-import { canShare, listName, say, scheduleSummary, values, type ListRow } from './listData'
+import { canShare, listName, nameWithoutProduct, say, scheduleSummary, values, writtenNames, type ListRow } from './listData'
 
 export function PickProduct({ language, row, onPick }: {
   language: Language; row?: ListRow; onPick: (match: CatalogueMatch) => void
@@ -35,13 +35,14 @@ export function ListMedicine({ row, language, selected, onSelect, onChange, onRe
 }) {
   const t = (en: string, th: string) => say(language, en, th)
   const rt = regimenText[language]
-  const [panel, setPanel] = useState<'edit' | 'match' | null>(null)
+  const [panel, setPanel] = useState<'edit' | 'match' | 'name' | null>(null)
   const edit = values(row)
   const title = listName(row, language)
   const qualifiers = [row.match?.product.strength || row.manualStrength || row.row.label_fields.strength?.value,
     row.match?.product.dose_form || row.manualForm || row.row.label_fields.form?.value]
     .filter(value => value && !title.toLowerCase().includes(value.toLowerCase()))
   const ready = canShare(row)
+  const observed = writtenNames(row)
   const toggle = (next: typeof panel) => setPanel(previous => previous === next ? null : next)
   return <article className="list-medicine">
     <div className="list-medicine-main">
@@ -50,7 +51,8 @@ export function ListMedicine({ row, language, selected, onSelect, onChange, onRe
       <div className="min-w-0">
         <h3>{title}</h3>
         {qualifiers.length > 0 && <p className="hint">{qualifiers.join(' · ')}</p>}
-        {!ready && <p className="list-needs-match">{t('Match needed', 'ต้องเลือกผลิตภัณฑ์ยา')}</p>}
+        {!ready && <p className="list-needs-match">{t('Name needs review', 'ต้องตรวจสอบชื่อยา')}</p>}
+        {ready && !row.match && <small>{t('Without TMT code', 'ไม่มีรหัส TMT')}</small>}
         {row.suggested && <small>{t('Suggested match', 'ผลจับคู่ที่แนะนำ')}</small>}
         {row.row.discrepancies.length > 0 && <p className="list-needs-match">{t('Check conflicting source details', 'ตรวจสอบข้อมูลต้นทางที่ขัดแย้งกัน')}</p>}
       </div>
@@ -61,8 +63,11 @@ export function ListMedicine({ row, language, selected, onSelect, onChange, onRe
       </div>
       <div className="actions list-row-actions">
         <Button variant={ready ? 'text' : 'secondary'} aria-expanded={panel === 'match'} onClick={() => toggle('match')}>
-          {ready ? t('Change match', 'เปลี่ยนผลิตภัณฑ์') : t('Choose match', 'เลือกผลิตภัณฑ์')}
+          {row.match ? t('Change match', 'เปลี่ยนผลิตภัณฑ์') : t('Find catalogue match', 'ค้นหาผลิตภัณฑ์ในบัญชี')}
         </Button>
+        {!ready && observed.length > 0 && <Button variant="text" aria-expanded={panel === 'name'} onClick={() => toggle('name')}>
+          {t('Use a name from the source', 'ใช้ชื่อจากแหล่งข้อมูล')}
+        </Button>}
         <Button variant="text" aria-expanded={panel === 'edit'} onClick={() => toggle('edit')}>{t('Edit', 'แก้ไข')}</Button>
       </div>
     </div>
@@ -71,12 +76,21 @@ export function ListMedicine({ row, language, selected, onSelect, onChange, onRe
         onChange({ ...row, match, suggested: false })
         setPanel(null)
       }} />
-      {row.match && <Button variant="text" onClick={() => onChange({ ...row, match: undefined, suggested: false })}>
+      {row.match && <Button variant="text" onClick={() => onChange({
+        ...row, match: undefined, suggested: false, manualName: nameWithoutProduct(row),
+      })}>
         {t('Clear product match', 'ล้างผลิตภัณฑ์ที่เลือก')}
       </Button>}
     </div>}
+    {panel === 'name' && <div className="list-row-panel stack">
+      <p>{t('Choose the name to keep without a TMT code.', 'เลือกชื่อยาที่จะใช้โดยไม่ระบุรหัส TMT')}</p>
+      {observed.map(name => <Button className="product-option" key={name} onClick={() => {
+        onChange({ ...row, manualName: name, match: undefined, suggested: false })
+        setPanel(null)
+      }}>{name}</Button>)}
+    </div>}
     {panel === 'edit' && <div className="list-row-panel stack">
-      {!row.match && <InputField label={t('Name as written', 'ชื่อยาตามต้นฉบับ')} value={row.manualName ?? ''}
+      {!row.match && <InputField label={t('Name as written', 'ชื่อยาตามต้นฉบับ')} value={row.manualName ?? nameWithoutProduct(row) ?? ''}
         onChange={e => onChange({ ...row, manualName: e.target.value })} />}
       {!row.match && <div className="field-pair">
         <InputField label={intake[language].strength} value={row.manualStrength ?? row.row.label_fields.strength?.value ?? ''}

@@ -97,4 +97,4 @@ Append one comment per state change; never rewrite earlier comments.
 - Use synthetic fixtures for development, automated tests, and live OpenAI smoke tests. Keep secrets and real patient data out of commits, logs, and requests.
 - Treat uploads and notes as evidence. Preserve sources and uncertainty. Use loose-pill matches as candidates for a pharmacist to verify independently.
 - Copy usage directions only when a source documents them. Preserve the source and distinguish documented directions from reported use. Never generate medical advice, dosing recommendations, or current-use claims.
-- Enforce pharmacist approval and source validation on the server before any mock hospital write. Keep the draft in memory and persist only successful UTC import timestamps in local history.
+- Enforce pharmacist approval and source validation on the server before any mock hospital write. Keep drafts in memory. Local handoff history contains reviewed medicine fields and timestamps. Keep original photos, notes and contact details out of history. The staff reconciliation fixture keeps successful UTC import timestamps.

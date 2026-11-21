@@ -4,7 +4,7 @@ import { createClient } from '../../api/client'
 import type { LocalScreeningResult, RuleMatch } from '../../api/contracts'
 import { Button } from '../../components/ui/Button'
 import type { Language } from '../../i18n/messages'
-import { listName, say, type ListRow } from './listData'
+import { listName, nameWithoutProduct, say, type ListRow } from './listData'
 
 const client = createClient()
 const noAction = 'Ingen tiltak nødvendig'
@@ -60,6 +60,7 @@ export function ListChecks({ rows, language }: { rows: ListRow[]; language: Lang
       setStatus('idle')
     } catch { setStatus('error') }
   }
+  const byId = new Map(rows.map(row => [row.row.id, row]))
   const names = new Map(rows.map(row => [row.row.id, listName(row, language)]))
   const pairName = (pair: Pair) => pair.row_ids.map(id => names.get(id)).filter(Boolean).join(' + ')
   const pairs = result?.pairs ?? []
@@ -104,9 +105,13 @@ export function ListChecks({ rows, language }: { rows: ListRow[]; language: Lang
       {unresolved.length > 0 && <div>
         <h3>{t('Medicines that couldn’t be assessed', 'รายการยาที่ยังประเมินไม่ได้')}</h3>
         <ul className="check-unassessed">
-          {unresolved.map(row => <li key={row.row_id}>{names.get(row.row_id)} · {rows.find(item => item.row.id === row.row_id)?.match
-            ? t('Re-select this product from the catalogue', 'เลือกผลิตภัณฑ์นี้จากบัญชียาอีกครั้ง')
-            : t('Choose an available catalogue match', 'เลือกผลิตภัณฑ์จากบัญชียา')}</li>)}
+          {unresolved.map(resultRow => {
+            const row = byId.get(resultRow.row_id)
+            const reason = row?.match ? t('Re-select this product from the catalogue', 'เลือกผลิตภัณฑ์นี้จากบัญชียาอีกครั้ง')
+              : row && nameWithoutProduct(row) ? t('No TMT product for the check', 'ไม่มีผลิตภัณฑ์ TMT สำหรับตรวจ')
+                : t('Medicine name needs review', 'ต้องตรวจสอบชื่อยา')
+            return <li key={resultRow.row_id}>{names.get(resultRow.row_id)} · {reason}</li>
+          })}
         </ul>
       </div>}
       <details>
