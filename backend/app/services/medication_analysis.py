@@ -389,10 +389,17 @@ def analyze_medication_form(
             output_type=FormProposal,
             images=other_images,
         )
+    physical_row_ids = {
+        item.row_id for item in form.evidence.items if sources[item.source_id].kind in PHOTO_KINDS
+    }
+    if physical_row_ids - {row.id for row in proposed.rows}:
+        raise ProviderError(
+            "unsupported_form_evidence",
+            "The preview omitted a located medication item. Retry analysis or enter it manually.",
+        )
+
     grounding = FormGrounding(form, transcripts)
     try:
-        if {r.id for r in transcripts.values()} - {r.id for r in proposed.rows}:
-            raise EvidenceValidationError("The preview omitted a transcribed item.")
         for row in proposed.rows:
             grounding.ground_names(row)
         facilities = {}
