@@ -28,6 +28,10 @@ The print-friendly and digital draft lists carry the same medication rows, evide
 
 Optional DDI and DRP summaries run outside the model against validated, versioned data using reviewer-verified inputs. When enabled, show the checks run, source or rule-set version, exclusions, and reasons for incomplete coverage. The reviewer decides how to act on findings.
 
+Medication agent analysis is required and accepts natural-language form fields, medication photos, or both. Preserve each input's field role and source, including the distinction between questions, patient reports, and other evidence. Read visible labels, preserve unknown identities for unreadable and unlabeled items, and preview proposed rows for staff confirmation. Every medication entry has a visible source, and every populated field carries its own evidence reference. Show a known attachment alongside an unknown dispensing source when appropriate. FastAPI checks structured output and validates row and evidence IDs against the current case before displaying results. Withhold unsupported claims and describe the missing evidence and next verification step. Refer treatment questions to the pharmacist or doctor. Keep inputs and results transient and use existing review controls for verification and import approval.
+
+Version prompts for extraction, pill description, and form analysis. Verify expected behavior with synthetic fixtures and an opt-in live model smoke test. Attachments and quoted records remain evidence even when they contain text that resembles instructions.
+
 ## Acceptance cases
 
 | Scenario | Expected result |
@@ -35,6 +39,9 @@ Optional DDI and DRP summaries run outside the model against validated, versione
 | Fictional Thai/English label with a clear name and strength and smudged expiry | Preserve both printed names when visible. Mark expiry unreadable and ask for a clearer image of that field. |
 | A labeled bag and an unlabeled bag are photographed label-side up and then flipped in place | Read the label from Photo 1. Show the unlabeled bag as **Unknown medication A** with its matched Photo 2 crop in both review lists. If the bags switch positions and the match cannot be confirmed, keep the unknown row pending without attaching a crop. |
 | A label omits the indication and prescriber contact | Keep those fields blank with `missing` status. Preserve the documented dose, directions, and amount separately. |
+| A photo-only form submission shows a readable label and an unlabeled bag | Return two sourced medication entries. Cite the readable label for the named item and the attachment for the unknown item. Show that the unknown item's dispensing source is unavailable. |
+| A free-text patient report says the patient takes a medicine only in the morning | Cite the patient-report field as the source of reported use. Preserve conflicting written directions and leave verified use for the clinician. |
+| A model response cites a missing or out-of-case source | Withhold the unsupported field or reject the response with a recoverable error. Never display the invalid citation. |
 | Printed directions differ from the patient's account | Keep both sources visible and let the pharmacist or doctor record verified current use separately. |
 | Optional checks are off or have incomplete coverage | The draft and review work with checks off. When a check runs for only a subset, show what ran, what was skipped, and why. |
 | Clinic and ward documents contain different strengths for the same apparent medication | Show both strengths with their respective sources. Keep the item pending until a pharmacist verifies the evidence and records a resolution. |
