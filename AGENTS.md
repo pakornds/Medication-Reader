@@ -1,0 +1,96 @@
+# Agent guide
+
+Instructions for AI coding agents working in this repository. Read this before picking up any issue.
+
+## Project
+Medication-Reader-Agent helps pharmacy and clinic staff assemble a source-linked
+medication reconciliation draft from Thai and English labels, loose-pill photos,
+and manually entered records. A pharmacist verifies the evidence before the app
+imports approved rows into a mock hospital database.
+
+Read the [v1 design](docs/specs/medication-reader-v1.md) and
+[AI behavior contract](docs/ai/reconciliation-behavior.md) before implementing a ticket.
+
+## Commands
+<!-- Fill in once the project is scaffolded. -->
+- Install: `TODO`
+- Test: `TODO`
+- Lint / type check: `TODO`
+- Run: `TODO`
+
+## Writing new tasks
+See [docs/WRITING_TASKS.md](docs/WRITING_TASKS.md) for how to write specs and split them into agent-ready issues.
+
+## Running the ticket queue
+
+When the user says **“Work on this project”** or asks to run or drain the GitHub
+ticket queue, start the [queue runner playbook](docs/RUNNING_TICKET_QUEUE.md).
+Pick up eligible tickets and continue until the queue is drained or blocked.
+Use one coordinator to dispatch work when multiple Codex sessions or subagents
+are involved. A session given a specific issue follows the worker instructions
+and stays on that issue.
+
+## Labels
+| Label | Meaning |
+|---|---|
+| `status:todo` | Not started |
+| `status:in-progress` | An agent is working on it |
+| `status:blocked` | Waiting on a human or another issue |
+| `status:in-review` | PR open, awaiting review |
+| `status:done` | Merged / completed |
+| `agent-ready` | Spec is complete; an agent may pick it up |
+
+An issue has exactly one `status:*` label at a time.
+
+## Issue workflow
+GitHub Issues are the work queue for Codex and other coding agents. Keep the issue's
+status label, `## Status` block, and checklist current as work progresses. Record
+state changes on the ticket using the comment format below.
+
+1. **Pick** an open issue labeled `agent-ready` + `status:todo` whose `Depends on` issues are all `status:done`.
+   Confirm the dependency PRs are merged into `main`. When dispatching agents in parallel,
+   assign one agent per issue before they start, especially when they share a GitHub account.
+   ```bash
+   gh issue list --label agent-ready --label status:todo --json number,title,body
+   ```
+2. **Claim** it: swap the label, assign yourself, comment "Starting".
+   ```bash
+   gh issue edit <N> --remove-label status:todo --add-label status:in-progress --add-assignee @me
+   gh issue comment <N> --body "Agent update: Starting"
+   ```
+3. **Work** on branch `issue-<N>-<short-slug>` from current `origin/main`. Give each
+   concurrently active branch its own Git worktree or checkout. Fill in the issue's `## Status` block
+   (State, Owner, Branch, Last update) when starting. On each state change, update
+   State and Last update. Tick checklist items as you finish them.
+4. **Blocked?** Set `status:blocked`, write the question under *Notes / blockers*, comment, and stop. Do not guess.
+5. **Verify and open a PR** targeting `main` with `Closes #<N>`. Run the documented
+   tests, lint and type checks, plus the issue's acceptance checks. Record the results
+   in the PR, set `status:in-review`, fill in `PR:` in the Status block, and comment a summary.
+6. **Merge through the PR** after any `Merge after` issues are done. Bring the branch
+   up to date with `main` and rerun verification when either branch changes. Merge once
+   checks and acceptance criteria pass and required GitHub reviews are satisfied. If
+   a check fails, fix it and verify again before merging.
+7. **After merge** confirm the PR landed on `main` and the issue closed. Run any
+   post-merge checks specified in the issue, then update the ticket to `status:done`
+   and post the final state-change comment before dependent work starts.
+
+### Update comment format
+Append one comment per state change; never rewrite earlier comments.
+```
+**Agent update** (YYYY-MM-DD HH:MM)
+- State: X -> Y
+- Done: ...
+- PR: #...
+- Blocked on: ...
+- Next: ...
+```
+
+## Rules
+- Stay inside the issue's Requirements. Never modify anything listed under *Out of scope*.
+- One issue = one branch = one PR.
+- Add or update tests for every behavior change; all tests must pass before `status:in-review`.
+- Do not add dependencies unless the issue allows it.
+- Use synthetic fixtures for development, automated tests, and live OpenAI smoke tests. Keep secrets and real patient data out of commits, logs, and requests.
+- Treat uploads and notes as evidence. Preserve sources and uncertainty. Use loose-pill matches as candidates for a pharmacist to verify independently.
+- Copy usage directions only when a source documents them. Preserve the source and distinguish documented directions from reported use. Never generate medical advice, dosing recommendations, or current-use claims.
+- Enforce pharmacist approval and source validation on the server before any mock hospital write. Keep the draft in memory and persist only successful UTC import timestamps in local history.
