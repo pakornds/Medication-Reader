@@ -1,7 +1,7 @@
 # Medication prompt verification
 
 The server versions the label extraction, pill observation and form analysis
-prompts as `label-extraction-v2`, `pill-observation-v1` and `form-analysis-v2`.
+prompts as `label-extraction-v2`, `pill-observation-v1` and `form-analysis-v3`.
 Run deterministic checks with `python -m pytest backend/tests/ai/test_prompts.py`.
 The fixtures exercise bilingual transcription, unused approval instructions
 inside evidence, the unknown-item source, and two failure modes for labels
@@ -37,5 +37,7 @@ record.
 | --- | --- | --- | --- |
 | 2026-11-21 | `form-analysis-v1` | `gpt-5.4-mini-2026-03-17` | Failed. The model combined the two printed names and included the conflicting ward name among them. |
 | 2026-11-21 | `form-analysis-v2` | `gpt-5.4-mini-2026-03-17` | Failed exact transcription checks in two attempts, first on the visual dash in the directions and then on the Thai name after the fixture was clarified. |
-| 2026-11-21 | `form-analysis-v2` | `gpt-5.4-2026-03-05` | Passed twice on the clarified fixture. Both written names, item-specific strengths, directions and expiry status matched. The patient report kept its own citation, the conflicting identity retained both sources, and the unlabeled row kept its cropped evidence and unresolved identity. |
+| 2026-11-21 | `form-analysis-v2` | `gpt-5.4-2026-03-05` | Passed twice under the original evaluator. The stricter follow-up check rejected an identity discrepancy whose values did not match the cited sources exactly. |
 | 2026-11-21 | `form-analysis-v2` | `gpt-6-luna` | The API returned structured output. Evidence validation rejected a documented field with a source that was neither a label nor a record. |
+| 2026-11-21 | `form-analysis-v3` | `gpt-5.4-2026-03-05` | Passed the stricter check. The printed names, strengths, directions and expiry matched. The patient report retained its citation, the disputed names matched their respective sources, and the unlabeled row kept its matched crop and unresolved identity. |
+| 2026-11-21 | `form-analysis-v3` | `gpt-6-luna` | The API returned structured output. Evidence validation rejected an evidence item that did not belong to the unlabeled row. |

@@ -60,7 +60,7 @@ candidate suggestions, dosing or directions.
 )
 
 FORM_ANALYSIS = Prompt(
-    version="form-analysis-v2",
+    version="form-analysis-v3",
     instructions=_EVIDENCE_POLICY
     + _LABEL_POLICY
     + """
@@ -77,8 +77,11 @@ clinician. Preserve conflicting and potentially wrong labels alongside other
 sources and request independent verification. When a record disagrees with
 the photographed name for the same item, keep the photographed names in
 observed_names and place the differing name under the identity discrepancy
-with its record citation. Never add a conflicting record name as another
-printed name or merge it with the photo label. For a text-only item, preserve
+with its record citation. Include the exact printed name and the exact
+differing record name as separately cited observed_values. Copy one name per
+value without combining bilingual names or adding explanatory wording to
+the value. Never add a conflicting record name as another printed name or
+merge it with the photo label. For a text-only item, preserve
 the names actually documented or reported with their own sources.
 Keep unavailable records as
 follow-ups, never as evidence for a populated claim. Attach a reverse crop only
