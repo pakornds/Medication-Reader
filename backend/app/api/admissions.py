@@ -48,9 +48,9 @@ def register_admissions(app, hospital, resolve_reviewer):
     @router.post("/{case_id}/capture", openapi_extra={"requestBody": {
         "required": True, "content": {"multipart/form-data": {"schema": {
             "type": "object", "required": ["command"], "properties": {
-                "command": {"type": "string", "description": "JSON with revision, request_id, manifest, and optional existing_rows."},
-                "front": {"type": "string", "format": "binary", "description": "Original front image on first upload."},
-                "reverse": {"type": "string", "format": "binary", "description": "Original reverse image on first upload."},
+                "command": {"type": "string", "description": "JSON with revision, request_id, manifest, optional existing_rows, and optional replaces_view identifying the current view being retaken."},
+                "front": {"type": "string", "format": "binary", "description": "Original front image on first upload or whole-view retake."},
+                "reverse": {"type": "string", "format": "binary", "description": "Original reverse image on first upload or whole-view retake."},
             },
         }}},
     }})

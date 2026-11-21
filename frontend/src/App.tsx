@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Navigate, Route, Routes, useMatch } from 'react-router-dom'
+import { HomePage } from './pages/home/HomePage'
 import { NewPatientLayout } from './pages/new-patient/NewPatientLayout'
 import { InputPage } from './pages/new-patient/InputPage'
 import { DraftReview } from './pages/new-patient/AnalysisPreview'
@@ -66,7 +67,7 @@ export default function App() {
       <main className="pt-7">
         <PageContainer>
           <Routes>
-            <Route path="/" element={<MockPage name={t.home} />} />
+            <Route path="/" element={<HomePage language={language} />} />
             <Route path="/new-patient" element={<NewPatientLayout language={language} />}>
               <Route index element={<Navigate to={lastStage} replace />} />
               <Route path="input" element={<InputPage draft={draft} setDraft={setDraft} language={language} />} />

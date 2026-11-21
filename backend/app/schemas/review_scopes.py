@@ -107,11 +107,13 @@ class ScreeningRow(ContractModel):
     route: Text | None = None
     use_status: Literal["current", "stopped", "pending"]
     schedule: Literal["scheduled", "prn"] | None = None
-    evidence_ids: list[Text] = Field(min_length=1)
+    evidence_ids: list[Text]
 
     @model_validator(mode="after")
     def check_mapping(self):
         _unique_ids(self.ingredient_ids, "row ingredient IDs")
+        if not self.evidence_ids and (self.mapping_status != "unresolved" or self.use_status != "pending"):
+            raise ValueError("Only unresolved pending rows can lack evidence")
         if self.mapping_status == "complete" and (not self.product_id or not self.ingredient_ids):
             raise ValueError("A complete row mapping requires a product and ingredients")
         return self

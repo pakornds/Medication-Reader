@@ -1,3 +1,5 @@
+import { regimenText, type RegimenText } from '../../i18n/regimen'
+import { RegimenReadback } from './RegimenReadback'
 import { Button } from '../../components/ui/Button'
 import { InputField } from '../../components/ui/InputField'
 import { useState } from 'react'
@@ -71,9 +73,8 @@ const regimenFields: RegimenField[] = [
 
 function StructuredDirections({ component, evidence, t }: { component: RegimenComponent; evidence: Evidence; t: IntakeText }) {
   return (
-    <details className="citation">
+    <details className="citation regimen-sources">
       <summary>{component.basis === 'reported' ? t.reportedDirections : t.structuredDirections}</summary>
-      <blockquote>{component.directions_text}</blockquote>
       {component.evidence.directions_text && (
         <Citation reference={component.evidence.directions_text} evidence={evidence} t={t} />
       )}
@@ -97,12 +98,14 @@ function StructuredDirections({ component, evidence, t }: { component: RegimenCo
   )
 }
 export function RowEvidence({
+  rt,
   row,
   evidence,
   facility,
   scan = true,
   t,
 }: MedicineEvidence & {
+  rt: RegimenText
   t: IntakeText
   scan?: boolean
 }) {
@@ -118,6 +121,10 @@ export function RowEvidence({
           {field.evidence && <Citation reference={field.evidence} evidence={evidence} t={t} />}
         </div>
       ))}
+      {(row.regimens ?? []).map(component => <div key={component.component_id}>
+        <RegimenReadback component={component} t={rt}/>
+        <StructuredDirections component={component} evidence={evidence} t={t} />
+      </div>)}
       {row.reported_use.length > 0 && (
         <div>
           <strong>{t.reported}</strong>
@@ -126,9 +133,6 @@ export function RowEvidence({
           ))}
         </div>
       )}
-      {row.regimens?.map((component) => (
-        <StructuredDirections key={component.component_id} component={component} evidence={evidence} t={t} />
-      ))}
       {scan && (
         <div>
           <strong>{t.dispensingSource}</strong>
@@ -248,7 +252,7 @@ export function AnalysisPreview({
                 })}
               </select>
             </label>
-            <RowEvidence {...scanEvidence(preview, row, draft.evidence)} t={t} />
+            <RowEvidence {...scanEvidence(preview, row, draft.evidence)} rt={regimenText[language]} t={t} />
           </div>
         )
       })}
@@ -338,12 +342,12 @@ export function DraftReview({ draft, language, onSave }: {
                   .filter(Boolean).join(' · ')}</p>
               </div>
             )}
-            <RowEvidence {...medicine} scan={medicine.origin === 'analysis'} t={t} />
+            <RowEvidence {...medicine} scan={medicine.origin === 'analysis'} rt={regimenText[language]} t={t} />
             {linkedScans?.map((scan, index) => (
               <section className="suggestion" key={index}>
                 <h3>{t.linkedScan}</h3>
                 {hasEarlierEvidence(scan, draft.evidence) && <p role="status">{t.earlier}</p>}
-                <RowEvidence {...scan} t={t} />
+                <RowEvidence {...scan} rt={regimenText[language]} t={t} />
               </section>
             ))}
           </article>

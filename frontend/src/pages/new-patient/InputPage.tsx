@@ -1,3 +1,4 @@
+import { regimenText } from '../../i18n/regimen'
 import { SectionHeading } from '../../components/ui/SectionHeading'
 import { InputField } from '../../components/ui/InputField'
 import { Button } from '../../components/ui/Button'
@@ -314,7 +315,7 @@ export function InputPage({
               </div>
             </div>
             <div hidden={mode !== 'manual'}>
-              <ManualMedicineEntry
+              <ManualMedicineEntry caseId={draft.caseId} rt={regimenText[language]}
                 t={t}
                 onAdd={(medicine) => setDraft((d) => ({ ...d, medicines: [...d.medicines, medicine] }))}
               />

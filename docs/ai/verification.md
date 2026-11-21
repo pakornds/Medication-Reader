@@ -1,7 +1,7 @@
 # Medication prompt verification
 
 The server versions the label extraction, pill observation and form analysis
-prompts as `label-extraction-v3`, `pill-observation-v1` and `form-analysis-v4`.
+prompts as `label-extraction-v3`, `pill-observation-v1` and `form-analysis-v5`.
 Run deterministic checks with `python -m pytest backend/tests/ai/test_prompts.py`.
 The fixtures exercise bilingual transcription, unused approval instructions
 inside evidence, the unknown-item source, and two failure modes for labels

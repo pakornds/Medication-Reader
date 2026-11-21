@@ -7,6 +7,7 @@ from pydantic import Field, model_validator
 
 from .analysis import LabelField
 from .package_capture import PackageCapture, Revision, Side
+from .regimen import RegimenComponent, validate_component_list
 from .evidence import Observation, PHOTO_KINDS, ContractModel, EvidenceSource, Text
 from app.services.labels import _matches_media_type
 
@@ -105,6 +106,18 @@ class AddEvidence(ContractModel):
     replaces: Text | None = None
 
 
+class RecordUnavailableSource(ContractModel):
+    action: Literal["record_unavailable_source"]
+    source: EvidenceSource
+    follow_up: Text | None = None
+
+    @model_validator(mode="after")
+    def unavailable(self):
+        if self.source.availability != "unavailable" or self.source.attachment_id is not None:
+            raise ValueError("Record an unavailable source without an attachment")
+        return self
+
+
 class Interview(ContractModel):
     action: Literal["interview"]
     row_id: Text
@@ -131,6 +144,12 @@ class Verify(ContractModel):
     source_id: Text
     identity_source_id: Text | None = None
     resolution: Text | None = None
+    regimens: list[RegimenComponent] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def verified_components(self):
+        validate_component_list(self.regimens, verified=True)
+        return self
 
 
 class Proposal(ContractModel):
@@ -160,6 +179,13 @@ class Finish(ContractModel):
     action: Literal["finish"]
 
 
+class AssessIdentityIncident(ContractModel):
+    action: Literal["assess_identity_incident"]
+    incident_id: Text
+    outcome: Literal["confirmed_medication_error", "not_confirmed", "needs_review"]
+    assessment: Text
+
+
 class Import(ContractModel):
     action: Literal["import"]
     row_ids: list[Text] = Field(min_length=1)
@@ -169,9 +195,16 @@ class Action(ContractModel):
     revision: int = Field(ge=1)
     request_id: Text
     command: Annotated[
-        AddRow | AddEvidence | Interview | Verify | Proposal | Decision | Refer | Finish | Import | AttestCurrentUse,
+        AddRow | AddEvidence | RecordUnavailableSource | Interview | Verify | Proposal | Decision | Refer | Finish
+        | Import | AttestCurrentUse | AssessIdentityIncident,
         Field(discriminator="action"),
     ]
+
+
+class CaptureViewRequest(ContractModel):
+    side: Side
+    attachment_id: Text
+    revision: Revision
 
 
 class CaptureCommand(ContractModel):
@@ -179,9 +212,4 @@ class CaptureCommand(ContractModel):
     request_id: Text
     manifest: PackageCapture
     existing_rows: dict[Text, Text] = Field(default_factory=dict)
-
-
-class CaptureViewRequest(ContractModel):
-    side: Side
-    attachment_id: Text
-    revision: Revision
+    replaces_view: CaptureViewRequest | None = None
