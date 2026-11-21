@@ -25,6 +25,7 @@ from app.schemas.evidence import CaseEvidence, ContractModel, EvidenceItem, Evid
 from app.schemas.regimen import RegimenParseRequest
 from app.services.regimens import parse_directions
 from app.services.located_label import read_located_label
+from app.services.label_directions import extract_transcribed_directions
 
 
 class LabelPhotoRequest(ContractModel):
@@ -92,6 +93,7 @@ def read_label(
     manifest["region_locations"] = {item.id: location} if item and location else {}
     if location:
         manifest["image_view"] = "The supplied image is already cropped to this region."
+    used_scoped_transcript = False
     try:
         result = provider.generate(
             instructions=LABEL_EXTRACTION.instructions,
@@ -106,7 +108,10 @@ def read_label(
         # contract so the server alone assigns evidence references and clinical regimen fields.
         row = read_located_label(case_id, source, item, image, provider, repair=False)
         result = LabelAnalysisResult(case_id=case_id, rows=[row])
+        used_scoped_transcript = True
     for row in result.rows:
+        if not used_scoped_transcript:
+            row.regimens = []
         # A label transcription has no staff question to refer.
         row.follow_ups = [follow_up for follow_up in row.follow_ups if follow_up.field != "treatment_referral"]
         facility = row.dispensing_facility if isinstance(row, LabelMedicationSuggestion) else None
@@ -129,6 +134,13 @@ def read_label(
         raise ProviderError(
             "unsupported_label_evidence", "A label transcription did not match the selected region."
         ) from None
+    if extract_facility and item and not used_scoped_transcript:
+        row = result.rows[0]
+        directions = row.label_fields.get(LabelField.DIRECTIONS)
+        if directions and directions.status == "readable":
+            component = extract_transcribed_directions(provider, directions.value, directions.evidence)
+            if component:
+                row.regimens = [component]
     return result
 
 

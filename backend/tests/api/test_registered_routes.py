@@ -24,7 +24,10 @@ async def client():
         body = json.loads(request.data)
         calls.append(body)
         manifest = json.loads(body["input"][0]["content"][0]["text"])
-        output = scoped_ocr(manifest, result) if "items" in manifest else result
+        if body["text"]["format"]["name"] == "LabelDirectionsChoices":
+            output = {}
+        else:
+            output = scoped_ocr(manifest, result) if "items" in manifest else result
         return json.dumps({
             "status": "completed",
             "output": [{
@@ -78,7 +81,8 @@ async def test_main_factory_dispatches_sourced_analysis_form(client):
     assert unknown["identity_status"] == "unlabeled"
     assert unknown["reverse_crop"] is None
     assert {"source_id": "reverse-photo", "item_id": "pill-c"} in unknown["sources"]
-    assert len(calls) == 3
+    assert len(calls) == 4
+    assert sum(call["text"]["format"]["name"] == "LabelDirectionsChoices" for call in calls) == 1
     assert calls[0]["model"] == "fixture-model"
     assert calls[0]["store"] is False
     print(json.dumps({

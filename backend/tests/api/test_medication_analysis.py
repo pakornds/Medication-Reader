@@ -77,7 +77,9 @@ async def client(case):
         body = json.loads(request.data)
         content = body["input"][0]["content"]
         submitted = json.loads(content[0]["text"])
-        if "items" in submitted:
+        if body["text"]["format"]["name"] == "LabelDirectionsChoices":
+            output = {}
+        elif "items" in submitted:
             output = scoped_ocr(submitted, response)
         else:
             expected = FormAnalysisInput.model_validate(form).model_dump(mode="json")

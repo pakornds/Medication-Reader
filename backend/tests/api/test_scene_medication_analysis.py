@@ -3,6 +3,7 @@ import json
 from base64 import b64decode
 from io import BytesIO
 
+import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
@@ -81,6 +82,80 @@ def test_two_sides_two_distinct_crops_no_duplicate_orders_from_reverse():
         assert preview["dispensing_facilities"][row["id"]]["evidence"] == ref
     assert len(preview["located_regions"]) == 4 and not preview["photo_issues"]
     assert calls.count(("ProposedBounds",(120,80))) == 4 and calls.count(("PrintedLabel",(60,80))) == 4
+
+
+THAI_DIRECTIONS = "รับประทานครั้งละ 1 เม็ด/แคปซูล วันละ 3 ครั้ง หลังอาหาร เช้า เที่ยง เย็น หลังอาหารทันที"
+THAI_CHOICES = {
+    "dose": {"amount": 1, "unit": "tablet or capsule", "quote": "ครั้งละ 1 เม็ด/แคปซูล"},
+    "schedule": {"kind": "frequency", "count": 3, "period": 1, "period_unit": "day", "quote": "วันละ 3 ครั้ง"},
+    "times": {"values": ["morning", "noon", "evening"], "quote": "เช้า เที่ยง เย็น"},
+    "route": {"value": "oral", "quote": "รับประทาน"},
+    "meal": {"value": "immediately after meals", "quote": "หลังอาหารทันที"},
+}
+
+
+@pytest.mark.parametrize("marked", [False, True])
+def test_openai_prefills_fixed_choices_for_exact_thai_label(marked, monkeypatch, tmp_path):
+    monkeypatch.setenv("LOCAL_TMT_DB", str(tmp_path / "no-catalogue.sqlite"))
+    calls = []
+
+    def transport(request, _timeout):
+        body = json.loads(request.data)
+        response_schema = body["text"]["format"]
+        contract = response_schema["name"]
+        calls.append(contract)
+        ref = {"source_id": "left", "item_id": "left"}
+        if contract == "ProposedBounds":
+            output = {"regions": [{"x": 0, "y": 0, "width": 1, "height": 1}]}
+        elif contract == "PrintedLabel":
+            assert response_schema["schema"]["$defs"]["Dose"]["properties"]["unit"]["enum"]
+            output = {"names": ["Ibuprofen"], "directions": THAI_DIRECTIONS, "structured_directions": THAI_CHOICES}
+        elif contract == "LabelAnalysisResult":
+            output = {"case_id": "example", "rows": [{
+                "id": "order-a", "identity_status": "named", "sources": [ref],
+                "observed_names": [{"value": "Ibuprofen", "evidence": ref}],
+                "label_fields": {"directions": {"status": "readable", "value": THAI_DIRECTIONS, "evidence": ref}},
+            }]}
+        elif contract == "LabelDirectionsChoices":
+            assert json.loads(body["input"][0]["content"][0]["text"]) == {"directions": THAI_DIRECTIONS}
+            assert len(body["input"][0]["content"]) == 1
+            output = THAI_CHOICES
+        else:
+            raise AssertionError(f"Unexpected model contract: {contract}")
+        return json.dumps({"status": "completed", "output": [{"type": "message", "content": [
+            {"type": "output_text", "text": json.dumps(output)},
+        ]}]}).encode()
+
+    provider = OpenAIClient(api_key="fixture", model="fixture", transport=transport)
+    with TestClient(create_app(get_provider=lambda: provider)) as client:
+        row, = upload(client, marked=marked)["rows"]
+    schedule, = row["regimens"]
+    assert schedule["basis"] == "documented" and schedule["parse_status"] == "complete"
+    assert schedule["directions_text"] == THAI_DIRECTIONS
+    assert (schedule["dose_amount"], schedule["dose_unit"]) == (1, "tablet or capsule")
+    assert (schedule["frequency_count"], schedule["period_value"], schedule["period_unit"]) == (3, 1, "day")
+    assert schedule["time_of_day"] == ["morning", "noon", "evening"]
+    assert (schedule["route"], schedule["meal_relation"], schedule["as_needed"]) == ("oral", "immediately after meals", None)
+    assert all(ref == row["label_fields"]["directions"]["evidence"] for ref in schedule["evidence"].values())
+    assert calls == (["LabelAnalysisResult", "LabelDirectionsChoices"] if marked else ["ProposedBounds", "PrintedLabel"])
+
+
+def test_label_choices_reject_unsubstantiated_values_and_keep_original():
+    from app.schemas.evidence import EvidenceRef
+    from app.services.label_directions import LabelDirectionsChoices, label_regimen
+
+    choices = LabelDirectionsChoices.model_validate(THAI_CHOICES | {
+        "dose": {"amount": 1, "unit": "tablet", "quote": "ครั้งละ 1 เม็ด"},
+        "schedule": THAI_CHOICES["schedule"] | {"count": 4},
+        "times": THAI_CHOICES["times"] | {"values": ["morning", "evening", "bedtime"]},
+        "as_needed": {"value": True, "quote": "เมื่อมีอาการ"},
+    })
+    schedule = label_regimen(choices, THAI_DIRECTIONS, EvidenceRef(source_id="label"))
+    assert schedule.parse_status == "partial" and schedule.unparsed_text == THAI_DIRECTIONS
+    assert schedule.dose_unit is None and schedule.frequency_count is None and not schedule.time_of_day
+    assert schedule.as_needed is None
+    assert schedule.route == "oral" and schedule.meal_relation == "immediately after meals"
+    assert label_regimen(choices, "ห้าม" + THAI_DIRECTIONS, EvidenceRef(source_id="label")) is None
 
 
 def test_per_crop_failure_does_not_erase_readable_sibling():

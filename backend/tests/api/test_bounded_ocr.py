@@ -47,6 +47,9 @@ class AdjacentLabels:
 
     def generate(self, *, evidence_text, images, output_type, **kwargs):
         manifest = json.loads(evidence_text)
+        if output_type.__name__ == "LabelDirectionsChoices":
+            assert not images
+            return output_type()
         if "items" not in manifest:
             assert not images
             return output_type(case_id=manifest["evidence"]["case_id"], rows=manifest["label_transcripts"])

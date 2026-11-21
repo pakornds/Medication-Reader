@@ -1,16 +1,17 @@
 """Transcribe a single located label. Its source and bounding box are assigned by the caller."""
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, ValidationError, field_validator, model_validator
 
 from app.ai.client import ProviderError
 from app.ai.prompts import Prompt
 from app.schemas.analysis import AnalysisResult, DispensingFacility, LabelField, LabelMedicationSuggestion, validate_analysis_result
 from app.schemas.evidence import CaseEvidence, ContractModel, EvidenceRef, Observation, SourcedValue, Text
+from app.services.label_directions import DIRECTIONS_CHOICE_INSTRUCTIONS, LabelDirectionsChoices, label_regimen
 
 
 CROP_TRANSCRIPTION = Prompt(
-    version="located-label-v1",
+    version="located-label-v2",
     instructions=(
         "Read this single cropped medication package label. Transcribe legible text verbatim in its "
         "original Thai or English. Return only the fields in the supplied JSON schema. Give each printed "
@@ -22,6 +23,7 @@ CROP_TRANSCRIPTION = Prompt(
         "Return an institutional facility only when the label identifies it as the dispenser. "
         "Use unreadable_fields when a printed field is visible but illegible. When multiple distinct "
         "medicines occur in this crop and their facts cannot be attributed, leave ambiguous fields null."
+        + DIRECTIONS_CHOICE_INSTRUCTIONS
     ),
 )
 
@@ -49,6 +51,15 @@ class PrintedLabel(ContractModel):
     prescriber_contact: Text | None = None
     facility: PrintedFacility | None = None
     unreadable_fields: list[LabelField] = Field(default_factory=list)
+    structured_directions: LabelDirectionsChoices | None = None
+
+    @field_validator("structured_directions", mode="wrap")
+    @classmethod
+    def retain_transcript_on_invalid_choices(cls, value, validate):
+        try:
+            return validate(value)
+        except ValidationError:
+            return None
 
     @model_validator(mode="after")
     def readable_or_unreadable(self):
@@ -89,6 +100,10 @@ def read_located_label(case_id, source, item, crop, provider, *, repair=True):
         unknown_label=None if raw.names else "Unreadable label", label_fields=fields,
         dispensing_source_id=source.id if raw.facility else None,
         dispensing_facility=DispensingFacility(evidence=ref, **raw.facility.model_dump()) if raw.facility else None)
+    if raw.directions and raw.structured_directions:
+        component = label_regimen(raw.structured_directions, raw.directions, ref)
+        if component:
+            row.regimens = [component]
     validate_analysis_result(AnalysisResult(case_id=case_id, rows=[row]),
                              CaseEvidence(case_id=case_id, sources=[source], items=[item]))
     return row
