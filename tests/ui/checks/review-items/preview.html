@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Screening detail fixture</title>
+  <style>
+    body { max-width: 62rem; margin: 2rem auto; padding: 0 1rem; font: 1rem/1.5 system-ui; color: #1c2e35; }
+    h1, h3, h4, h5 { margin: .75rem 0 .25rem; }
+    p, ul { margin: .4rem 0 .75rem; }
+    details { margin: .65rem 0; padding: .65rem .9rem; border: 1px solid #a7c1c5; border-radius: .45rem; }
+    summary { cursor: pointer; font-weight: 600; }
+    fieldset { margin: 1rem 0; border: 1px solid #a7c1c5; }
+    button, select, input { font: inherit; margin: .2rem; }
+    #review { margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Medication screening</h1>
+    <fieldset>
+      <legend>Draft</legend>
+      <p>Demo Slate · As needed (PRN)</p>
+      <label><input type="checkbox" checked> Select Demo Amber for mock import</label>
+    </fieldset>
+    <label>Fixture
+      <select id="fixture">
+        <option value="baseline">Shared ingredient</option>
+        <option value="ddi">Interaction coverage</option>
+        <option value="stale">New snapshot, prior report</option>
+        <option value="updated">New snapshot, current report</option>
+        <option value="single">One eligible product</option>
+        <option value="doctor">Doctor view</option>
+      </select>
+    </label>
+    <div id="review"></div>
+  </main>
+  <script type="module">
+    import { mountReviewItems } from "../../../../src/components/checks/review-items/review-items.mjs";
+
+    const url = "../../../../fixtures/checks/demo-overlap-v2/case.json";
+    const response = await fetch(url);
+    const { release, snapshots, reports } = await response.json();
+    const [before, after] = snapshots;
+    const beforeDrp = reports.find(report => report.snapshot_id === before.snapshot_id && report.kind === "DRP");
+    const afterDrp = reports.find(report => report.snapshot_id === after.snapshot_id && report.kind === "DRP");
+    const beforeDdi = reports.find(report => report.snapshot_id === before.snapshot_id && report.kind === "DDI");
+    const single = { ...after, snapshot_id: "single", rows: [after.rows[0], after.rows[2]], exposures: [] };
+    const singleReport = {
+      ...afterDrp, snapshot_id: single.snapshot_id, status: "unavailable",
+      coverage: { total_scopes: 1, evaluated_scopes: 0, excluded_scopes: 1, findings: 0 },
+      scopes: afterDrp.scopes.filter(scope => scope.row_ids.includes("R1") && scope.row_ids.includes("R3")),
+    };
+
+    const scenarios = {
+      baseline: { snapshot: before, report: beforeDrp },
+      ddi: { snapshot: before, report: beforeDdi },
+      stale: { snapshot: after, report: beforeDrp },
+      updated: { snapshot: after, report: afterDrp },
+      single: { snapshot: single, report: singleReport },
+      doctor: { snapshot: before, report: beforeDrp, canRecordDisposition: false },
+    };
+    const choose = document.querySelector("#fixture");
+    const render = mountReviewItems(document.querySelector("#review"));
+    const refresh = () => render({ release, canRecordDisposition: true, ...scenarios[choose.value] });
+    choose.addEventListener("change", refresh);
+    window.fixtureData = { release, snapshots, reports };
+    refresh();
+  </script>
+</body>
+</html>
