@@ -74,10 +74,10 @@ def manifest_for(case):
 
 def test_exact_crop_can_only_be_reused_with_explicitly_shared_package(client):
     case = Case(client, "nurse")
-    first = case.add(label("first", "Demo first"))
-    second_source = label("second", "Demo second", area=(.1, .15, .2, .3))
+    first = case.add(label("first", "Demo first", orientation=3))
+    second_source = label("second", "Demo second", area=(.1, .15, .2, .3), orientation=3)
     second = case.add(second_source)
-    reuse = label("reuse", "Demo second")
+    reuse = label("reuse", "Demo second", orientation=3)
     rejected = case.link(second, reuse, replaces="second", status=422)
     assert "same confirmed package" in rejected.text
 
