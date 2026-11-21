@@ -18,7 +18,8 @@ from app.services.labels import LabelPhotoError, crop_label
 
 from app.schemas.analysis import Discrepancy
 from app.schemas.admission import (
-    Action, AddEvidence, AddRow, AttestCurrentUse, Decision, Finish, Import, Interview, NewEncounter, Proposal, Refer, Verify,
+    Action, AddEvidence, AddRow, AttestCurrentUse, Decision, Finish, Import, Interview, NewEncounter, Proposal,
+    RecordUnavailableSource, Refer, Verify,
 )
 from app.schemas.evidence import REPORT_KINDS, Observation, CaseEvidence, EvidenceItem, EvidenceRef, EvidenceSource, SourcedValue
 from app.schemas.review import CurrentUseVerification, ImportRequest, ReviewRow
@@ -273,7 +274,7 @@ class AdmissionStore:
         assigned = {actor.id, "demo-pharmacist", *("demo-" + role for role in request.assigned_roles)}
         case = dict(id="admission-" + uuid4().hex, patient_alias=request.patient_alias,
                     assigned=sorted(assigned), revision=1, status="In progress", created_at=now(),
-                    rows={}, events=[], receipts=[])
+                    rows={}, events=[], receipts=[], unavailable_sources={})
         with self.lock:
             self.records[case["id"]] = case
         return case
@@ -324,6 +325,9 @@ class AdmissionStore:
             if isinstance(cmd, (Import, Decision)) or original["status"] == "Awaiting pharmacist review":
                 require(actor.role == "pharmacist", "Pharmacist required.", 403)
             require(original["status"] != "Finished" or isinstance(cmd, Import), "Review is finished.", 409)
+            if isinstance(cmd, (AddRow, AddEvidence)):
+                require(cmd.entry.source.id not in original.get("unavailable_sources", {}),
+                        "Use a new logical source ID.")
             case = deepcopy(original)
             details = self.transition(case, actor, cmd, request.request_id)
             for row_id in details["rows"]:
@@ -369,6 +373,8 @@ class AdmissionStore:
                 retired_sources.update(retired_view_sources(original, originals, previous, manifest, replaced))
             require(not retired_sources.intersection(s.id for s in manifest.sources),
                     "Use new source IDs for evidence on a retaken or invalidated view.")
+            require(not any(source.id in original.get("unavailable_sources", {}) for source in manifest.sources),
+                    "Use a new logical source ID.")
 
             for side in ("front", "reverse"):
                 view = getattr(manifest, side)
@@ -509,6 +515,15 @@ class AdmissionStore:
 
     def transition(self, case, actor, cmd, request_id):
         rows = case["rows"]
+        if isinstance(cmd, RecordUnavailableSource):
+            source_id = cmd.source.id
+            unavailable = case.setdefault("unavailable_sources", {})
+            used_ids = {entry["source"]["id"] for row in rows.values() for entry in row["entries"]}
+            used_ids.update(source["id"] for source in case.get("capture", {}).get("sources", ()))
+            used_ids.update(case.get("retired_capture_sources", ()))
+            require(source_id not in unavailable and source_id not in used_ids, "Use a new logical source ID.")
+            unavailable[source_id] = {"source": cmd.source.model_dump(mode="json"), "follow_up": cmd.follow_up}
+            return dict(rows=[], sources=[source_id])
         if isinstance(cmd, AttestCurrentUse):
             return attest_current_use(self.row(rows, cmd.row_id), actor, cmd)
         if isinstance(cmd, (AddEvidence, Interview, Proposal, Decision)) and cmd.row_id in rows:
