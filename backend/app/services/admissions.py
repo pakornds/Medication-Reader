@@ -1,5 +1,5 @@
 """Revisioned, encounter-scoped mock review records shared by demo staff sessions."""
-from base64 import b64encode
+from base64 import b64decode, b64encode
 from collections import defaultdict
 from copy import deepcopy
 from datetime import UTC, datetime
@@ -63,8 +63,27 @@ def shares_origin(entry, other):
     return False
 
 
-def same_crop(entry, other):
-    return shares_origin(entry, other) and entry["photo"]["region"] == other["photo"]["region"]
+def crop_overlap(first, second):
+    x, y, width, height = first
+    other_x, other_y, other_width, other_height = second
+    overlap_width = min(x + width, other_x + other_width) - max(x, other_x)
+    overlap_height = min(y + height, other_y + other_height) - max(y, other_y)
+    return max(0, overlap_width) * max(0, overlap_height)
+
+
+def capture_row_crops(case, attachment):
+    crops = defaultdict(list)
+    if not attachment:
+        return crops
+    manifest = PackageCapture.model_validate(case["capture"])
+    for package in manifest.packages:
+        for item in package.items:
+            row_id = case["capture_rows"][item.row_id]
+            for entry in item.evidence:
+                if entry.region.attachment_id == attachment:
+                    bounds = manifest.locate(entry.region).bounds
+                    crops[row_id].append((bounds.x, bounds.y, bounds.width, bounds.height))
+    return crops
 
 
 def retire_sources(row, source_ids):
@@ -79,21 +98,28 @@ def retire_sources(row, source_ids):
         row["proposal"] = None
 
 
-def validate_item_retake(rows, row, old, replacement):
+def validate_item_retake(case, row, old, replacement, capture_attachment):
     old_photo, new_photo = old["photo"], replacement["photo"]
     require(old_photo and new_photo and old["source"]["kind"] == replacement["source"]["kind"]
             and old_photo["bag"] == new_photo["bag"], "Retake the same item and photo view.")
-    if shares_origin(old, replacement):
-        x, y, width, height = old_photo["region"]
-        new_x, new_y, new_width, new_height = new_photo["region"]
-        require(max(x, new_x) < min(x + width, new_x + new_width)
-                and max(y, new_y) < min(y + height, new_y + new_height),
-                "A crop of the same photo must overlap the item being retaken.")
-    for other in rows.values():
+    new_crop = tuple(new_photo["region"])
+    same_origin = shares_origin(old, replacement)
+    old_overlap = crop_overlap(new_crop, old_photo["region"]) if same_origin else 0
+    if same_origin:
+        require(old_overlap > 0, "A crop of the same photo must overlap the item being retaken.")
+    known_crops = capture_row_crops(case, capture_attachment)
+    target_overlap = max([old_overlap, *(crop_overlap(new_crop, crop) for crop in known_crops[row["id"]])])
+    for other in case["rows"].values():
         if other is row or (row.get("package_id") and row["package_id"] == other.get("package_id")):
             continue
-        require(not any(e["photo"] and same_crop(replacement, e) for e in active(other)),
+        other_crops = known_crops[other["id"]] + [
+            tuple(e["photo"]["region"]) for e in active(other) if e["photo"] and shares_origin(replacement, e)
+        ]
+        require(new_crop not in other_crops,
                 "An exact crop can only be shared by items in the same confirmed package.")
+        for crop in other_crops:
+            overlap = crop_overlap(new_crop, crop)
+            require(not overlap or overlap < target_overlap, "The retake crop overlaps a different item.")
 
 
 def retired_view_sources(case, originals, previous, manifest, replaced):
@@ -101,8 +127,11 @@ def retired_view_sources(case, originals, previous, manifest, replaced):
     if replaced.side == "front":
         # An existing reverse match depended on a package located on the old front.
         removed_matches = [m for m in previous.reverse_matches if m.status == "confirmed"]
-        regions = {m.region.region_id for m in removed_matches}
-        require(not any(m.status == "confirmed" and m.region.region_id in regions for m in manifest.reverse_matches),
+        confirmed_regions = {m.region.region_id for m in removed_matches}
+        prior_pairs = {(m.package_id, m.region.region_id) for m in previous.reverse_matches}
+        require(not any((m.package_id, m.region.region_id) in prior_pairs or
+                        (m.status == "confirmed" and m.region.region_id in confirmed_regions)
+                        for m in manifest.reverse_matches),
                 "Confirm previous reverse matches again after replacing the front view.")
 
     retired = {s.id for s in previous.sources if s.attachment_id == replaced.attachment_id}
@@ -110,6 +139,8 @@ def retired_view_sources(case, originals, previous, manifest, replaced):
                    if any(e.region == match.region for match in removed_matches))
     matched_packages = {m.package_id for m in removed_matches}
     original_data = b64encode(originals[replaced.attachment_id].content).decode()
+    reverse_attachment = previous.reverse.attachment_id if removed_matches else None
+    reverse_data = b64encode(originals[reverse_attachment].content).decode() if reverse_attachment else None
     old_kind = "label_photo" if replaced.side == "front" else "reverse_photo"
     for row in case["rows"].values():
         for entry in active(row):
@@ -119,8 +150,12 @@ def retired_view_sources(case, originals, previous, manifest, replaced):
             on_replaced_view = source["attachment_id"] == replaced.attachment_id or (
                 not source["attachment_id"] and source["kind"] == old_kind and entry["photo"]["data"] == original_data
             )
-            paired_to_replaced_front = (row.get("package_id") in matched_packages
-                                        and source["attachment_id"] == previous.reverse.attachment_id)
+            paired_to_replaced_front = row.get("package_id") in matched_packages and (
+                source["attachment_id"] == reverse_attachment or (
+                    not source["attachment_id"] and source["kind"] == "reverse_photo"
+                    and entry["photo"]["data"] == reverse_data
+                )
+            )
             if on_replaced_view or paired_to_replaced_front:
                 retired.add(source["id"])
     return retired
@@ -342,6 +377,8 @@ class AdmissionStore:
                     retire_sources(row, [e["source"]["id"] for e in active(row)
                                          if e["source"]["id"] in retired_sources])
                 case["retired_capture_sources"] = sorted(retired_sources)
+                case["retired_capture_attachments"] = [*case.get("retired_capture_attachments", ()),
+                                                        replaced.attachment_id]
             links = case.setdefault("capture_rows", {})
             items = {item.row_id: (package.id, item) for package in manifest.packages for item in package.items}
             require(command.existing_rows.keys() <= items.keys(), "Link an item from the current capture.")
@@ -403,6 +440,31 @@ class AdmissionStore:
         except LabelPhotoError as exc:
             raise HTTPException(422, str(exc)) from None
 
+    def photo_origin(self, case, entry):
+        if not entry["photo"]:
+            return None
+        originals = self.originals.get(case["id"], {})
+        if not originals:
+            return None
+        source = entry["source"]
+        data = b64decode(entry["photo"]["data"], validate=True)
+        capture = case["capture"]
+        view_attachments = {
+            view["attachment_id"]: kind
+            for side, kind in (("front", "label_photo"), ("reverse", "reverse_photo"))
+            if (view := capture.get(side))
+        }
+        attachment = source["attachment_id"]
+        if attachment in originals:
+            require(attachment in view_attachments, "Select a current capture original.")
+            require(source["kind"] == view_attachments[attachment] and data == originals[attachment].content,
+                    "Capture evidence must match its original and photo view.")
+            return attachment
+        require(not any(data == originals[old].content for old in case.get("retired_capture_attachments", ())),
+                "Select a current capture original.")
+        return next((attachment for attachment, kind in view_attachments.items()
+                     if source["kind"] == kind and data == originals[attachment].content), None)
+
     def transition(self, case, actor, cmd, request_id):
         rows = case["rows"]
         if isinstance(cmd, (AddRow, AddEvidence)):
@@ -418,12 +480,7 @@ class AdmissionStore:
                 entry["product"] = " ".join(parts)
             sid = entry["source"]["id"]
             require(sid not in case.get("retired_capture_sources", ()), "Use a new logical source ID.")
-            attachment = entry["source"]["attachment_id"]
-            current_capture = case.get("capture", {})
-            if entry["photo"] and attachment in self.originals.get(case["id"], {}):
-                require(any(view and view["attachment_id"] == attachment
-                            for view in (current_capture.get("front"), current_capture.get("reverse"))),
-                        "Select a current capture original.")
+            capture_attachment = self.photo_origin(case, entry)
             require(not any(sid == e["source"]["id"] for r in rows.values() for e in r["entries"]),
                     "Use a new logical source ID.")
             if isinstance(cmd, AddRow):
@@ -434,7 +491,7 @@ class AdmissionStore:
                 row = self.row(rows, cmd.row_id)
                 if cmd.replaces:
                     old = entry_for(row, cmd.replaces)
-                    validate_item_retake(rows, row, old, entry)
+                    validate_item_retake(case, row, old, entry, capture_attachment)
                     retire_sources(row, [cmd.replaces])
             if isinstance(cmd, AddEvidence) and row["unknown"] and entry["name"]:
                 if row["confirmed"] and row["confirmed"]["name"].casefold() != entry["product"].casefold():
