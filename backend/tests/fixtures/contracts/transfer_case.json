@@ -1,0 +1,127 @@
+{
+  "request": {
+    "evidence": {
+      "case_id": "demo-transfer",
+      "sources": [
+        {
+          "id": "label-photo",
+          "kind": "label_photo",
+          "organization": "ศักดาเวชการ",
+          "contact": "075-356XXXX",
+          "source_date": "2026-11-21"
+        },
+        {
+          "id": "reverse-photo",
+          "kind": "reverse_photo",
+          "collector": "Demo intake nurse"
+        },
+        {
+          "id": "ward-record",
+          "kind": "transfer_record",
+          "organization": "Demo receiving hospital",
+          "department_or_ward": "Demo Ward 2",
+          "source_date": "2026-11-21"
+        },
+        {
+          "id": "patient-account",
+          "kind": "patient_report",
+          "reporter": "Demo patient",
+          "collector": "Demo intake nurse",
+          "source_date": "2026-11-21"
+        },
+        {
+          "id": "prior-clinic",
+          "kind": "prescription",
+          "organization": "Demo referring clinic",
+          "availability": "unavailable",
+          "unavailable_reason": "Clinic record has not arrived"
+        }
+      ],
+      "items": [
+        {"id": "label-a", "source_id": "label-photo", "row_id": "row-a", "kind": "label_region"},
+        {"id": "label-b", "source_id": "label-photo", "row_id": "row-b", "kind": "label_region"},
+        {"id": "pill-c", "source_id": "reverse-photo", "row_id": "row-c", "kind": "pill_crop"},
+        {"id": "part-a", "source_id": "ward-record", "row_id": "row-a", "kind": "record_excerpt"}
+      ]
+    },
+    "patient_report": [
+      {"value": "รับประทานเฉพาะตอนเช้า", "evidence": {"source_id": "patient-account"}}
+    ],
+    "other_source_notes": [
+      {"value": "Ward note lists Demo C for the first item.", "evidence": {"source_id": "ward-record"}}
+    ],
+    "question": "What should the reviewer verify?"
+  },
+  "response": {
+    "case_id": "demo-transfer",
+    "rows": [
+      {
+        "id": "row-a",
+        "identity_status": "named",
+        "sources": [
+          {"source_id": "label-photo", "item_id": "label-a"},
+          {"source_id": "ward-record", "item_id": "part-a"},
+          {"source_id": "patient-account"}
+        ],
+        "dispensing_source_id": "label-photo",
+        "observed_names": [
+          {"value": "เดโมเอ", "evidence": {"source_id": "label-photo", "item_id": "label-a"}},
+          {"value": "Demo A", "evidence": {"source_id": "label-photo", "item_id": "label-a"}}
+        ],
+        "label_fields": {
+          "strength": {"status": "readable", "value": "5 mg", "evidence": {"source_id": "label-photo", "item_id": "label-a"}},
+          "directions": {"status": "readable", "value": "เช้า–เย็น", "evidence": {"source_id": "label-photo", "item_id": "label-a"}},
+          "expiry": {"status": "unreadable", "evidence": {"source_id": "label-photo", "item_id": "label-a"}},
+          "prescriber_contact": {"status": "missing"}
+        },
+        "reported_use": [
+          {"value": "รับประทานเฉพาะตอนเช้า", "evidence": {"source_id": "patient-account"}}
+        ],
+        "discrepancies": [
+          {
+            "id": "possible-wrong-label",
+            "field": "identity",
+            "observed_values": [
+              {"value": "Demo A", "evidence": {"source_id": "label-photo", "item_id": "label-a"}},
+              {"value": "Demo C", "evidence": {"source_id": "ward-record", "item_id": "part-a"}}
+            ],
+            "question": "Can the dispensing source confirm which bag belongs to the ward entry?"
+          },
+          {
+            "id": "directions-differ",
+            "field": "directions",
+            "observed_values": [
+              {"value": "เช้า–เย็น", "evidence": {"source_id": "label-photo", "item_id": "label-a"}},
+              {"value": "รับประทานเฉพาะตอนเช้า", "evidence": {"source_id": "patient-account"}}
+            ],
+            "question": "Can the reviewer confirm actual use with the patient?"
+          }
+        ],
+        "follow_ups": [
+          {"field": "identity", "question": "Can the referring clinic provide its medication record?", "potential_source_id": "prior-clinic"}
+        ]
+      },
+      {
+        "id": "row-b",
+        "identity_status": "named",
+        "sources": [{"source_id": "label-photo", "item_id": "label-b"}],
+        "observed_names": [
+          {"value": "Demo B", "evidence": {"source_id": "label-photo", "item_id": "label-b"}}
+        ],
+        "label_fields": {
+          "strength": {"status": "readable", "value": "10 mg", "evidence": {"source_id": "label-photo", "item_id": "label-b"}}
+        }
+      },
+      {
+        "id": "row-c",
+        "identity_status": "unlabeled",
+        "unknown_label": "Unknown medication A",
+        "sources": [{"source_id": "reverse-photo", "item_id": "pill-c"}],
+        "reverse_crop": {"source_id": "reverse-photo", "item_id": "pill-c"},
+        "follow_ups": [
+          {"field": "identity", "question": "Does the patient have the original labeled package?"}
+        ]
+      }
+    ]
+  }
+}
