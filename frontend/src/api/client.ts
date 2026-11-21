@@ -53,6 +53,8 @@ export function createClient(baseUrl = '', reviewerToken?: string) {
 
   return {
     products,
+    parseRegimen: (request: C.RegimenParseRequest, signal?: AbortSignal) =>
+      json<C.RegimenParseResult>('/regimens/parse', { ...body(request), signal }),
     async intakeProducts(query: string, signal?: AbortSignal) {
       const result = await products(query, signal)
       return result.products.map(product => ({

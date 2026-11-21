@@ -78,6 +78,10 @@
         const named = item.kind === 'label_region'
         return {id:item.row_id,identity_status:named?'named':'unlabeled',unknown_label:named?null:'Unknown medication A',
           sources:[ref],observed_names:named?[{value:'Demo A',evidence:ref}]:[],
+          regimens:named?[{component_id:'scan-timing',basis:'documented',directions_text:'1 tablet each morning',
+            parse_status:'complete',dose_amount:1,dose_unit:'tablet',schedule_type:'frequency',frequency_count:1,
+            period_value:1,period_unit:'day',time_of_day:['morning'],evidence:Object.fromEntries(
+              ['directions_text','dose_amount','dose_unit','schedule_type','frequency_count','period_value','period_unit','time_of_day'].map(k=>[k,ref]))}]:[],
           label_fields:{},reported_use:[],discrepancies:[],follow_ups:[],reverse_crop:named?null:ref}
       })
       return Response.json({case_id:submitted.evidence.case_id,rows,unassigned_reports:submitted.patient_report})
@@ -160,6 +164,11 @@
     await expect(() => doc().querySelector('.product-list [role=option]:not([aria-disabled=true])'),'can reselect after a manual name')
     doc().querySelector('.product-list [role=option]:not([aria-disabled=true])').click()
     type(field('Source wording or reference'),'Synthetic transfer record listing Demo M tablet')
+    type(field('Quantity prescribed (as written)'),'21 tablets')
+    type(field('Directions as written or reported'),'2 tablets at night')
+    type(field('Dose per use'),'2')
+    type(field('Dose unit'),'tablets')
+    await click('Night')
     await click('Read photos or notes')
     assert(field('Patient or caregiver report').value.includes('ตอนเช้า'),'evidence retained across modes')
     await click('Enter medicine manually')
@@ -186,6 +195,11 @@
     doc().querySelector('a[href="/new-patient/review"]').click()
     await expect(() => doc().querySelectorAll('article').length===2,'review has confirmed rows')
     assert(doc().querySelector('article').textContent.includes('0007'),'catalogue product retained as string')
+    const [manualReview,scanReview] = doc().querySelectorAll('article')
+    assert(manualReview.textContent.includes('21 tablets') && manualReview.querySelector('.regimen-readback dl').textContent.includes('2 tablets')
+      && manualReview.querySelector('.regimen-readback dl').textContent.includes('Night'),'manual package quantity and dose remain separate')
+    assert(scanReview.querySelector('.regimen-readback dl').textContent.includes('Morning')
+      && scanReview.querySelector('.regimen-readback').textContent.includes('1 tablet each morning'),'scan and manual schedules use the same readback')
     doc().querySelector('button[title="Switch to Thai"]').click()
     await expect(() => doc().querySelector('h1').textContent === 'ทบทวน','Thai review')
     frame.width='320'
