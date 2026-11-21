@@ -42,7 +42,7 @@ per-issue claim. A session given a specific issue stays on that ticket.
 | `status:done` | Merged / completed |
 | `agent-ready` | Spec is complete; an agent may pick it up |
 
-An issue has exactly one `status:*` label at a time.
+Open cards have exactly one `status:*` label and one priority label. Use `priority:high` for time-sensitive work, `priority:medium` for normal work (default), and `priority:low` for deferrable work.
 
 ## Issue workflow
 GitHub Issues are the work queue for Codex and other coding agents. Keep the issue's
@@ -50,7 +50,7 @@ status label, `## Status` block, and checklist current as work progresses. Recor
 state changes on the ticket using the comment format below.
 
 1. **Pick** an open issue labeled `agent-ready` + `status:todo` whose `Depends on` issues are all `status:done`.
-   Confirm the dependency PRs are merged into `main`. Check owned paths and existing work across active tickets.
+   Choose the highest priority among eligible tickets. Confirm the dependency PRs are merged into `main`. Check owned paths and existing work across active tickets.
    ```bash
    gh issue list --label agent-ready --label status:todo --json number,title,body
    ```
