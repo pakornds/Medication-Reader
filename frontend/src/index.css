@@ -152,3 +152,17 @@
     .intake-grid { grid-template-columns: minmax(0,2.2fr) minmax(17rem,1fr); }
   }
 }
+
+@layer components {
+  .directions-card { min-width: 0; border-top: 1px solid var(--line); padding-top: .6rem; }
+  .directions-card legend { font-weight: 650; padding-inline-end: .6rem; }
+  .directions-card .btn { align-self: start; }
+  .directions-card fieldset legend { font-size: .87rem; }
+  .schedule-times { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .3rem; }
+  .schedule-times button { padding: .4rem .75rem; border: 1px solid var(--line); border-radius: .5rem; }
+  .schedule-times button[aria-pressed=true] { background: var(--bg-selected); border-color: var(--accent); color: var(--accent); }
+  .period-fields, .regimen-readback dl { display: grid; gap: .65rem; grid-template-columns: repeat(auto-fit,minmax(min(9rem,100%),1fr)); }
+  .regimen-readback { border-inline-start: 2px solid var(--accent); padding-inline-start: .8rem; }
+  .regimen-readback dl { margin-block: .5rem; }
+  .regimen-readback dt { font-size: .8rem; color: var(--text-2); }
+}
