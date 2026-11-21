@@ -142,7 +142,7 @@ Create or update these files:
 - `docs/RUNNING_TICKET_QUEUE.md` — Document how workers select, claim, implement, review, merge, hand off, and complete tickets. Keep this playbook focused on active work.
 - `docs/WRITING_TASKS.md` — Document ticket planning and include a reusable setup prompt for future repositories.
 - A **Scenarios** section in the main product spec — The user scenarios that define done for the product, and the traceability table described under “Requirements as scenarios”. Use a separate `docs/SCENARIOS.md` only when the repository has no single main spec.
-- An end-to-end scenario test harness and a CI job that runs every scenario test on each PR and on the default branch. Reuse the repository's existing browser or API test tooling when present.
+- An end-to-end scenario test harness and a CI job that runs every scenario test on each PR and on the default branch. Reuse the repository's existing browser or API test tooling when present. Build them during setup only when setup can run the application and prove the harness works. Otherwise, file two tickets as the first `priority:high` work instead: one for the harness and CI job, and one for the main success scenario's test. Leave them for a human to mark `agent-ready`, as with any ticket.
 - `.github/ISSUE_TEMPLATE/agent-task.md` — Include the outcome, owned paths and tests, exclusions, concrete input and expected result, acceptance checks, scenarios affected, screen and design frame for UI work, Depends on, Merge after, and a status block for owner, branch, PR, and progress.
 - `.github/pull_request_template.md` — Include the closing issue reference, acceptance checks, verification results, scenario test results, a screenshot beside its design frame for each screen changed, independent review findings, and merge order.
 
@@ -152,9 +152,15 @@ Use GitHub Issues as the shared queue and communication board. Create any missin
 
 A closed ticket does not by itself show that the product meets its requirements. Scenarios do. Derive five to eight user scenarios from the specs, design files and stated goals, and record them in the Scenarios section. Give each scenario a stable ID, the user and situation, the steps the user takes, the design frame for each screen visited, and the observable end state, including what is saved, excluded, handed off or rejected. Cover the main success path first, then the failure and edge cases the specs name. Use synthetic data only.
 
-Give every scenario an automated end-to-end test that drives the real entry point, such as the UI against the running API, with representative synthetic input. A scenario whose behavior does not exist yet stays in the suite as an expected failure that names its owning ticket, so the gap stays visible. A scenario test that passed and then fails is a regression, never an expected failure.
+Give every scenario an automated end-to-end test that drives the real entry point, such as the UI against the running API, with representative synthetic input. A scenario whose behavior does not exist yet stays in the suite as an expected failure that names its owning ticket, so the gap stays visible. Declare each expected failure in the test itself, next to the step that cannot pass yet. CI then needs no memory of earlier runs. Any failure that is not declared is a regression and fails the job. A declared expected failure that starts passing also fails the job, until the PR removes the declaration and updates the traceability table. A scenario test that passed and then fails is a regression, never an expected failure.
+
+CI usually has no access to paid model APIs, staff credentials or other secrets. In CI, scenario tests replay recorded responses from those services for the same synthetic fixtures, and the results are labeled as replayed. Run the same scenarios live, with the real integrations and synthetic data, before each demo or release and whenever a ticket changes a prompt, model setting or integration. Record that live run on the PR or release. Refresh a recording only from a live run, never by hand.
 
 Keep a traceability table in the Scenarios section with one row for each requirement: the spec section, the scenario IDs that cover it, the test, and the design frame. A requirement is done only when a covering scenario test passes on the default branch. Flag requirements with no covering scenario during planning. A human approves new and changed scenarios, as with `agent-ready`.
+
+Design frames are the reference for screens when the repository has design exports. Without them, the scenario's described end state is the reference. A human approves the first screenshot of each screen, and that approved screenshot becomes the baseline.
+
+When setting up a repository that already has tickets, add the scenario IDs to each open ticket they affect. Mark which steps of the main success scenario work today, then file tickets for the steps that don't, scoped as the thin end-to-end path described under Ticket planning.
 
 ## Ticket planning
 
@@ -191,7 +197,7 @@ When a decision or merged change affects another ticket, leave one handoff comme
 
 Use ordinary GitHub issue comments for questions and replies. Each active worker reads its ticket on the three-minute poll and answers in the same thread. If the recipient has stopped, resume its session or hand off the ticket. Polling uses the worker's existing GitHub access and requires no additional API key.
 
-Verify setup against an isolated test remote: two workers racing for one ticket produce exactly one winner; workers can claim different tickets concurrently; a losing worker cannot release the winner’s claim. Verify the Markdown links, templates, labels, and exact trigger. Verify that the Scenarios section has at least the main success scenario and a traceability row for each spec requirement. Check that the scenario CI job runs on a PR and on the default branch, and that it tells passed, expected-failure and regressed scenarios apart.
+Verify setup against an isolated test remote: two workers racing for one ticket produce exactly one winner; workers can claim different tickets concurrently; a losing worker cannot release the winner’s claim. Verify the Markdown links, templates, labels, and exact trigger. Verify that the Scenarios section has at least the main success scenario and a traceability row for each spec requirement. If setup built the harness, check that the scenario CI job runs on a PR and on the default branch without secrets. Check that it fails on an undeclared failure and on a declared expected failure that passes. If setup filed the harness tickets instead, verify that they exist with `priority:high` and link the main success scenario.
 
 Push the setup to the default branch if permitted, otherwise open a setup PR. Report what changed and what you verified, then stop. Leave ticket implementation for a later “Work on the project” request.
 ```
