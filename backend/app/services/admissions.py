@@ -1,4 +1,5 @@
 """Revisioned, encounter-scoped mock review records shared by demo staff sessions."""
+from base64 import b64encode
 from collections import defaultdict
 from copy import deepcopy
 from datetime import UTC, datetime
@@ -59,6 +60,69 @@ def shares_origin(entry, other):
     if entry["photo"] and other["photo"]:
         return entry["photo"]["data"] == other["photo"]["data"]
     return False
+
+
+def same_crop(entry, other):
+    return shares_origin(entry, other) and entry["photo"]["region"] == other["photo"]["region"]
+
+
+def retire_sources(row, source_ids):
+    if not source_ids:
+        return
+    row["superseded"].extend(source_ids)
+    row["verified"] = None
+    row.pop("imported_at", None)
+    if row["confirmed"] and row["confirmed"]["source_id"] in source_ids:
+        row["confirmed"] = None
+    if row["proposal"] and row["proposal"]["reference"] in source_ids:
+        row["proposal"] = None
+
+
+def validate_item_retake(rows, row, old, replacement):
+    old_photo, new_photo = old["photo"], replacement["photo"]
+    require(old_photo and new_photo and old["source"]["kind"] == replacement["source"]["kind"]
+            and old_photo["bag"] == new_photo["bag"], "Retake the same item and photo view.")
+    if shares_origin(old, replacement):
+        x, y, width, height = old_photo["region"]
+        new_x, new_y, new_width, new_height = new_photo["region"]
+        require(max(x, new_x) < min(x + width, new_x + new_width)
+                and max(y, new_y) < min(y + height, new_y + new_height),
+                "A crop of the same photo must overlap the item being retaken.")
+    for other in rows.values():
+        if other is row or (row.get("package_id") and row["package_id"] == other.get("package_id")):
+            continue
+        require(not any(e["photo"] and same_crop(replacement, e) for e in active(other)),
+                "An exact crop can only be shared by items in the same confirmed package.")
+
+
+def retired_view_sources(case, originals, previous, manifest, replaced):
+    removed_matches = []
+    if replaced.side == "front":
+        # An existing reverse match depended on a package located on the old front.
+        removed_matches = [m for m in previous.reverse_matches if m.status == "confirmed"]
+        regions = {m.region.region_id for m in removed_matches}
+        require(not any(m.status == "confirmed" and m.region.region_id in regions for m in manifest.reverse_matches),
+                "Confirm previous reverse matches again after replacing the front view.")
+
+    retired = {s.id for s in previous.sources if s.attachment_id == replaced.attachment_id}
+    retired.update(e.source_id for package in previous.packages for item in package.items for e in item.evidence
+                   if any(e.region == match.region for match in removed_matches))
+    matched_packages = {m.package_id for m in removed_matches}
+    original_data = b64encode(originals[replaced.attachment_id].content).decode()
+    old_kind = "label_photo" if replaced.side == "front" else "reverse_photo"
+    for row in case["rows"].values():
+        for entry in active(row):
+            source = entry["source"]
+            if not entry["photo"]:
+                continue
+            on_replaced_view = source["attachment_id"] == replaced.attachment_id or (
+                not source["attachment_id"] and source["kind"] == old_kind and entry["photo"]["data"] == original_data
+            )
+            paired_to_replaced_front = (row.get("package_id") in matched_packages
+                                        and source["attachment_id"] == previous.reverse.attachment_id)
+            if on_replaced_view or paired_to_replaced_front:
+                retired.add(source["id"])
+    return retired
 
 
 DOCUMENTED_FIELDS = ("strength", "form", "dose", "directions", "indication")
@@ -213,10 +277,23 @@ class AdmissionStore:
 
             originals = self.originals.get(case_id, {}).copy()
             previous = PackageCapture.model_validate(original["capture"]) if "capture" in original else None
+            replaced = command.replaces_view
+            retired_sources = set(original.get("retired_capture_sources", ()))
+            if replaced:
+                old = getattr(previous, replaced.side) if previous else None
+                require(old and (old.attachment_id, old.revision) == (replaced.attachment_id, replaced.revision),
+                        "The view selected for replacement is stale.", 409)
+                retired_sources.update(retired_view_sources(original, originals, previous, manifest, replaced))
+            require(not retired_sources.intersection(s.id for s in manifest.sources),
+                    "Use new source IDs for evidence on a retaken or invalidated view.")
+
             for side in ("front", "reverse"):
                 view = getattr(manifest, side)
                 old = getattr(previous, side) if previous else None
-                if old:
+                if replaced and side == replaced.side:
+                    require(view and view.revision > old.revision and view.attachment_id not in originals
+                            and side in images, "Supply a new original and a newer revision for the retaken view.")
+                elif old:
                     require(view and old.attachment_id == view.attachment_id,
                             "Use the retake workflow to replace an existing original.", 409)
                     old_regions = {r.id: r for r in old.regions}
@@ -241,6 +318,11 @@ class AdmissionStore:
                 view.exif_orientation = orientation
 
             case = deepcopy(original)
+            if replaced:
+                for row in case["rows"].values():
+                    retire_sources(row, [e["source"]["id"] for e in active(row)
+                                         if e["source"]["id"] in retired_sources])
+                case["retired_capture_sources"] = sorted(retired_sources)
             links = case.setdefault("capture_rows", {})
             items = {item.row_id: (package.id, item) for package in manifest.packages for item in package.items}
             require(command.existing_rows.keys() <= items.keys(), "Link an item from the current capture.")
@@ -261,15 +343,20 @@ class AdmissionStore:
                         case["rows"][target] = new_row(target, unknown=True)
                     links[item_id] = target
                 row = case["rows"][links[item_id]]
-                require(row.get("package_id", package_id) == package_id, "An item cannot move between packages.")
+                moved_after_front_retake = replaced and replaced.side == "front" and target == row["id"]
+                require(row.get("package_id", package_id) == package_id or moved_after_front_retake,
+                        "An item cannot move between packages without confirming a replacement front view.")
                 row["package_id"] = package_id
                 row["capture_item_id"] = item_id
 
             case["capture"] = manifest.model_dump(mode="json")
             case["revision"] += 1
-            case["events"].append(dict(action="capture", actor=actor.model_dump(), at=now(),
-                                       revision=case["revision"], rows=list(links.values()),
-                                       sources=[s.id for s in manifest.sources]))
+            event = dict(action="capture", actor=actor.model_dump(), at=now(),
+                         revision=case["revision"], rows=list(links.values()), sources=[s.id for s in manifest.sources])
+            if replaced:
+                event["replaces_view"] = replaced.model_dump()
+                event["superseded_sources"] = sorted(retired_sources.difference(original.get("retired_capture_sources", ())))
+            case["events"].append(event)
             self.records[case_id] = case
             self.originals[case_id] = originals
             self.retries[key] = digest
@@ -311,6 +398,13 @@ class AdmissionStore:
                         parts.append(entry[field])
                 entry["product"] = " ".join(parts)
             sid = entry["source"]["id"]
+            require(sid not in case.get("retired_capture_sources", ()), "Use a new logical source ID.")
+            attachment = entry["source"]["attachment_id"]
+            current_capture = case.get("capture", {})
+            if entry["photo"] and attachment in self.originals.get(case["id"], {}):
+                require(any(view and view["attachment_id"] == attachment
+                            for view in (current_capture.get("front"), current_capture.get("reverse"))),
+                        "Select a current capture original.")
             require(not any(sid == e["source"]["id"] for r in rows.values() for e in r["entries"]),
                     "Use a new logical source ID.")
             if isinstance(cmd, AddRow):
@@ -321,11 +415,8 @@ class AdmissionStore:
                 row = self.row(rows, cmd.row_id)
                 if cmd.replaces:
                     old = entry_for(row, cmd.replaces)
-                    require(old["photo"] and entry["photo"] and old["photo"]["bag"] == entry["photo"]["bag"],
-                            "Retake the same bag or item.")
-                    row["superseded"].append(cmd.replaces)
-                    if row["confirmed"] and row["confirmed"]["source_id"] == cmd.replaces:
-                        row["confirmed"] = None
+                    validate_item_retake(rows, row, old, entry)
+                    retire_sources(row, [cmd.replaces])
             if isinstance(cmd, AddEvidence) and row["unknown"] and entry["name"]:
                 if row["confirmed"] and row["confirmed"]["name"].casefold() != entry["product"].casefold():
                     row["confirmed"] = None
@@ -413,6 +504,8 @@ class AdmissionStore:
             answer = row["interview"]
             require(answer and cmd.source_id == answer["source_id"], "Review the sourced interview first.")
             entry_for(row, cmd.source_id)
+            if answer.get("ownership_source_id"):
+                entry_for(row, answer["ownership_source_id"])
             require(answer["ownership"] != "uncertain" and answer["current_use"] != "uncertain",
                     "Clarify ownership and current use.")
             require((answer["ownership"] == "other") == (answer["current_use"] == "not_owned"),
