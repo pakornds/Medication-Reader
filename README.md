@@ -53,9 +53,12 @@ Open [the app on port 5173](http://127.0.0.1:5173). Manual entry, the bundled ca
 
 ## How it works
 
-- **React and TypeScript** handle intake, row editing, and the handoff. Original photos, pasted notes, and unfinished rows live in the tab. The app’s History keeps completed medication summaries and timestamps in browser storage. Original images, notes, and facility contacts stay out of History.
-- **FastAPI and the OpenAI Responses API** locate labels, transcribe evidence, and propose structured fields. The backend validates fields against the cited evidence and checks product candidates against TMT. The provider receives submitted evidence for photo or text analysis.
-- **SQLite** supplies the offline TMT and FEST lookup. For eligible oral products that lack an exact formulation match, the checker can follow published links to the therapeutic ingredient and FDA UNII synonyms. Findings show the source, any conditions, and the coverage gaps.
+- **Read the labels.** FastAPI uses the OpenAI Responses API to find packages in a photo, then reads up to three crops in parallel. Each draft row links back to its crop. If one crop fails, the other rows can still be reviewed. [Photo processing](backend/app/services/scene_analysis.py)
+- **Extract the directions.** The model returns fixed fields with supporting quotes. For example, `วันละ 3 ครั้ง` supports three doses per day. `เช้า เที่ยง เย็น` fills the morning, noon, and evening slots. Python checks each proposed value against the quoted text and preserves the original wording for review. [Label validation](backend/app/services/label_directions.py)
+- **Match the product.** The backend queries the local TMT catalogue by name and narrows the results using any strength and form on the label. The model can choose from that shortlist. When the match is unclear, the pharmacist can select a product or keep the entry unmatched. [Catalogue matching](backend/app/services/catalogue_identity.py)
+- **Check the list.** SQLite looks up interactions in the pinned FEST dataset and checks for shared TMT substance IDs separately. If an exact formulation is missing, the interaction checker can use an ingredient match for supported oral forms with compatible route evidence. The report shows the source rules and marks pairs it could not assess. [Screening details](docs/data/local-screening.md)
+
+The React and TypeScript client uses the same editable rows for manual entry and model suggestions. Submitted photos and text go to OpenAI for analysis. The draft stays in tab memory, and browser History stores completed medication summaries and timestamps. Original photos, pasted notes, and facility contacts stay out of History.
 
 This hackathon prototype supports pharmacist review. It covers a historical TMT release and a pinned FEST release. Patient-specific applicability and uncovered pairs still require review. The default workspace prepares a handoff for manual entry. A [separate staff fixture](docs/specs/reconciliation-contract.md#admission-encounters) demonstrates mock hospital import.
 
