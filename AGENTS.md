@@ -12,6 +12,8 @@ import. See the [repository README](README.md) and the [synthetic walkthrough](d
 
 Read the [v1 design](docs/specs/medication-reader-v1.md) and
 [AI behavior contract](docs/ai/reconciliation-behavior.md) before implementing a ticket.
+The [scenarios](docs/specs/medication-reader-v1.md#scenarios) define done for the product: a
+requirement is met only when a scenario test that covers it passes on `main`.
 
 ## Commands
 Backend commands require Python 3.12. Run them from the repository root in a
@@ -92,6 +94,8 @@ Append one comment per state change; never rewrite earlier comments.
 ```
 
 ## Rules
+- Name the scenarios a ticket affects. Keep them passing, or keep their recorded expected failure. A scenario that passed and then fails is a regression, and fixing it comes before other tickets.
+- For UI work, follow the screen's design frame in `frontend/docs/ref` and attach a screenshot beside it on the PR. Update the screen's layout instead of adding another panel below it.
 - Stay inside the issue's Requirements. Never modify anything listed under *Out of scope*.
 - One issue = one branch = one PR.
 - Add or update tests for every behavior change; all tests must pass before `status:in-review`.

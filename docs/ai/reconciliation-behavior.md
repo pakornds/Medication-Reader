@@ -37,6 +37,8 @@ Version prompts for extraction, pill description, and form analysis. Verify expe
 
 ## Acceptance cases
 
+These cases are single checks. The end-to-end journeys that combine them, and the table showing which ones have a passing test, are in the [v1 design scenarios](../specs/medication-reader-v1.md#scenarios).
+
 | Scenario | Expected result |
 | --- | --- |
 | Manual selection and scan in the same case | Selecting a catalogue product immediately creates an editable row. A scan prefills that row layout with sourced suggestions. Inline edits and verification keep both rows in the draft until the pharmacist approves the eligible selection for import. |
